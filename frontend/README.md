@@ -1,233 +1,58 @@
-Welcome to your new TanStack Start app! 
+# Frontend
 
-# Getting Started
+TanStack Start app for the Mentee bot.
 
-To run this application:
+## Stack
+
+- React 19 + React Compiler
+- TanStack Start / Router / Query / Store
+- Vite
+- Tailwind CSS 4
+- Biome (lint + format)
+- Paraglide (i18n)
+- PostHog (analytics)
+
+## Setup
 
 ```bash
 npm install
-npm run dev
+cp .env.local.example .env.local  # if present — otherwise create .env.local
 ```
 
-# Building For Production
-
-To build this application for production:
+## Commands
 
 ```bash
-npm run build
+npm run dev       # vite dev server on port 3000
+npm run build     # production build
+npm run preview   # preview production build
+npm run test      # vitest (single run)
+npm run lint      # biome lint
+npm run format    # biome format
+npm run check     # biome lint + format
 ```
 
-## Testing
+## Project Layout
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
+- `src/routes/` — file-based routes (TanStack Router)
+- `src/components/` — shared components
+- `src/integrations/` — third-party integrations (PostHog, TanStack Query)
+- `src/lib/` — utilities
+- `messages/` — i18n message sources (Paraglide)
+- `project.inlang/` — Paraglide i18n config
+
+Path aliases `#/*` and `@/*` both resolve to `src/*`.
+
+## Environment
+
+Required `.env.local` variables:
+
+- `VITE_POSTHOG_KEY` — PostHog project API key
+- `VITE_POSTHOG_HOST` — optional, set for EU Cloud or self-hosted PostHog
+
+## Adding UI Components
+
+This project uses [shadcn/ui](https://ui.shadcn.com/):
 
 ```bash
-npm run test
+pnpm dlx shadcn@latest add <component>
 ```
-
-## Styling
-
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Uninstall the packages: `npm install @tailwindcss/vite tailwindcss -D`
-
-## Linting & Formatting
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
-
-
-```bash
-npm run lint
-npm run format
-npm run check
-```
-
-
-## Shadcn
-
-Add components using the latest version of [Shadcn](https://ui.shadcn.com/).
-
-```bash
-pnpm dlx shadcn@latest add button
-```
-
-
-## Setting up PostHog
-
-1. Create a PostHog account at [posthog.com](https://posthog.com)
-2. Get your Project API Key from [Project Settings](https://app.posthog.com/project/settings)
-3. Set `VITE_POSTHOG_KEY` in your `.env.local`
-
-### Optional Configuration
-
-- `VITE_POSTHOG_HOST` - Set this if you're using PostHog Cloud EU (`https://eu.i.posthog.com`) or self-hosting
-
-
-# Paraglide i18n
-
-This add-on wires up ParaglideJS for localized routing and message formatting.
-
-- Messages live in `project.inlang/messages`.
-- URLs are localized through the Paraglide Vite plugin and router `rewrite` hooks.
-- Run the dev server or build to regenerate the `src/paraglide` outputs.
-
-
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
