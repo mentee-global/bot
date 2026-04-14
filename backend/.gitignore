@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtualenv
+.venv/
+venv/
+
+# Env
+.env
+.env.local
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Agent local configs (keep agents, ignore local overrides)
+.claude/settings.local.json
+.claude/.credentials*

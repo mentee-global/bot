@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.*.local
+
+# Agent local configs (keep agents, ignore local overrides)
+.claude/settings.local.json
+.claude/.credentials*
