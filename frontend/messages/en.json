@@ -1,9 +1,44 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-  "home_page": "Home page",
-  "about_page": "About page",
-  "example_message": "Welcome to your i18n app.",
+  "nav_home": "Home",
+  "nav_about": "About",
+  "nav_main_aria": "Main navigation",
   "language_label": "Language",
-  "current_locale": "Current locale: {locale}",
-  "learn_router": "Learn Paraglide JS"
+  "theme_toggle_to_dark": "Switch to dark mode",
+  "theme_toggle_to_light": "Switch to light mode",
+
+  "meta_title": "Mentee Bot",
+  "meta_description": "Your AI mentor for scholarships, learning paths, and career guidance.",
+
+  "footer_rights": "© {year} MENTEE. All rights reserved.",
+
+  "landing_kicker": "Mentee Bot",
+  "landing_title": "Your mentor for scholarships and learning paths.",
+  "landing_subtitle": "Sign in with your menteeglobal.org account to chat with the bot about educational opportunities and your professional journey.",
+  "landing_cta_signin": "Sign in with MenteeGlobal",
+  "landing_cta_goto_chat": "Go to chat",
+  "landing_feature_scholarships_title": "Scholarship suggestions",
+  "landing_feature_scholarships_desc": "Surfaces programs and deadlines that fit your field and country.",
+  "landing_feature_paths_title": "Learning paths",
+  "landing_feature_paths_desc": "Prioritized skills, realistic timelines, phased goals.",
+  "landing_feature_career_title": "Career guidance",
+  "landing_feature_career_desc": "Honest feedback about target roles and what it takes.",
+
+  "about_kicker": "About",
+  "about_title": "Helping mentees chart their next step.",
+  "about_body_1": "Mentee Bot is the companion chatbot for menteeglobal.org. It surfaces scholarships, suggests realistic learning paths, and gives honest feedback about target roles — all in one conversation.",
+  "about_body_2": "This is an early preview running on mock responses. Real OpenAI + Perplexity integration is coming next.",
+
+  "chat_signed_in_as": "Signed in as {name}",
+  "chat_kicker": "Mentee Mentor",
+  "chat_sign_out": "Sign out",
+  "chat_loading_conversation": "Loading conversation…",
+  "chat_input_placeholder": "Message the mentor",
+  "chat_input_placeholder_waiting": "Waiting for the mentor…",
+  "chat_send_aria": "Send message",
+
+  "auth_signing_in": "Signing you in…",
+  "auth_missing_code": "Missing authorization code",
+  "auth_signin_failed": "Sign-in failed. Please try again.",
+  "auth_back_home": "Back to home"
 }

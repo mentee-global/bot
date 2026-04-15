@@ -6,27 +6,54 @@ FastAPI service for the Mentee bot.
 
 - Python 3.14
 - FastAPI 0.135 + Uvicorn 0.44
-- Pydantic 2.13
+- Pydantic 2.13 + `pydantic-settings`
+- Managed with [uv](https://docs.astral.sh/uv/)
 
 ## Setup
 
 ```bash
-python3.14 -m venv .venv
-source .venv/bin/activate
-# Dependency manifest is pending — install packages manually for now:
-pip install fastapi uvicorn pydantic pydantic-settings pydantic-extra-types httpx
+uv sync
+cp .env.example .env   # tweak if needed
 ```
 
 ## Running
 
 ```bash
-.venv/bin/uvicorn main:app --reload
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-The app will be available at http://localhost:8000.
+The app will be available at http://localhost:8000. Interactive docs at `/docs`.
+
+## Testing
+
+```bash
+uv run pytest
+uv run ruff check .
+```
 
 ## Layout
 
-- `main.py` — app entrypoint
+```
+app/
+├── main.py              # FastAPI app, CORS, router wiring
+├── core/config.py       # Settings (pydantic-settings)
+├── domain/              # Message, Thread, User, MessageRole
+├── agents/
+│   ├── base.py          # AgentPort abstract interface
+│   └── mock/agent.py    # MockAgent (deterministic replies, no LLM)
+├── services/
+│   ├── thread_store.py  # In-memory store (swap later for DB)
+│   └── message_service.py  # Orchestrates user msg → agent → assistant msg
+└── api/
+    ├── deps.py          # Session + service injection helpers
+    └── routes/
+        ├── chat.py      # POST /api/chat/messages, GET /api/chat/thread
+        ├── auth.py      # Stub OAuth: /login, /callback, /me, /logout
+        └── health.py    # GET /health
+```
 
-Structure (routers, models, settings, db) is still being defined.
+## Extension seams
+
+- Replace `MockAgent` with pydantic-ai / OpenAI / Perplexity — implement `AgentPort`, swap in `app/api/deps.py`.
+- Replace `ThreadStore` with Postgres / Mongo — keep the same method signatures.
+- Replace stub auth in `app/api/routes/auth.py` with real MenteeGlobal OAuth — frontend contract stays identical.

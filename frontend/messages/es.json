@@ -1,0 +1,44 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "nav_home": "Inicio",
+  "nav_about": "Acerca",
+  "nav_main_aria": "Navegación principal",
+  "language_label": "Idioma",
+  "theme_toggle_to_dark": "Cambiar a modo oscuro",
+  "theme_toggle_to_light": "Cambiar a modo claro",
+
+  "meta_title": "Mentee Bot",
+  "meta_description": "Tu mentor con IA para becas, rutas de aprendizaje y orientación profesional.",
+
+  "footer_rights": "© {year} MENTEE. Todos los derechos reservados.",
+
+  "landing_kicker": "Mentee Bot",
+  "landing_title": "Tu mentor para becas y rutas de aprendizaje.",
+  "landing_subtitle": "Inicia sesión con tu cuenta de menteeglobal.org para conversar con el bot sobre oportunidades educativas y tu trayectoria profesional.",
+  "landing_cta_signin": "Ingresar con MenteeGlobal",
+  "landing_cta_goto_chat": "Ir al chat",
+  "landing_feature_scholarships_title": "Sugerencias de becas",
+  "landing_feature_scholarships_desc": "Muestra programas y fechas límite que encajan con tu campo y país.",
+  "landing_feature_paths_title": "Rutas de aprendizaje",
+  "landing_feature_paths_desc": "Habilidades priorizadas, plazos realistas, metas por fases.",
+  "landing_feature_career_title": "Orientación profesional",
+  "landing_feature_career_desc": "Feedback honesto sobre los roles objetivo y lo que realmente requieren.",
+
+  "about_kicker": "Acerca",
+  "about_title": "Ayudando a mentees a trazar su próximo paso.",
+  "about_body_1": "Mentee Bot es el chatbot complementario de menteeglobal.org. Muestra becas, sugiere rutas de aprendizaje realistas y entrega feedback honesto sobre roles objetivo — todo en una misma conversación.",
+  "about_body_2": "Esta es una vista previa temprana que funciona con respuestas simuladas. La integración real con OpenAI + Perplexity viene a continuación.",
+
+  "chat_signed_in_as": "Sesión iniciada como {name}",
+  "chat_kicker": "Mentor Mentee",
+  "chat_sign_out": "Cerrar sesión",
+  "chat_loading_conversation": "Cargando conversación…",
+  "chat_input_placeholder": "Escribe al mentor",
+  "chat_input_placeholder_waiting": "Esperando al mentor…",
+  "chat_send_aria": "Enviar mensaje",
+
+  "auth_signing_in": "Iniciando sesión…",
+  "auth_missing_code": "Falta el código de autorización",
+  "auth_signin_failed": "No se pudo iniciar sesión. Inténtalo de nuevo.",
+  "auth_back_home": "Volver al inicio"
+}
