@@ -15,6 +15,10 @@ export function MessageList({ messages, isReplying }: MessageListProps) {
 		bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
 	}, [messages]);
 
+	const lastMessage = messages[messages.length - 1];
+	const isLastStreaming =
+		lastMessage?.role === "assistant" && lastMessage?.streaming === true;
+
 	if (messages.length === 0 && !isReplying) {
 		return (
 			<div className="flex h-full flex-col items-center justify-center text-center text-sm text-[var(--theme-muted)]">
@@ -22,8 +26,7 @@ export function MessageList({ messages, isReplying }: MessageListProps) {
 					Say hi to your mentor
 				</p>
 				<p className="max-w-sm">
-					Ask about scholarships, target roles, or what to learn next — this is
-					a mock response for now.
+					Ask about scholarships, target roles, or what to learn next.
 				</p>
 			</div>
 		);
@@ -34,7 +37,7 @@ export function MessageList({ messages, isReplying }: MessageListProps) {
 			{messages.map((m) => (
 				<ChatMessage key={m.id} message={m} />
 			))}
-			{isReplying ? (
+			{isReplying && !isLastStreaming ? (
 				<div className="text-xs italic text-[var(--theme-muted)]">
 					Mentor is typing…
 				</div>

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AnyHttpUrl, BeforeValidator, SecretStr
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -41,6 +41,26 @@ class Settings(BaseSettings):
 
     # OAuth transient state
     oauth_state_ttl_seconds: int = 600
+
+    # Thread persistence
+    store_impl: Literal["memory", "postgres"] = "memory"
+
+    # Agent
+    openai_api_key: SecretStr | None = None
+    perplexity_api_key: SecretStr | None = None
+    perplexity_model: str = "sonar-pro"
+    agent_impl: Literal["mock", "mentee"] = "mock"
+    agent_model: str = "gpt-5.4-mini"
+    agent_request_timeout_s: float = 30.0
+    agent_request_limit: int = 10
+    agent_total_tokens_limit: int = 32_000
+    agent_enable_web_search: bool = True
+
+    # Observability
+    logfire_token: SecretStr | None = None
+    logfire_service_name: str = "mentee-bot"
+    logfire_send_to_cloud: bool = False
+    logfire_capture_message_body: bool = False
 
     @property
     def is_prod(self) -> bool:

@@ -11,6 +11,7 @@ from sqlmodel import SQLModel
 # Import every SQLModel table so its metadata is populated before autogenerate.
 from app.auth import db_models  # noqa: F401
 from app.core.config import settings
+from app.services import db_models as chat_db_models  # noqa: F401
 
 config = context.config
 

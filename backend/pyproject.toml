@@ -16,6 +16,10 @@ dependencies = [
   "alembic>=1.14",
   "psycopg2-binary>=2.9",
   "greenlet>=3.4.0",
+  "logfire[fastapi,httpx]>=4.32.1",
+  "pydantic-ai>=0.3",
+  "openai>=1.50",
+  "perplexityai>=0.32.0",
 ]
 
 [dependency-groups]
@@ -34,6 +38,10 @@ extend-exclude = ["app/db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+# System prompts are prose; long prose lines are more readable than wrapped.
+"app/agents/mentee/prompts.py" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

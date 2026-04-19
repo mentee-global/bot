@@ -11,6 +11,8 @@ import type {
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
 
+export { useStreamMessage } from "#/features/chat/hooks/useStreamMessage";
+
 export const threadQueryOptions = queryOptions({
 	queryKey: chatKeys.thread(),
 	queryFn: ({ signal }) => chatService.getThread(signal),

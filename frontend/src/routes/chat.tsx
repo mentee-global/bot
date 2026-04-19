@@ -10,9 +10,12 @@ import { ChatInput } from "#/features/chat/components/ChatInput";
 import { MessageList } from "#/features/chat/components/MessageList";
 import {
 	useSendMessageMutation,
+	useStreamMessage,
 	useThreadQuery,
 } from "#/features/chat/hooks/useChat";
 import { m } from "#/paraglide/messages";
+
+const STREAMING_ENABLED = import.meta.env.VITE_AGENT_STREAM !== "false";
 
 export const Route = createFileRoute("/chat")({
 	component: ChatPage,
@@ -66,9 +69,11 @@ function PageShell({ children }: { children: React.ReactNode }) {
 
 function ChatView({ userName }: { userName: string }) {
 	const thread = useThreadQuery();
+	const streamMessage = useStreamMessage();
 	const sendMessage = useSendMessageMutation();
 	const logout = useLogoutMutation();
 
+	const send = STREAMING_ENABLED ? streamMessage : sendMessage;
 	const messages = thread.data?.messages ?? [];
 
 	return (
@@ -94,12 +99,12 @@ function ChatView({ userName }: { userName: string }) {
 						{m.chat_loading_conversation()}
 					</p>
 				) : (
-					<MessageList messages={messages} isReplying={sendMessage.isPending} />
+					<MessageList messages={messages} isReplying={send.isPending} />
 				)}
 			</div>
 			<ChatInput
-				onSend={(body) => sendMessage.mutate(body)}
-				isSending={sendMessage.isPending}
+				onSend={(body) => send.mutate(body)}
+				isSending={send.isPending}
 			/>
 		</>
 	);
