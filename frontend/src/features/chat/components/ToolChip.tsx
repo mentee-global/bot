@@ -50,7 +50,7 @@ export function ToolChip({ activity }: ToolChipProps) {
 }
 
 interface ToolChipRowProps {
-	activities: ToolActivity[];
+	activities: readonly ToolActivity[];
 }
 
 export function ToolChipRow({ activities }: ToolChipRowProps) {
