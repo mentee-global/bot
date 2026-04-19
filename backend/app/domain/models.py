@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
 from app.domain.enums import MessageRole
 
@@ -32,5 +32,10 @@ class Thread(BaseModel):
 
 class User(BaseModel):
     id: str
-    email: str
+    email: EmailStr
     name: str
+    role: str
+    role_id: int
+    picture: HttpUrl | None = None
+    preferred_language: str | None = None
+    timezone: str | None = None

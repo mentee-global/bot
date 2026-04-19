@@ -1,6 +1,7 @@
-import posthog from 'posthog-js'
 import { PostHogProvider as BasePostHogProvider } from '@posthog/react'
+import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
+import { useIdentifySession } from '#/integrations/posthog/useIdentifySession'
 
 if (typeof window !== 'undefined' && import.meta.env.VITE_POSTHOG_KEY) {
   posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
@@ -15,6 +16,16 @@ interface PostHogProviderProps {
   children: ReactNode
 }
 
+function SessionIdentifier() {
+  useIdentifySession()
+  return null
+}
+
 export default function PostHogProvider({ children }: PostHogProviderProps) {
-  return <BasePostHogProvider client={posthog}>{children}</BasePostHogProvider>
+  return (
+    <BasePostHogProvider client={posthog}>
+      <SessionIdentifier />
+      {children}
+    </BasePostHogProvider>
+  )
 }

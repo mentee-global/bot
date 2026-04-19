@@ -1,15 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { User } from "#/features/auth/data/auth.types";
+import type { MeResponse, User } from "#/features/auth/data/auth.types";
 import { API_URL, api } from "#/lib/api/client";
 import { ApiError } from "#/lib/api/errors";
-
-interface MeResponse {
-	user: User;
-}
-
-interface CallbackResponse {
-	user: User;
-}
 
 async function fetchSession(signal?: AbortSignal): Promise<User | null> {
 	try {
@@ -28,14 +20,17 @@ export const sessionQueryOptions = queryOptions({
 });
 
 export const authService = {
-	/** Full redirect to the backend login endpoint, which then 302s to /auth/callback. */
-	startLogin: () => {
-		window.location.href = `${API_URL}/api/auth/login`;
+	/**
+	 * Full redirect to the backend /api/auth/login endpoint. The backend runs
+	 * the PKCE flow, redirects the browser through Mentee, and lands the user
+	 * on /chat with a session cookie already set — the frontend never touches
+	 * /api/auth/callback.
+	 */
+	startLogin: (opts?: { redirectTo?: string }) => {
+		const qs = opts?.redirectTo
+			? `?redirect_to=${encodeURIComponent(opts.redirectTo)}`
+			: "";
+		window.location.href = `${API_URL}/api/auth/login${qs}`;
 	},
-	/** Exchange the OAuth code for a session cookie. Called from /auth/callback. */
-	exchangeCode: (code: string) =>
-		api.get<CallbackResponse>(
-			`/api/auth/callback?code=${encodeURIComponent(code)}`,
-		),
 	logout: () => api.post<{ ok: boolean }>("/api/auth/logout"),
 };

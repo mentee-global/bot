@@ -15,7 +15,7 @@
   "landing_kicker": "Mentee Bot",
   "landing_title": "Tu mentor para becas y rutas de aprendizaje.",
   "landing_subtitle": "Inicia sesión con tu cuenta de menteeglobal.org para conversar con el bot sobre oportunidades educativas y tu trayectoria profesional.",
-  "landing_cta_signin": "Ingresar con MenteeGlobal",
+  "landing_cta_signin": "Ingresar con Mentee",
   "landing_cta_goto_chat": "Ir al chat",
   "landing_feature_scholarships_title": "Sugerencias de becas",
   "landing_feature_scholarships_desc": "Muestra programas y fechas límite que encajan con tu campo y país.",
@@ -37,8 +37,15 @@
   "chat_input_placeholder_waiting": "Esperando al mentor…",
   "chat_send_aria": "Enviar mensaje",
 
-  "auth_signing_in": "Iniciando sesión…",
-  "auth_missing_code": "Falta el código de autorización",
-  "auth_signin_failed": "No se pudo iniciar sesión. Inténtalo de nuevo.",
-  "auth_back_home": "Volver al inicio"
+  "auth_error_title": "No se completó el inicio de sesión",
+  "auth_error_denied": "Decidiste no compartir tu cuenta de Mentee.",
+  "auth_error_login_required": "Necesitas iniciar sesión en Mentee primero.",
+  "auth_error_generic": "Algo falló al contactar con Mentee. Inténtalo de nuevo.",
+  "auth_error_unknown": "No pudimos iniciar tu sesión. Inténtalo de nuevo.",
+  "auth_back_home": "Volver al inicio",
+
+  "notfound_kicker": "404",
+  "notfound_title": "No encontramos esa página.",
+  "notfound_body": "La página que buscas no existe o puede haberse movido.",
+  "notfound_back_home": "Volver al inicio"
 }

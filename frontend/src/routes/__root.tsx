@@ -3,9 +3,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
 	createRootRouteWithContext,
 	HeadContent,
+	Link,
 	Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
+import { ArrowLeft } from "lucide-react";
 import Footer from "#/components/Footer";
 import Header from "#/components/Header";
 import PostHogProvider from "#/integrations/posthog/provider";
@@ -53,7 +55,25 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 		};
 	},
 	shellComponent: RootDocument,
+	notFoundComponent: NotFound,
 });
+
+function NotFound() {
+	return (
+		<main className="page-wrap flex flex-1 flex-col items-start justify-center px-4 pb-16 pt-20">
+			<p className="island-kicker mb-4">{m.notfound_kicker()}</p>
+			<h1 className="display-title mb-6 max-w-2xl text-5xl font-bold leading-[1.05] tracking-tight text-[var(--theme-primary)] sm:text-6xl">
+				{m.notfound_title()}
+			</h1>
+			<p className="mb-10 max-w-xl text-base leading-relaxed text-[var(--theme-secondary)] sm:text-lg">
+				{m.notfound_body()}
+			</p>
+			<Link to="/" className="btn-primary">
+				<ArrowLeft size={16} /> {m.notfound_back_home()}
+			</Link>
+		</main>
+	);
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
 	const locale = getLocale();
@@ -66,7 +86,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
 				<HeadContent />
 			</head>
-			<body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[var(--theme-accent-soft)]">
+			<body
+				className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[var(--theme-accent-soft)]"
+				suppressHydrationWarning
+			>
 				<PostHogProvider>
 					<div className="flex min-h-screen flex-col">
 						<Header />

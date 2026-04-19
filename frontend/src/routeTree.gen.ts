@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
+import { Route as AuthErrorRouteImport } from './routes/auth.error'
 
 const ChatRoute = ChatRouteImport.update({
   id: '/chat',
@@ -29,9 +29,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthCallbackRoute = AuthCallbackRouteImport.update({
-  id: '/auth/callback',
-  path: '/auth/callback',
+const AuthErrorRoute = AuthErrorRouteImport.update({
+  id: '/auth/error',
+  path: '/auth/error',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -39,34 +39,34 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
-  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/error': typeof AuthErrorRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
-  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/error': typeof AuthErrorRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/chat': typeof ChatRoute
-  '/auth/callback': typeof AuthCallbackRoute
+  '/auth/error': typeof AuthErrorRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/chat' | '/auth/callback'
+  fullPaths: '/' | '/about' | '/chat' | '/auth/error'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/chat' | '/auth/callback'
-  id: '__root__' | '/' | '/about' | '/chat' | '/auth/callback'
+  to: '/' | '/about' | '/chat' | '/auth/error'
+  id: '__root__' | '/' | '/about' | '/chat' | '/auth/error'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   ChatRoute: typeof ChatRoute
-  AuthCallbackRoute: typeof AuthCallbackRoute
+  AuthErrorRoute: typeof AuthErrorRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -92,11 +92,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/auth/callback': {
-      id: '/auth/callback'
-      path: '/auth/callback'
-      fullPath: '/auth/callback'
-      preLoaderRoute: typeof AuthCallbackRouteImport
+    '/auth/error': {
+      id: '/auth/error'
+      path: '/auth/error'
+      fullPath: '/auth/error'
+      preLoaderRoute: typeof AuthErrorRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -106,7 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   ChatRoute: ChatRoute,
-  AuthCallbackRoute: AuthCallbackRoute,
+  AuthErrorRoute: AuthErrorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

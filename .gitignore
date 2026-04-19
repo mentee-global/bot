@@ -11,6 +11,9 @@ Thumbs.db
 .env
 .env.*.local
 
+# Playwright MCP session artifacts (browser snapshots + console logs)
+.playwright-mcp/
+
 # Agent local configs (keep agents, ignore local overrides)
 .claude/settings.local.json
 .claude/.credentials*

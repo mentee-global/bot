@@ -15,7 +15,7 @@
   "landing_kicker": "Mentee Bot",
   "landing_title": "Your mentor for scholarships and learning paths.",
   "landing_subtitle": "Sign in with your menteeglobal.org account to chat with the bot about educational opportunities and your professional journey.",
-  "landing_cta_signin": "Sign in with MenteeGlobal",
+  "landing_cta_signin": "Login with Mentee",
   "landing_cta_goto_chat": "Go to chat",
   "landing_feature_scholarships_title": "Scholarship suggestions",
   "landing_feature_scholarships_desc": "Surfaces programs and deadlines that fit your field and country.",
@@ -37,8 +37,15 @@
   "chat_input_placeholder_waiting": "Waiting for the mentor…",
   "chat_send_aria": "Send message",
 
-  "auth_signing_in": "Signing you in…",
-  "auth_missing_code": "Missing authorization code",
-  "auth_signin_failed": "Sign-in failed. Please try again.",
-  "auth_back_home": "Back to home"
+  "auth_error_title": "Sign-in didn't complete",
+  "auth_error_denied": "You declined to share your Mentee account.",
+  "auth_error_login_required": "You need to be signed in to Mentee first.",
+  "auth_error_generic": "Something went wrong talking to Mentee. Please try again.",
+  "auth_error_unknown": "We couldn't sign you in. Please try again.",
+  "auth_back_home": "Back to home",
+
+  "notfound_kicker": "404",
+  "notfound_title": "We couldn't find that page.",
+  "notfound_body": "The page you're looking for doesn't exist or may have moved.",
+  "notfound_back_home": "Back to home"
 }

@@ -19,10 +19,10 @@ cp .env.example .env   # tweak if needed
 ## Running
 
 ```bash
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8001
 ```
 
-The app will be available at http://localhost:8000. Interactive docs at `/docs`.
+The app will be available at http://localhost:8001. Interactive docs at `/docs`.
 
 ## Testing
 

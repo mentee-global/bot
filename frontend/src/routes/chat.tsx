@@ -1,5 +1,7 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { sessionQueryOptions } from "#/features/auth/data/auth.service";
 import {
 	useLogoutMutation,
 	useSession,
@@ -18,7 +20,18 @@ export const Route = createFileRoute("/chat")({
 
 function ChatPage() {
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const session = useSession();
+
+	// After the OAuth redirect chain the cookie is freshly set but the query
+	// cache may hold a stale null from the initial page load — invalidate once
+	// on mount so the post-login /chat navigation doesn't flash the logged-out
+	// state.
+	useEffect(() => {
+		queryClient.invalidateQueries({
+			queryKey: sessionQueryOptions.queryKey,
+		});
+	}, [queryClient]);
 
 	useEffect(() => {
 		if (!session.isPending && !session.data) {
@@ -55,7 +68,6 @@ function ChatView({ userName }: { userName: string }) {
 	const thread = useThreadQuery();
 	const sendMessage = useSendMessageMutation();
 	const logout = useLogoutMutation();
-	const navigate = useNavigate();
 
 	const messages = thread.data?.messages ?? [];
 
@@ -70,11 +82,7 @@ function ChatView({ userName }: { userName: string }) {
 				</div>
 				<button
 					type="button"
-					onClick={() =>
-						logout.mutate(undefined, {
-							onSuccess: () => navigate({ to: "/" }),
-						})
-					}
+					onClick={() => logout.mutate()}
 					className="btn-secondary"
 				>
 					{m.chat_sign_out()}

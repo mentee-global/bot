@@ -22,7 +22,7 @@ cp .env.local.example .env.local  # if present — otherwise create .env.local
 ## Commands
 
 ```bash
-npm run dev       # vite dev server on port 3000
+npm run dev       # vite dev server on port 3001
 npm run build     # production build
 npm run preview   # preview production build
 npm run test      # vitest (single run)
@@ -46,6 +46,7 @@ Path aliases `#/*` and `@/*` both resolve to `src/*`.
 
 Required `.env.local` variables:
 
+- `VITE_API_URL` — backend base URL (defaults to `http://localhost:8001`)
 - `VITE_POSTHOG_KEY` — PostHog project API key
 - `VITE_POSTHOG_HOST` — optional, set for EU Cloud or self-hosted PostHog
 

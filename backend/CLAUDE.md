@@ -5,7 +5,7 @@ FastAPI service for the Mentee bot. Sister project: `../frontend` (TanStack Star
 ## Stack
 
 - Python 3.14 (`.venv/`, managed by [uv](https://docs.astral.sh/uv/))
-- FastAPI 0.135 + Uvicorn 0.44
+- FastAPI 0.136 (`[standard]` extra — pulls in `fastapi-cli` + `uvicorn[standard]`)
 - Pydantic 2.13 + `pydantic-settings`
 - httpx 0.28
 - pytest + pytest-asyncio + ruff (dev)
@@ -14,11 +14,27 @@ Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. Use `uv a
 
 ## Running
 
+Either activate the venv once and run tools directly, or prefix each command with `uv run`.
+
+**With venv activated** (`source .venv/bin/activate`):
+
 ```bash
-uv run uvicorn app.main:app --reload --port 8000
+fastapi dev app/main.py --port 8001       # FastAPI CLI (reload on)
+uvicorn app.main:app --reload --port 8001 # Uvicorn directly
+pytest
+ruff check .
+```
+
+**Without activating** (uv manages the venv per-command):
+
+```bash
+uv run fastapi dev app/main.py --port 8001
+uv run uvicorn app.main:app --reload --port 8001
 uv run pytest
 uv run ruff check .
 ```
+
+`fastapi dev` and `uvicorn --reload` are equivalent for local dev; `fastapi dev` wraps uvicorn with sensible defaults. Use `fastapi run` (no reload) for production-like mode.
 
 ## Architecture
 

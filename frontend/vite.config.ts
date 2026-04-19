@@ -9,6 +9,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  server: { port: 3001, strictPort: true },
   plugins: [
     devtools(),
     paraglideVitePlugin({
