@@ -6,6 +6,16 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
+# Vite inlines import.meta.env.VITE_* at build time, so these must be
+# available during `npm run build`. Dockerfile builds on Railway don't see
+# service env vars unless we accept them as ARGs.
+ARG VITE_API_URL
+ARG VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY
+ENV VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
+
 COPY package.json package-lock.json ./
 RUN npm install --no-audit --no-fund
 
