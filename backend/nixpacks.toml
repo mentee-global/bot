@@ -1,12 +1,12 @@
 # Nixpacks build spec for the Bot backend on Railway.
 #
-# Python 3.14 + uv. Railway's nixpacks detects pyproject.toml, but we pin the
-# interpreter version explicitly so builds don't silently fall back to 3.12.
-# If Railway's Nix channel doesn't have 3.14 yet, pin this to the latest
-# available (e.g. "python313") and loosen requires-python in pyproject.toml.
+# Pinned to python313 because Railway's current Nixpkgs revision
+# (bc8f8d1...) doesn't expose a `python314` attribute yet. The project is
+# compatible with 3.13 (no 3.14-only language features). Revisit once
+# Railway's nixpacks image upgrades.
 
 [phases.setup]
-nixPkgs = ["python314", "uv"]
+nixPkgs = ["python313", "uv"]
 
 [phases.install]
 cmds = ["uv sync --frozen"]

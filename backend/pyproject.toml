@@ -2,7 +2,7 @@
 name = "mentee-bot-backend"
 version = "0.1.0"
 description = "FastAPI service for the Mentee bot"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
   "fastapi[standard]>=0.135",
   "pydantic>=2.13",
@@ -29,7 +29,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py313"
 extend-exclude = ["app/db/migrations/versions"]
 
 [tool.ruff.lint]
