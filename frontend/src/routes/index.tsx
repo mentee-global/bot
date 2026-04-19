@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
+import { useState } from "react";
+import { LoginRedirectOverlay } from "#/features/auth/components/LoginRedirectOverlay";
 import { authService } from "#/features/auth/data/auth.service";
 import { useSession } from "#/features/auth/hooks/useSession";
 import { m } from "#/paraglide/messages";
@@ -9,6 +11,15 @@ export const Route = createFileRoute("/")({ component: Landing });
 function Landing() {
 	const session = useSession();
 	const isLoggedIn = !!session.data;
+	const [isRedirecting, setIsRedirecting] = useState(false);
+
+	const handleLogin = () => {
+		if (isRedirecting) return;
+		setIsRedirecting(true);
+		// Defer the full-page redirect one frame so the overlay paints before
+		// the browser starts tearing down this document.
+		requestAnimationFrame(() => authService.startLogin());
+	};
 
 	const features = [
 		{
@@ -43,10 +54,15 @@ function Landing() {
 					) : (
 						<button
 							type="button"
-							onClick={() => authService.startLogin()}
+							onClick={handleLogin}
+							disabled={isRedirecting}
+							aria-busy={isRedirecting}
 							className="btn-primary"
 						>
-							{m.landing_cta_signin()} <ArrowRight size={16} />
+							{isRedirecting
+								? m.landing_cta_signin_pending()
+								: m.landing_cta_signin()}{" "}
+							<ArrowRight size={16} />
 						</button>
 					)}
 				</div>
@@ -67,6 +83,7 @@ function Landing() {
 					</article>
 				))}
 			</section>
+			{isRedirecting && <LoginRedirectOverlay />}
 		</main>
 	);
 }
