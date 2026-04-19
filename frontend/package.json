@@ -2,13 +2,16 @@
   "name": "frontend",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "imports": {
     "#/*": "./src/*"
   },
   "scripts": {
     "dev": "vite dev --port 3001",
     "build": "vite build",
-    "start": "node server.mjs",
+    "start": "node .output/server/index.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "format": "biome format",
@@ -55,6 +58,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^28.1.0",
+    "nitro": "npm:nitro-nightly@^3.0.1-20260417-125953-8c3f16b2",
     "typescript": "^5.7.2",
     "vite": "^8.0.0",
     "vitest": "^3.0.5"

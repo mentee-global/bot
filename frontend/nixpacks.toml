@@ -1,0 +1,10 @@
+# Nixpacks build spec for the Bot frontend on Railway.
+#
+# Vite 8 + TanStack Start Nitro preset both require Node 20.19+ / 22.12+.
+# Pin to Node 22 so Railway doesn't fall back to its default (18).
+
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[start]
+cmd = "npm run start"
