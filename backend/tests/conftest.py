@@ -11,17 +11,33 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic_ai import models as pydantic_ai_models
 from sqlalchemy import text
 
 import app.api.deps as deps_module
 from app.agents.mock.agent import MockAgent
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _guard_real_model_calls() -> Iterator[None]:
+    """Hard guard: never let a test accidentally hit a real LLM provider.
+
+    pydantic-ai refuses any `Agent.run(...)` call unless the model is a Test/
+    Function model when this flag is False.
+    """
+    previous = pydantic_ai_models.ALLOW_MODEL_REQUESTS
+    pydantic_ai_models.ALLOW_MODEL_REQUESTS = False
+    try:
+        yield
+    finally:
+        pydantic_ai_models.ALLOW_MODEL_REQUESTS = previous
 from app.auth.crypto import encrypt
 from app.auth.db_models import SessionRecord
 from app.core.config import settings
 from app.db.engine import async_session_factory, engine
 from app.main import app
 from app.services.message_service import MessageService
-from app.services.thread_store import ThreadStore
+from app.services.thread_store import InMemoryThreadStore
 from tests.auth.conftest import (  # noqa: F401 — re-exported fixtures
     fake_settings,
     mock_mentee,
@@ -80,7 +96,7 @@ def client(
     The FastAPI lifespan triggers `init_auth()` which calls the real Mentee
     discovery URL — respx intercepts it via the `mock_mentee` fixture.
     """
-    fresh_store = ThreadStore()
+    fresh_store = InMemoryThreadStore()
     fresh_agent = MockAgent()
     fresh_service = MessageService(store=fresh_store, agent=fresh_agent)
     monkeypatch.setattr(deps_module, "_service", fresh_service)

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+import logfire
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,6 +17,31 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _configure_logfire() -> None:
+    """Wire Logfire tracing + third-party instrumentations.
+
+    Safe to call when no LOGFIRE_TOKEN is set: logfire.configure(send_to_logfire=False)
+    gives us a local-only noop sink so spans are still created (and emitted to
+    stdout in verbose mode) but nothing leaves the process.
+    """
+    logfire.configure(
+        service_name=settings.logfire_service_name,
+        environment=settings.environment,
+        send_to_logfire=(
+            settings.logfire_send_to_cloud and settings.logfire_token is not None
+        ),
+        token=(
+            settings.logfire_token.get_secret_value()
+            if settings.logfire_token is not None
+            else None
+        ),
+    )
+    logfire.instrument_pydantic_ai()
+    logfire.instrument_openai()
+    logfire.instrument_httpx()
+
 
 _cleanup_task: asyncio.Task[None] | None = None
 
@@ -49,7 +75,13 @@ async def lifespan(app: FastAPI):
         await shutdown_auth()
 
 
+# Configure Logfire once at import time. Instrumentors (fastapi, openai, httpx)
+# patch global state and bark if called twice, so keep this outside lifespan —
+# the TestClient re-enters the lifespan per test.
+_configure_logfire()
+
 app = FastAPI(title="Mentee Bot API", version="0.1.0", lifespan=lifespan)
+logfire.instrument_fastapi(app, capture_headers=False)
 
 app.add_middleware(
     CORSMiddleware,
