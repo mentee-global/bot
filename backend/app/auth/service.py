@@ -90,12 +90,11 @@ class AuthService:
         return _claims_to_user(merged), session_id
 
     async def current_user(self, session_id: str) -> User:
-        row = await self._sessions.get(session_id)
+        row = await self._sessions.get_and_touch(session_id)
         if row is None:
             raise AuthError("Unknown session")
         if row.access_token_expires_at <= _now() + timedelta(seconds=60):
             row = await self._refresh(row)
-        await self._sessions.touch(session_id)
         return _row_to_user(row)
 
     async def logout(self, session_id: str) -> None:

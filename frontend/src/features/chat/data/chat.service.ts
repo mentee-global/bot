@@ -1,12 +1,35 @@
 import type {
 	SendMessageResponse,
 	Thread,
+	ThreadListResponse,
 } from "#/features/chat/data/chat.types";
 import { api } from "#/lib/api/client";
 
 export const chatService = {
+	listThreads: (query?: string, signal?: AbortSignal) => {
+		const qs = query ? `?q=${encodeURIComponent(query)}` : "";
+		return api.get<ThreadListResponse>(`/api/chat/threads${qs}`, signal);
+	},
+	createThread: (title?: string) =>
+		api.post<Thread>("/api/chat/threads", title ? { title } : {}),
+	getThreadById: (threadId: string, signal?: AbortSignal) =>
+		api.get<Thread>(
+			`/api/chat/threads/${encodeURIComponent(threadId)}`,
+			signal,
+		),
+	renameThread: (threadId: string, title: string) =>
+		api.patch<Thread>(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+			title,
+		}),
+	deleteThread: (threadId: string) =>
+		api.delete<void>(`/api/chat/threads/${encodeURIComponent(threadId)}`),
+	/** Legacy single-thread endpoint. Kept for backwards compatibility with
+	 * callers that don't know a thread id yet. */
 	getThread: (signal?: AbortSignal) =>
 		api.get<Thread>("/api/chat/thread", signal),
-	sendMessage: (body: string) =>
-		api.post<SendMessageResponse>("/api/chat/messages", { body }),
+	sendMessage: (body: string, threadId?: string) =>
+		api.post<SendMessageResponse>(
+			"/api/chat/messages",
+			threadId ? { body, thread_id: threadId } : { body },
+		),
 };

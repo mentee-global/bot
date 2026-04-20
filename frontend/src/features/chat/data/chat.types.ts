@@ -14,6 +14,7 @@ export interface StreamMeta {
 	thread_id: string;
 	user_message_id: string;
 	assistant_message_id: string;
+	title: string | null;
 }
 
 export interface StreamDone {
@@ -41,7 +42,19 @@ export interface ToolActivity {
 
 export interface Thread {
 	thread_id: string;
+	title: string | null;
 	messages: Message[];
+}
+
+export interface ThreadSummary {
+	thread_id: string;
+	title: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface ThreadListResponse {
+	threads: ThreadSummary[];
 }
 
 export interface SendMessageResponse {

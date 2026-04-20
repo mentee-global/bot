@@ -22,6 +22,7 @@ export type StreamEvent =
  */
 export async function* streamChatMessage(
 	body: string,
+	threadId?: string,
 	signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent, void, unknown> {
 	const response = await fetch(`${API_URL}/api/chat/messages/stream`, {
@@ -31,7 +32,7 @@ export async function* streamChatMessage(
 			"Content-Type": "application/json",
 			Accept: "text/event-stream",
 		},
-		body: JSON.stringify({ body }),
+		body: JSON.stringify(threadId ? { body, thread_id: threadId } : { body }),
 		signal,
 	});
 

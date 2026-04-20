@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncIterable, AsyncIterator
 
 import logfire
@@ -43,6 +44,68 @@ from app.domain.enums import MessageRole
 from app.domain.models import Message, User
 
 logger = logging.getLogger(__name__)
+
+
+# OpenAI's built-in web_search emits inline citation tokens wrapped in
+# private-use Unicode markers, e.g. `\ue200cite\ue202turn0search0\ue201` — a
+# delimited block containing `cite` + one-or-more `turnXsearchY` tokens. The
+# URL mapping lives in separate annotation events that pydantic-ai drops
+# unless `openai_include_raw_annotations=True`, so the inner text is useless
+# to the user. Strip the whole PUA-delimited block plus the bare-text variant
+# (`citeturn0search0`) that older responses still emit.
+_PUA_CITATION_RE = re.compile(r"[\ue200-\ue2ff][^\ue200-\ue2ff]*[\ue200-\ue2ff]")
+_CITATION_MARKER_RE = re.compile(r"(?:cite)?turn\d+search\d+(?:(?:cite)?turn\d+search\d+)*")
+# Any stray PUA char left over after the pair-stripper runs.
+_STRAY_PUA_RE = re.compile(r"[\ue200-\ue2ff]")
+# Markdown-link citations (`[text](url)`) survive from web_search tool output
+# even though the prompt tells the model to emit raw URLs — rewrite them here
+# so the UI's source bar stays consistent across both tools.
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
+# Sometimes only the "cite" half of the marker survives, appended to an inline
+# URL (e.g. "https://example.org cite\n"). Strip it only when it directly
+# follows a URL, to avoid mauling legitimate prose uses of the word "cite".
+_ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
+
+
+def _strip_citations(text: str) -> str:
+    # Order matters: peel PUA pairs first so the inner cite/turn tokens go
+    # with them; then mop up any remaining bare markers or stray PUA chars.
+    text = _PUA_CITATION_RE.sub("", text)
+    text = _CITATION_MARKER_RE.sub("", text)
+    text = _STRAY_PUA_RE.sub("", text)
+    text = _MD_LINK_RE.sub(r"\2", text)
+    text = _ORPHAN_CITE_RE.sub(r"\1", text)
+    return text
+
+
+class _CitationStripper:
+    """Streaming-safe stripper: buffers a short tail so a marker split across
+    deltas still gets matched and removed.
+    """
+
+    _SAFE_TAIL = 256  # big enough to hold a URL plus the orphan "cite" suffix
+
+    def __init__(self) -> None:
+        self._buf = ""
+
+    def feed(self, delta: str) -> str:
+        self._buf += delta
+        if len(self._buf) <= self._SAFE_TAIL:
+            return ""
+        cut_end = len(self._buf) - self._SAFE_TAIL
+        # Back off to a non-alphanumeric boundary so we never cut inside a marker.
+        while cut_end > 0 and self._buf[cut_end - 1].isalnum():
+            cut_end -= 1
+        if cut_end == 0:
+            return ""
+        emitable = self._buf[:cut_end]
+        self._buf = self._buf[cut_end:]
+        return _strip_citations(emitable)
+
+    def flush(self) -> str:
+        out = _strip_citations(self._buf)
+        self._buf = ""
+        return out
 
 
 def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
@@ -195,7 +258,7 @@ class MenteeAgent(AgentPort):
                     or None,
                     usage_limits=self._usage_limits,
                 )
-                return result.output
+                return _strip_citations(result.output)
             except Exception as exc:  # noqa: BLE001 — fallback path
                 logger.exception("mentee agent failed, using fallback: %s", exc)
                 return await fallback_response(history, user, self._settings)
@@ -225,6 +288,7 @@ class MenteeAgent(AgentPort):
                         await queue.put(converted)
 
             async def drive() -> None:
+                stripper = _CitationStripper()
                 try:
                     async with self._agent.run_stream(
                         user_message.body,
@@ -234,9 +298,19 @@ class MenteeAgent(AgentPort):
                         usage_limits=self._usage_limits,
                         event_stream_handler=tool_event_handler,
                     ) as stream:
-                        async for delta in stream.stream_text(delta=True):
+                        # debounce_by=None disables pydantic-ai's 100ms delta
+                        # grouping so tokens reach the client as they arrive
+                        # instead of being batched into one chunk.
+                        async for delta in stream.stream_text(
+                            delta=True, debounce_by=None
+                        ):
                             if delta:
-                                await queue.put(TextDelta(text=delta))
+                                cleaned = stripper.feed(delta)
+                                if cleaned:
+                                    await queue.put(TextDelta(text=cleaned))
+                        tail = stripper.flush()
+                        if tail:
+                            await queue.put(TextDelta(text=tail))
                 finally:
                     queue.put_nowait(None)
 

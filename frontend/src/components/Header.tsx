@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 import ParaglideLocaleSwitcher from "#/components/LocaleSwitcher";
 import { MenteeLogo } from "#/components/Logo";
 import ThemeToggle from "#/components/ThemeToggle";
-import { m } from "#/paraglide/messages";
 
 export default function Header() {
 	return (
@@ -25,26 +24,6 @@ export default function Header() {
 						</span>
 					</span>
 				</Link>
-
-				<nav
-					className="hidden items-center gap-6 md:flex"
-					aria-label={m.nav_main_aria()}
-				>
-					<Link
-						to="/"
-						className="nav-link text-[13px]"
-						activeProps={{ className: "nav-link is-active text-[13px]" }}
-					>
-						{m.nav_home()}
-					</Link>
-					<Link
-						to="/about"
-						className="nav-link text-[13px]"
-						activeProps={{ className: "nav-link is-active text-[13px]" }}
-					>
-						{m.nav_about()}
-					</Link>
-				</nav>
 
 				<div className="flex items-center gap-1.5">
 					<ParaglideLocaleSwitcher />

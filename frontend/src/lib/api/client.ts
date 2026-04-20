@@ -5,7 +5,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8001";
 type JsonBody = Record<string, unknown> | unknown[];
 
 interface RequestOptions {
-	method?: "GET" | "POST" | "PUT" | "DELETE";
+	method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 	body?: JsonBody;
 	signal?: AbortSignal;
 }
@@ -43,6 +43,8 @@ export const api = {
 	get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
 	post: <T>(path: string, body?: JsonBody, signal?: AbortSignal) =>
 		request<T>(path, { method: "POST", body, signal }),
+	patch: <T>(path: string, body?: JsonBody, signal?: AbortSignal) =>
+		request<T>(path, { method: "PATCH", body, signal }),
 	delete: <T>(path: string, signal?: AbortSignal) =>
 		request<T>(path, { method: "DELETE", signal }),
 };
