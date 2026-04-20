@@ -44,6 +44,8 @@
   "chat_thread_search_no_results": "Ninguna conversación coincide con \"{query}\".",
   "chat_delete_thread_aria": "Eliminar conversación",
   "chat_rename_thread_aria": "Renombrar conversación",
+  "chat_open_sidebar_aria": "Abrir conversaciones",
+  "chat_close_sidebar_aria": "Cerrar conversaciones",
   "chat_delete_thread_title": "¿Eliminar conversación?",
   "chat_delete_thread_body": "\"{title}\" se eliminará permanentemente. Esta acción no se puede deshacer.",
   "chat_delete_thread_confirm": "Eliminar",

@@ -44,6 +44,8 @@
   "chat_thread_search_no_results": "No conversations match \"{query}\".",
   "chat_delete_thread_aria": "Delete conversation",
   "chat_rename_thread_aria": "Rename conversation",
+  "chat_open_sidebar_aria": "Open conversations",
+  "chat_close_sidebar_aria": "Close conversations",
   "chat_delete_thread_title": "Delete conversation?",
   "chat_delete_thread_body": "\"{title}\" will be permanently removed. This can't be undone.",
   "chat_delete_thread_confirm": "Delete",

@@ -70,7 +70,7 @@ export function ChatInput({
 	return (
 		<form
 			onSubmit={handleSubmit}
-			className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3"
+			className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-3 sm:px-4"
 		>
 			<div className="flex w-full items-center gap-2">
 				<textarea

@@ -13,7 +13,7 @@ import Header from "#/components/Header";
 import PostHogProvider from "#/integrations/posthog/provider";
 import TanStackQueryDevtools from "#/integrations/tanstack-query/devtools";
 import { m } from "#/paraglide/messages";
-import { getLocale, localizeHref, locales } from "#/paraglide/runtime";
+import { getLocale, locales, localizeHref } from "#/paraglide/runtime";
 import appCss from "#/styles.css?url";
 
 interface MyRouterContext {
@@ -91,7 +91,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				suppressHydrationWarning
 			>
 				<PostHogProvider>
-					<div className="flex min-h-screen flex-col">
+					<div className="flex min-h-[100dvh] flex-col">
 						<Header />
 						<div className="flex flex-1 flex-col">{children}</div>
 						<Footer />
