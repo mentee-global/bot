@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { sessionQueryOptions } from "#/features/auth/data/auth.service";
 import {
@@ -74,9 +75,13 @@ function ChatPage() {
 }
 
 function PageShell({ children }: { children: React.ReactNode }) {
+	// Cap the chat card to the viewport so the page never scrolls. 10rem covers
+	// the sticky header (4rem), the footer (~5rem), and some slack for the
+	// main's own padding. `dvh` keeps it honest on mobile Safari where `vh`
+	// overcounts against the URL bar.
 	return (
-		<main className="page-wrap px-4 pb-8 pt-6">
-			<section className="surface-card flex h-[calc(100vh-10rem)] overflow-hidden">
+		<main className="page-wrap px-3 pb-4 pt-4 sm:px-4 sm:pb-8 sm:pt-6">
+			<section className="surface-card relative flex h-[calc(100dvh-10rem)] overflow-hidden">
 				{children}
 			</section>
 		</main>
@@ -85,7 +90,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
 
 function ChatViewSkeleton() {
 	return (
-		<div className="flex flex-1 items-center justify-center px-5 py-6">
+		<div className="flex flex-1 items-center justify-center px-4 py-6 sm:px-5">
 			<MessageListSkeleton />
 		</div>
 	);
@@ -106,6 +111,7 @@ function ChatView({ userName }: { userName: string }) {
 
 	const [renameTarget, setRenameTarget] = useState<ThreadSummary | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<ThreadSummary | null>(null);
+	const [sidebarOpen, setSidebarOpen] = useState(false);
 
 	const activeThreadId = useMemo(() => {
 		if (search.threadId) return search.threadId;
@@ -123,6 +129,7 @@ function ChatView({ userName }: { userName: string }) {
 		createThread.mutate(undefined, {
 			onSuccess: (created) => {
 				setSearchQuery("");
+				setSidebarOpen(false);
 				navigate({
 					search: { threadId: created.thread_id },
 					replace: false,
@@ -132,6 +139,7 @@ function ChatView({ userName }: { userName: string }) {
 	};
 
 	const handleSelect = (threadId: string) => {
+		setSidebarOpen(false);
 		if (threadId === activeThreadId) return;
 		navigate({ search: { threadId }, replace: false });
 	};
@@ -178,24 +186,34 @@ function ChatView({ userName }: { userName: string }) {
 				onRequestRename={setRenameTarget}
 				onRequestDelete={setDeleteTarget}
 				isCreating={createThread.isPending}
+				isOpenMobile={sidebarOpen}
+				onCloseMobile={() => setSidebarOpen(false)}
 			/>
-			<div className="flex flex-1 flex-col overflow-hidden">
-				<header className="flex items-center justify-between border-b border-[var(--theme-border)] px-5 py-3">
-					<div>
+			<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+				<header className="flex items-center justify-between gap-2 border-b border-[var(--theme-border)] px-3 py-3 sm:px-5">
+					<button
+						type="button"
+						onClick={() => setSidebarOpen(true)}
+						aria-label={m.chat_open_sidebar_aria()}
+						className="-ml-1 rounded-md p-2 text-[var(--theme-muted)] transition hover:bg-[var(--theme-surface)] hover:text-[var(--theme-primary)] md:hidden"
+					>
+						<Menu size={18} />
+					</button>
+					<div className="min-w-0 flex-1">
 						<p className="island-kicker m-0">{m.chat_kicker()}</p>
-						<p className="m-0 text-sm text-[var(--theme-secondary)]">
+						<p className="m-0 truncate text-sm text-[var(--theme-secondary)]">
 							{m.chat_signed_in_as({ name: userName })}
 						</p>
 					</div>
 					<button
 						type="button"
 						onClick={() => logout.mutate()}
-						className="btn-secondary"
+						className="btn-secondary shrink-0"
 					>
 						{m.chat_sign_out()}
 					</button>
 				</header>
-				<div className="flex-1 overflow-y-auto px-5 py-6">
+				<div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
 					{threadLoading ? (
 						<MessageListSkeleton />
 					) : isEmptyThread ? (
