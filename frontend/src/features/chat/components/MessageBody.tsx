@@ -4,32 +4,18 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/**
- * OpenAI Responses API wraps inline citations with private-use-area
- * delimiters (e.g. `\uE200cite\uE202turn0search0\uE201`). Strip them — we
- * don't have the annotation map to render them as real links yet.
- */
+// OpenAI Responses API wraps inline citations in PUA delimiters (e.g.
+// `\uE200cite\uE202turn0search0\uE201`); we don't yet have the annotation
+// map to render them as real links, so strip them.
 const PUA_CITATION = /[\uE000-\uF8FF][^\uE000-\uF8FF]*[\uE000-\uF8FF]/g;
 const STRAY_PUA = /[\uE000-\uF8FF]/g;
 
-/**
- * Bare-domain autolinker. The model sometimes writes "chevening.org" as plain
- * text instead of `[Chevening](https://www.chevening.org)`. This turns those
- * into clickable markdown links so the user gets a live link either way.
- *
- * - Only triggers on a curated TLD list to avoid matching things like
- *   "v1.2.3" or "file.tar.gz".
- * - Skips matches that already look like they're inside a markdown link
- *   (e.g. `](chevening.org)`).
- */
+// Curated TLDs so we don't autolink things like "v1.2.3" or "file.tar.gz".
 const COMMON_TLDS =
 	"com|org|net|edu|gov|io|co|ai|app|dev|info|uk|au|ca|de|fr|es|it|nz|jp|in|br|mx|ar|ch|nl|se|no|dk|fi|pt|ie|be|at|pl|cz|za|sg|hk|kr";
 const BARE_DOMAIN_RE = new RegExp(
-	// group 1: left boundary we preserve
 	`(^|[\\s(\\[])` +
-		// group 2: the domain itself (at least one subdomain.TLD)
 		`((?:[a-z0-9-]+\\.)+(?:${COMMON_TLDS}))` +
-		// lookahead: not followed by a URL character (letter/digit/dash/dot/slash)
 		`(?![a-z0-9\\-./:])`,
 	"gi",
 );
@@ -38,7 +24,7 @@ function autolinkBareDomains(md: string): string {
 	return md.replace(
 		BARE_DOMAIN_RE,
 		(_match, prefix: string, domain: string) => {
-			// Skip if the prefix signals we're already inside a link target.
+			// Already inside a markdown link target — leave it alone.
 			if (prefix === "(" || prefix === "[") return `${prefix}${domain}`;
 			return `${prefix}[${domain}](https://${domain})`;
 		},
@@ -57,19 +43,16 @@ interface Source {
 
 function extractSources(body: string): Source[] {
 	const found = new Map<string, Source>();
-	// Match URLs that appear inside markdown link targets OR as bare https://…
 	const urlRe = /\bhttps?:\/\/[^\s)\]]+/gi;
 	for (const match of body.matchAll(urlRe)) {
-		let raw = match[0];
-		// Strip trailing punctuation commonly attached to URLs in prose.
-		raw = raw.replace(/[.,;:!?)\]]+$/, "");
+		const raw = match[0].replace(/[.,;:!?)\]]+$/, "");
 		if (found.has(raw)) continue;
 		try {
 			const u = new URL(raw);
 			const hostname = u.hostname.replace(/^www\./, "");
 			found.set(raw, { url: raw, hostname });
 		} catch {
-			/* skip malformed URLs */
+			// malformed URL — skip
 		}
 	}
 	return Array.from(found.values());
@@ -96,8 +79,8 @@ interface MessageBodyProps {
 
 function MessageBodyImpl({ body, streaming }: MessageBodyProps) {
 	const clean = useMemo(() => sanitize(body), [body]);
-	// Only surface the sources bar once the reply is fully rendered —
-	// mid-stream the list flickers as URLs arrive character by character.
+	// Suppress sources mid-stream — URLs arrive character by character and
+	// the list would flicker.
 	const sources = useMemo(
 		() => (streaming ? [] : extractSources(clean)),
 		[clean, streaming],

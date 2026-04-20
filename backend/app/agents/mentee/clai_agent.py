@@ -1,10 +1,8 @@
 """CLI-testable mentor agent for `pai --agent app.agents.mentee.clai_agent:agent`.
 
-Mirrors `app.agents.mentee.agent._build_pydantic_agent` but binds `Settings`
-via closure instead of `RunContext` deps, so the agent can run under `clai`
-(which always calls `agent.run(..., deps=None)`).
-
-This is a test harness — not imported by the FastAPI app.
+Mirrors `agent._build_pydantic_agent` but binds `Settings` via closure
+instead of `RunContext` deps, since `clai` always calls `agent.run(..., deps=None)`.
+Not imported by the FastAPI app.
 """
 
 from __future__ import annotations
@@ -42,7 +40,6 @@ async def search_perplexity_standalone(
     field: str | None = None,
     level: str | None = None,
 ) -> str:
-    """Perplexity search with settings captured via closure (no RunContext)."""
     if _settings.perplexity_api_key is None:
         return insufficient_context(
             ["perplexity_api_key"],

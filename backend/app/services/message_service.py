@@ -69,13 +69,9 @@ class MessageService:
     ) -> AsyncIterator[tuple[str, dict | str]]:
         """Yield (event_name, payload) tuples for the SSE response.
 
-        Order:
-          ("meta", {thread_id, user_message_id, assistant_message_id})
-          ("token", "delta text")*
-          ("done", {assistant_message_id, body})
-
-        The caller is responsible for SSE framing. The assistant message is
-        persisted with the accumulated body just before emitting "done".
+        Events arrive as: one `meta`, zero-or-more `token`/`tool`, then
+        `done`. The caller handles SSE framing. The assistant message is
+        persisted with the accumulated body just before `done`.
         """
         thread = await self._resolve_thread(user_id, thread_id)
         is_first_message = not thread.messages

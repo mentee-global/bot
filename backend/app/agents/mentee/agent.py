@@ -1,7 +1,7 @@
-"""Pydantic-AI mentor agent for the Mentee Bot.
+"""Pydantic-AI mentor agent backed by the OpenAI Responses API.
 
-Built on the OpenAI Responses API so the built-in `web_search` tool is
-available for grounding scholarship + study-abroad recommendations.
+Uses the built-in `web_search` tool for grounding scholarship and
+study-abroad recommendations.
 """
 
 from __future__ import annotations
@@ -46,30 +46,20 @@ from app.domain.models import Message, User
 logger = logging.getLogger(__name__)
 
 
-# OpenAI's built-in web_search emits inline citation tokens wrapped in
-# private-use Unicode markers, e.g. `\ue200cite\ue202turn0search0\ue201` — a
-# delimited block containing `cite` + one-or-more `turnXsearchY` tokens. The
-# URL mapping lives in separate annotation events that pydantic-ai drops
-# unless `openai_include_raw_annotations=True`, so the inner text is useless
-# to the user. Strip the whole PUA-delimited block plus the bare-text variant
-# (`citeturn0search0`) that older responses still emit.
+# web_search emits citation tokens wrapped in private-use Unicode markers
+# (e.g. `\ue200cite\ue202turn0search0\ue201`). The URL mapping lives in
+# separate annotation events pydantic-ai drops unless
+# `openai_include_raw_annotations=True`, so the inner text is noise.
 _PUA_CITATION_RE = re.compile(r"[\ue200-\ue2ff][^\ue200-\ue2ff]*[\ue200-\ue2ff]")
 _CITATION_MARKER_RE = re.compile(r"(?:cite)?turn\d+search\d+(?:(?:cite)?turn\d+search\d+)*")
-# Any stray PUA char left over after the pair-stripper runs.
 _STRAY_PUA_RE = re.compile(r"[\ue200-\ue2ff]")
-# Markdown-link citations (`[text](url)`) survive from web_search tool output
-# even though the prompt tells the model to emit raw URLs — rewrite them here
-# so the UI's source bar stays consistent across both tools.
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
-# Sometimes only the "cite" half of the marker survives, appended to an inline
-# URL (e.g. "https://example.org cite\n"). Strip it only when it directly
-# follows a URL, to avoid mauling legitimate prose uses of the word "cite".
+# Only match "cite" when it trails a URL, to avoid mauling prose uses.
 _ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
 
 
 def _strip_citations(text: str) -> str:
-    # Order matters: peel PUA pairs first so the inner cite/turn tokens go
-    # with them; then mop up any remaining bare markers or stray PUA chars.
+    # PUA pairs first so their inner cite/turn tokens go with them.
     text = _PUA_CITATION_RE.sub("", text)
     text = _CITATION_MARKER_RE.sub("", text)
     text = _STRAY_PUA_RE.sub("", text)
@@ -79,11 +69,10 @@ def _strip_citations(text: str) -> str:
 
 
 class _CitationStripper:
-    """Streaming-safe stripper: buffers a short tail so a marker split across
-    deltas still gets matched and removed.
-    """
+    """Streaming-safe stripper that buffers a tail so markers split across
+    deltas still get matched."""
 
-    _SAFE_TAIL = 256  # big enough to hold a URL plus the orphan "cite" suffix
+    _SAFE_TAIL = 256
 
     def __init__(self) -> None:
         self._buf = ""
@@ -130,9 +119,8 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
 
     tools: list = [analyze_career_path]
     if settings.perplexity_api_key is not None:
-        # Parallel grounding: model is instructed (in prompts.py) to fan-out
-        # both tools concurrently for scholarship / abroad questions and
-        # reconcile their source lists in the reply.
+        # prompts.py instructs the model to fan out both grounding tools in
+        # parallel and reconcile their source lists.
         tools.append(search_perplexity)
 
     agent: Agent[MenteeDeps, str] = Agent(
@@ -194,11 +182,8 @@ def _convert_tool_event(event: AgentStreamEvent) -> StreamEvent | None:
 
 
 def _history_to_messages(history: list[Message], exclude_last: bool) -> list[ModelMessage]:
-    """Convert domain messages to pydantic-ai ModelMessage list.
-
-    `exclude_last` drops the most recent user message so it can be re-sent as
-    the fresh `user_prompt` argument to `run` / `run_stream`.
-    """
+    # `exclude_last` drops the most recent user message so it can be re-sent
+    # as the `user_prompt` argument to `run` / `run_stream`.
     items = history[:-1] if exclude_last and history else history
     out: list[ModelMessage] = []
     for m in items:
@@ -299,8 +284,7 @@ class MenteeAgent(AgentPort):
                         event_stream_handler=tool_event_handler,
                     ) as stream:
                         # debounce_by=None disables pydantic-ai's 100ms delta
-                        # grouping so tokens reach the client as they arrive
-                        # instead of being batched into one chunk.
+                        # grouping so tokens reach the client as they arrive.
                         async for delta in stream.stream_text(
                             delta=True, debounce_by=None
                         ):

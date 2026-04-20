@@ -8,7 +8,6 @@ import { chatService } from "#/features/chat/data/chat.service";
 import type {
 	SendMessageResponse,
 	Thread,
-	ThreadListResponse,
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
 
@@ -32,12 +31,10 @@ export function threadQueryOptions(threadId: string | null | undefined) {
 			threadId
 				? chatService.getThreadById(threadId, signal)
 				: chatService.getThread(signal),
-		// Don't fire a legacy /api/chat/thread request while we're still waiting
-		// for the thread list to resolve a concrete id — it would be aborted
-		// anyway once activeThreadId flips to threads[0].
+		// Wait for the thread list to resolve a concrete id before firing.
 		enabled: !!threadId,
-		// setQueryData writes after create/send; a 0-staleTime would refetch on
-		// the next render even though the cache is already authoritative.
+		// setQueryData writes after create/send are authoritative, so avoid
+		// an immediate refetch on next render.
 		staleTime: 30_000,
 	});
 }
@@ -118,14 +115,3 @@ export function useSendMessageMutation(threadId: string | null | undefined) {
 		},
 	});
 }
-
-// The stream mutation's thread-list invalidation used to reference the old
-// singleton key. Surface a helper so useStreamMessage stays thin.
-export function invalidateThreadList(
-	queryClient: ReturnType<typeof useQueryClient>,
-) {
-	queryClient.invalidateQueries({ queryKey: chatKeys.threadsRoot() });
-}
-
-// Unused externally right now, but kept so the type declaration is complete.
-export type { ThreadListResponse };

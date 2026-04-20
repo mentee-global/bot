@@ -34,22 +34,9 @@ function patchThreadByKey(
 	});
 }
 
-/**
- * Streaming counterpart to `useSendMessageMutation`.
- *
- * Flow:
- *  1. Immediately appends the user message + an empty assistant placeholder
- *     to the cached thread so the UI paints before the network round-trip.
- *  2. POSTs `/api/chat/messages/stream`, parses SSE frames, rewrites the
- *     placeholder ids with the real server ids on "meta", accumulates tokens
- *     into the assistant body, then stamps the final body on "done".
- *  3. If anything throws, the optimistic bubbles are removed and we fall back
- *     to the non-streaming POST so the user still sees an answer.
- *
- * Returns `{ ..., stop }` — calling `stop()` aborts the in-flight stream and
- * commits whatever assistant text has accumulated so far, so the user keeps
- * the partial answer in their history.
- */
+// On error, we roll back the optimistic bubbles and fall back to the
+// non-streaming POST so the user still sees an answer. `stop()` aborts the
+// in-flight stream and keeps whatever tokens have accumulated so far.
 export function useStreamMessage(threadId: string | null | undefined) {
 	const queryClient = useQueryClient();
 	const abortRef = useRef<AbortController | null>(null);
@@ -188,8 +175,6 @@ export function useStreamMessage(threadId: string | null | undefined) {
 					(err instanceof DOMException && err.name === "AbortError");
 
 				if (wasAborted) {
-					// User clicked Stop — keep whatever accumulated, mark the bubble
-					// as no-longer-streaming, and clear tool chips.
 					if (meta) {
 						const assistantId = meta.assistant_message_id;
 						toolActivityStore.clearMessage(assistantId);
@@ -203,8 +188,7 @@ export function useStreamMessage(threadId: string | null | undefined) {
 							),
 						}));
 					} else {
-						// Stopped before meta even arrived — drop the optimistic bubbles
-						// entirely so the chat doesn't look broken.
+						// Stopped before meta arrived — drop the optimistic bubbles.
 						patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
 							thread_id: t.thread_id,
 							title: t.title,
@@ -221,8 +205,6 @@ export function useStreamMessage(threadId: string | null | undefined) {
 					return;
 				}
 
-				// Real failure — remove optimistic rows and fall back to the
-				// non-streaming endpoint.
 				const cleanupIds = new Set<string>([pendingUserId, pendingAssistantId]);
 				if (meta) {
 					cleanupIds.add(meta.user_message_id);
