@@ -88,31 +88,36 @@ def get_message_service() -> MessageService:
     return _service
 
 
-async def require_session(
+async def _resolve_session(
     auth: Annotated[AuthService, Depends(get_auth_service)],
     session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> str:
+) -> tuple[str, User]:
+    # Single auth lookup per request. FastAPI caches Depends results, so both
+    # require_session and get_current_user reuse this tuple without hitting
+    # Postgres twice.
     if not session_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
     try:
-        await auth.current_user(session_id)
+        user = await auth.current_user(session_id)
     except AuthError as err:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         ) from err
-    return session_id
+    return session_id, user
+
+
+async def require_session(
+    resolved: Annotated[tuple[str, User], Depends(_resolve_session)],
+) -> str:
+    return resolved[0]
 
 
 async def get_current_user(
-    auth: Annotated[AuthService, Depends(get_auth_service)],
-    session_id: Annotated[str, Depends(require_session)],
+    resolved: Annotated[tuple[str, User], Depends(_resolve_session)],
 ) -> User:
-    # require_session already resolved the user once; do it again to get the
-    # User object. Cheap because SessionStore.get hits Postgres and both
-    # reads happen inside the same request.
-    return await auth.current_user(session_id)
+    return resolved[1]
 
 
 async def optional_session(

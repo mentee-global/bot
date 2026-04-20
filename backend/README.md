@@ -24,10 +24,9 @@ uv run uvicorn app.main:app --reload --port 8001
 
 The app will be available at http://localhost:8001. Interactive docs at `/docs`.
 
-## Testing
+## Linting
 
 ```bash
-uv run pytest
 uv run ruff check .
 ```
 

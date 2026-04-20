@@ -61,6 +61,23 @@ class SessionStore:
             )
             return result.scalar_one_or_none()
 
+    async def get_and_touch(self, session_id: str) -> SessionRecord | None:
+        """Load the session and bump last_used_at in a single round-trip.
+
+        Used on the hot auth path so every authenticated API call pays one
+        DB query for identity instead of two (SELECT + UPDATE).
+        """
+        async with self._factory() as session:
+            result = await session.execute(
+                update(SessionRecord)
+                .where(SessionRecord.session_id == session_id)
+                .values(last_used_at=_now())
+                .returning(SessionRecord)
+            )
+            row = result.scalar_one_or_none()
+            await session.commit()
+            return row
+
     async def touch(self, session_id: str) -> None:
         async with self._factory() as session:
             await session.execute(

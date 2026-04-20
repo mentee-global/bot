@@ -1,4 +1,6 @@
+import { MessageBody } from "#/features/chat/components/MessageBody";
 import { ToolChipRow } from "#/features/chat/components/ToolChip";
+import { TypingIndicator } from "#/features/chat/components/TypingIndicator";
 import type { Message } from "#/features/chat/data/chat.types";
 import { useToolActivityForMessage } from "#/features/chat/hooks/useToolActivity";
 import { cn } from "#/lib/utils";
@@ -10,6 +12,7 @@ interface ChatMessageProps {
 export function ChatMessage({ message }: ChatMessageProps) {
 	const isUser = message.role === "user";
 	const tools = useToolActivityForMessage(isUser ? undefined : message.id);
+	const hasText = message.body.length > 0;
 
 	return (
 		<div
@@ -23,18 +26,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
 						: "border border-[var(--theme-border)] bg-[var(--theme-surface)] text-[var(--theme-primary)]",
 				)}
 			>
-				{!isUser && tools.length > 0 ? (
+				{isUser ? (
+					<p className="m-0 whitespace-pre-wrap leading-relaxed">
+						{message.body}
+					</p>
+				) : hasText ? (
+					<MessageBody body={message.body} streaming={message.streaming} />
+				) : tools.length > 0 ? (
+					// Tool is running and no text yet — show just the activity chip
+					// (no typing dots, no stacking).
 					<ToolChipRow activities={tools} />
+				) : message.streaming ? (
+					<TypingIndicator />
 				) : null}
-				<p className="m-0 whitespace-pre-wrap leading-relaxed">
-					{message.body}
-					{message.streaming ? (
-						<span
-							aria-hidden="true"
-							className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-current align-baseline"
-						/>
-					) : null}
-				</p>
 			</div>
 		</div>
 	);

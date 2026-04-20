@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useRef } from "react";
 import { chatService } from "#/features/chat/data/chat.service";
 import { streamChatMessage } from "#/features/chat/data/chat.stream";
 import type {
@@ -15,14 +16,18 @@ function nowIso(): string {
 	return new Date().toISOString();
 }
 
-function patchThread(
-	queryClient: ReturnType<typeof useQueryClient>,
+type QueryClient = ReturnType<typeof useQueryClient>;
+
+function patchThreadByKey(
+	queryClient: QueryClient,
+	queryKey: readonly unknown[],
 	updater: (thread: Thread) => Thread,
-	thread_id?: string,
+	fallbackThreadId?: string,
 ) {
-	queryClient.setQueryData<Thread>(chatKeys.thread(), (prev) => {
+	queryClient.setQueryData<Thread>(queryKey, (prev) => {
 		const base: Thread = prev ?? {
-			thread_id: thread_id ?? "",
+			thread_id: fallbackThreadId ?? "",
+			title: null,
 			messages: [],
 		};
 		return updater(base);
@@ -32,61 +37,117 @@ function patchThread(
 /**
  * Streaming counterpart to `useSendMessageMutation`.
  *
- * Flow: POST `/api/chat/messages/stream`, parse SSE frames, patch the shared
- * TanStack Query cache (`chatKeys.thread()`) so the existing ChatView renders
- * the user + assistant message bubbles token-by-token without a refetch.
+ * Flow:
+ *  1. Immediately appends the user message + an empty assistant placeholder
+ *     to the cached thread so the UI paints before the network round-trip.
+ *  2. POSTs `/api/chat/messages/stream`, parses SSE frames, rewrites the
+ *     placeholder ids with the real server ids on "meta", accumulates tokens
+ *     into the assistant body, then stamps the final body on "done".
+ *  3. If anything throws, the optimistic bubbles are removed and we fall back
+ *     to the non-streaming POST so the user still sees an answer.
  *
- * If the stream fails (network error, non-2xx, abort), we transparently fall
- * back to the existing non-streaming `POST /api/chat/messages` endpoint —
- * the mutation resolves successfully from the user's perspective.
+ * Returns `{ ..., stop }` — calling `stop()` aborts the in-flight stream and
+ * commits whatever assistant text has accumulated so far, so the user keeps
+ * the partial answer in their history.
  */
-export function useStreamMessage() {
+export function useStreamMessage(threadId: string | null | undefined) {
 	const queryClient = useQueryClient();
+	const abortRef = useRef<AbortController | null>(null);
 
-	return useMutation<void, Error, string>({
+	const mutation = useMutation<void, Error, string>({
 		mutationFn: async (body: string) => {
+			const pendingUserId = `pending-user-${crypto.randomUUID()}`;
+			const pendingAssistantId = `pending-assistant-${crypto.randomUUID()}`;
+			const activeThreadId = threadId ?? undefined;
+			const cacheKey = chatKeys.thread(activeThreadId);
+
+			const controller = new AbortController();
+			abortRef.current = controller;
+
+			const optimisticUser: Message = {
+				id: pendingUserId,
+				thread_id: activeThreadId ?? "",
+				role: "user",
+				body,
+				created_at: nowIso(),
+			};
+			const optimisticAssistant: Message = {
+				id: pendingAssistantId,
+				thread_id: activeThreadId ?? "",
+				role: "assistant",
+				body: "",
+				created_at: nowIso(),
+				streaming: true,
+			};
+
+			patchThreadByKey(
+				queryClient,
+				cacheKey,
+				(t) => ({
+					thread_id: t.thread_id || activeThreadId || "",
+					title: t.title,
+					messages: [...t.messages, optimisticUser, optimisticAssistant],
+				}),
+				activeThreadId,
+			);
+
 			let meta: StreamMeta | null = null;
+			let resolvedCacheKey = cacheKey;
 			let accumulated = "";
-			const pendingUserId = `temp-user-${Date.now()}`;
+			let titleFromMeta: string | null = null;
 
 			try {
-				for await (const evt of streamChatMessage(body)) {
+				for await (const evt of streamChatMessage(
+					body,
+					activeThreadId,
+					controller.signal,
+				)) {
 					if (evt.event === "meta") {
 						meta = JSON.parse(evt.data) as StreamMeta;
-						const userMessage: Message = {
-							id: meta.user_message_id,
-							thread_id: meta.thread_id,
-							role: "user",
-							body,
-							created_at: nowIso(),
-						};
-						const assistantMessage: Message = {
-							id: meta.assistant_message_id,
-							thread_id: meta.thread_id,
-							role: "assistant",
-							body: "",
-							created_at: nowIso(),
-							streaming: true,
-						};
-						patchThread(
+						titleFromMeta = meta.title;
+						const metaSnapshot = meta;
+						if (
+							cacheKey.join("/") !== chatKeys.thread(meta.thread_id).join("/")
+						) {
+							const existing = queryClient.getQueryData<Thread>(cacheKey);
+							resolvedCacheKey = chatKeys.thread(meta.thread_id);
+							if (existing) {
+								queryClient.setQueryData<Thread>(resolvedCacheKey, {
+									...existing,
+									thread_id: meta.thread_id,
+								});
+								queryClient.removeQueries({ queryKey: cacheKey });
+							}
+						}
+						patchThreadByKey(
 							queryClient,
+							resolvedCacheKey,
 							(t) => ({
-								thread_id: meta?.thread_id ?? t.thread_id,
-								messages: [...t.messages, userMessage, assistantMessage],
+								thread_id: metaSnapshot.thread_id,
+								title: metaSnapshot.title ?? t.title,
+								messages: t.messages.map((m) => {
+									if (m.id === pendingUserId) {
+										return { ...m, id: metaSnapshot.user_message_id };
+									}
+									if (m.id === pendingAssistantId) {
+										return { ...m, id: metaSnapshot.assistant_message_id };
+									}
+									return m;
+								}),
 							}),
-							meta.thread_id,
+							metaSnapshot.thread_id,
 						);
 					} else if (evt.event === "token") {
 						if (!meta) continue;
 						const delta = safeParseTokenPayload(evt.data);
 						if (!delta) continue;
 						accumulated += delta;
-						patchThread(queryClient, (t) => ({
+						const assistantId = meta.assistant_message_id;
+						patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
 							thread_id: t.thread_id,
+							title: t.title,
 							messages: t.messages.map((m) =>
-								m.id === meta?.assistant_message_id
-									? { ...m, body: accumulated }
-									: m,
+								m.id === assistantId ? { ...m, body: accumulated } : m,
 							),
 						}));
 					} else if (evt.event === "tool") {
@@ -107,51 +168,81 @@ export function useStreamMessage() {
 						}
 					} else if (evt.event === "done") {
 						const done = JSON.parse(evt.data) as StreamDone;
-						patchThread(queryClient, (t) => ({
+						patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
 							thread_id: t.thread_id,
+							title: t.title,
 							messages: t.messages.map((m) =>
 								m.id === done.assistant_message_id
 									? { ...m, body: done.body, streaming: false }
 									: m,
 							),
 						}));
-						// Drop chips once the stream is complete; they only make
-						// sense while the model is actively working.
 						toolActivityStore.clearMessage(done.assistant_message_id);
 					} else if (evt.event === "error") {
 						throw new Error(evt.data || "stream error");
 					}
 				}
 			} catch (err) {
-				// Drop any half-rendered assistant bubble from the optimistic merge
-				// so the fallback POST doesn't double-append on success.
-				if (meta) {
-					toolActivityStore.clearMessage(meta.assistant_message_id);
-					const metaIds = {
-						userId: meta.user_message_id,
-						assistantId: meta.assistant_message_id,
-					};
-					patchThread(queryClient, (t) => ({
-						thread_id: t.thread_id,
-						messages: t.messages.filter(
-							(m) => m.id !== metaIds.userId && m.id !== metaIds.assistantId,
-						),
-					}));
+				const wasAborted =
+					controller.signal.aborted ||
+					(err instanceof DOMException && err.name === "AbortError");
+
+				if (wasAborted) {
+					// User clicked Stop — keep whatever accumulated, mark the bubble
+					// as no-longer-streaming, and clear tool chips.
+					if (meta) {
+						const assistantId = meta.assistant_message_id;
+						toolActivityStore.clearMessage(assistantId);
+						patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
+							thread_id: t.thread_id,
+							title: t.title,
+							messages: t.messages.map((m) =>
+								m.id === assistantId
+									? { ...m, body: accumulated, streaming: false }
+									: m,
+							),
+						}));
+					} else {
+						// Stopped before meta even arrived — drop the optimistic bubbles
+						// entirely so the chat doesn't look broken.
+						patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
+							thread_id: t.thread_id,
+							title: t.title,
+							messages: t.messages.filter(
+								(m) => m.id !== pendingUserId && m.id !== pendingAssistantId,
+							),
+						}));
+					}
+					if (titleFromMeta) {
+						queryClient.invalidateQueries({
+							queryKey: chatKeys.threadsRoot(),
+						});
+					}
+					return;
 				}
-				// Also strip the pre-meta optimistic user placeholder if we ever
-				// added one.
-				patchThread(queryClient, (t) => ({
+
+				// Real failure — remove optimistic rows and fall back to the
+				// non-streaming endpoint.
+				const cleanupIds = new Set<string>([pendingUserId, pendingAssistantId]);
+				if (meta) {
+					cleanupIds.add(meta.user_message_id);
+					cleanupIds.add(meta.assistant_message_id);
+					toolActivityStore.clearMessage(meta.assistant_message_id);
+				}
+				patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
 					thread_id: t.thread_id,
-					messages: t.messages.filter((m) => m.id !== pendingUserId),
+					title: t.title,
+					messages: t.messages.filter((m) => !cleanupIds.has(m.id)),
 				}));
 
-				// Fall back to the non-streaming endpoint. If THAT fails too, let
-				// the error bubble up — react-query surfaces it through onError.
-				const fallback = await chatService.sendMessage(body);
-				patchThread(
+				const fallback = await chatService.sendMessage(body, activeThreadId);
+				const fallbackKey = chatKeys.thread(fallback.thread_id);
+				patchThreadByKey(
 					queryClient,
+					fallbackKey,
 					(t) => ({
 						thread_id: fallback.thread_id,
+						title: t.title,
 						messages: [
 							...t.messages,
 							fallback.user_message,
@@ -160,18 +251,26 @@ export function useStreamMessage() {
 					}),
 					fallback.thread_id,
 				);
-				// Don't re-throw — caller sees a successful mutation.
 				console.warn("stream failed, used POST fallback:", err);
+			} finally {
+				if (abortRef.current === controller) {
+					abortRef.current = null;
+				}
+			}
+
+			if (titleFromMeta) {
+				queryClient.invalidateQueries({ queryKey: chatKeys.threadsRoot() });
 			}
 		},
 	});
+
+	const stop = useCallback(() => {
+		abortRef.current?.abort();
+	}, []);
+
+	return Object.assign(mutation, { stop });
 }
 
-/**
- * Token payloads are JSON-encoded strings (so "\n" and quote characters
- * survive the SSE framing). This unwraps them; if parsing fails we treat
- * the raw data as plain text.
- */
 function safeParseTokenPayload(raw: string): string {
 	try {
 		const parsed = JSON.parse(raw);

@@ -8,7 +8,8 @@ class ThreadRecord(SQLModel, table=True):
     __tablename__ = "chat_threads"
 
     id: str = Field(primary_key=True, max_length=64)
-    owner_session_id: str = Field(index=True, unique=True, max_length=64)
+    owner_user_id: str = Field(index=True, max_length=64)
+    title: str | None = Field(default=None, max_length=200)
     created_at: datetime = Field(sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(sa_type=DateTime(timezone=True))
 

@@ -24,7 +24,8 @@ class Message(BaseModel):
 
 class Thread(BaseModel):
     id: str = Field(default_factory=_uuid)
-    owner_session_id: str
+    owner_user_id: str
+    title: str | None = None
     messages: list[Message] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
