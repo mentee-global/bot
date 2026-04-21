@@ -7,6 +7,7 @@ one user can't read another's chats.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select
@@ -235,6 +236,20 @@ class PostgresThreadStore(ThreadStore):
             )
             await session.commit()
 
+    async def count_messages_for_threads(
+        self, thread_ids: Sequence[str]
+    ) -> dict[str, int]:
+        if not thread_ids:
+            return {}
+        async with self._factory() as session:
+            stmt = (
+                select(MessageRecord.thread_id, func.count())
+                .where(MessageRecord.thread_id.in_(list(thread_ids)))
+                .group_by(MessageRecord.thread_id)
+            )
+            rows = (await session.execute(stmt)).all()
+            return {tid: int(n) for tid, n in rows}
+
     async def delete_any_thread(self, thread_id: str) -> None:
         async with self._factory() as session:
             exists = (
@@ -259,16 +274,7 @@ def _apply_search(  # type: ignore[no-untyped-def]
     if not query:
         return stmt
     needle = f"%{query.lower()}%"
-    message_match = (
-        select(MessageRecord.id)
-        .where(MessageRecord.thread_id == ThreadRecord.id)
-        .where(MessageRecord.body.ilike(needle))
-        .limit(1)
-    )
-    clauses = [
-        ThreadRecord.title.ilike(needle),  # type: ignore[union-attr]
-        message_match.exists(),
-    ]
+    clauses = [ThreadRecord.title.ilike(needle)]  # type: ignore[union-attr]
     if include_owner_email:
         # Admin-scope search also matches the thread's owner email / name so
         # typing "alice@..." pulls up all of Alice's conversations even if

@@ -23,8 +23,32 @@
   --theme-header-bg: rgba(255, 255, 255, 0.85);
   --theme-on-accent: #0a0a0a;      /* text on gold backgrounds */
   --theme-danger: #b91c1c;
+  --theme-danger-fg: #ffffff;      /* text on danger fills */
 
   --radius: 0.625rem;
+
+  /* shadcn semantic tokens — mapped to Mentee theme so shadcn components
+     (Badge, Button, Input, Select, Dialog, Table, Tabs, Card, Skeleton)
+     render with the brand palette instead of undefined → black. */
+  --background: var(--theme-bg);
+  --foreground: var(--theme-primary);
+  --card: var(--theme-surface-elevated);
+  --card-foreground: var(--theme-primary);
+  --popover: var(--theme-surface-elevated);
+  --popover-foreground: var(--theme-primary);
+  --primary: var(--theme-accent);
+  --primary-foreground: var(--theme-on-accent);
+  --secondary: var(--theme-surface);
+  --secondary-foreground: var(--theme-primary);
+  --muted: var(--theme-surface);
+  --muted-foreground: var(--theme-muted);
+  --accent: var(--theme-surface);
+  --accent-foreground: var(--theme-primary);
+  --destructive: var(--theme-danger);
+  --destructive-foreground: var(--theme-danger-fg);
+  --border: var(--theme-border);
+  --input: var(--theme-border);
+  --ring: var(--theme-accent-ring);
 }
 
 .dark {
@@ -43,18 +67,38 @@
   --theme-header-bg: rgba(10, 10, 10, 0.85);
   --theme-on-accent: #0a0a0a;
   --theme-danger: #f87171;
+  --theme-danger-fg: #0a0a0a;
 }
 
 @theme inline {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Abel', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Legacy brand-scoped names kept for any remaining custom CSS. */
   --color-bg: var(--theme-bg);
   --color-surface: var(--theme-surface);
-  --color-primary: var(--theme-primary);
-  --color-secondary: var(--theme-secondary);
-  --color-muted: var(--theme-muted);
-  --color-border: var(--theme-border);
-  --color-accent: var(--theme-accent);
+
+  /* shadcn semantic color names (Tailwind v4 picks these up as utility
+     classes: bg-background, text-foreground, bg-primary, border-input, …). */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
 html,

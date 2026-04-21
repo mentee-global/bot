@@ -69,6 +69,9 @@ class AdminThreadSummary(BaseModel):
     thread_id: str
     title: str | None = None
     owner_user_id: str
+    owner_email: str | None = None
+    owner_name: str | None = None
+    message_count: int
     created_at: datetime
     updated_at: datetime
 
@@ -84,6 +87,10 @@ class AdminThreadResponse(BaseModel):
     thread_id: str
     title: str | None = None
     owner_user_id: str
+    owner_email: str | None = None
+    owner_name: str | None = None
+    created_at: datetime
+    updated_at: datetime
     messages: list[Message]
 
 
@@ -181,6 +188,7 @@ async def list_users(
 async def list_user_threads(
     mentee_sub: str,
     service: Annotated[MessageService, Depends(get_message_service)],
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
     q: str | None = None,
     page: int | None = None,
 ) -> AdminThreadListResponse:
@@ -193,8 +201,12 @@ async def list_user_threads(
         ),
         service.store.count_threads(mentee_sub, query=query),
     )
+    counts = await service.store.count_messages_for_threads(
+        [t.id for t in threads]
+    )
+    owners = await _resolve_owners(sessions, [t.owner_user_id for t in threads])
     return AdminThreadListResponse(
-        threads=[_thread_summary(t) for t in threads],
+        threads=[_thread_summary(t, counts, owners) for t in threads],
         total=total,
         page=page,
         page_size=_PAGE_SIZE,
@@ -230,6 +242,7 @@ async def get_user_sessions(
 @router.get("/threads", response_model=AdminThreadListResponse)
 async def list_all_threads(
     service: Annotated[MessageService, Depends(get_message_service)],
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
     q: str | None = None,
     page: int | None = None,
 ) -> AdminThreadListResponse:
@@ -242,8 +255,12 @@ async def list_all_threads(
         ),
         service.store.count_all_threads(query=query),
     )
+    counts = await service.store.count_messages_for_threads(
+        [t.id for t in threads]
+    )
+    owners = await _resolve_owners(sessions, [t.owner_user_id for t in threads])
     return AdminThreadListResponse(
-        threads=[_thread_summary(t) for t in threads],
+        threads=[_thread_summary(t, counts, owners) for t in threads],
         total=total,
         page=page,
         page_size=_PAGE_SIZE,
@@ -254,6 +271,7 @@ async def list_all_threads(
 async def read_thread(
     thread_id: str,
     service: Annotated[MessageService, Depends(get_message_service)],
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
 ) -> AdminThreadResponse:
     try:
         thread = await service.store.get_any_thread(thread_id)
@@ -261,10 +279,16 @@ async def read_thread(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
         ) from err
+    owners = await _resolve_owners(sessions, [thread.owner_user_id])
+    owner = owners.get(thread.owner_user_id)
     return AdminThreadResponse(
         thread_id=thread.id,
         title=thread.title,
         owner_user_id=thread.owner_user_id,
+        owner_email=owner[0] if owner else None,
+        owner_name=owner[1] if owner else None,
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
         messages=thread.messages,
     )
 
@@ -336,11 +360,30 @@ def _user_summary(row: SessionRecord) -> AdminUserSummary:
     )
 
 
-def _thread_summary(thread) -> AdminThreadSummary:  # type: ignore[no-untyped-def]
+def _thread_summary(  # type: ignore[no-untyped-def]
+    thread,
+    counts: dict[str, int],
+    owners: dict[str, tuple[str | None, str | None]],
+) -> AdminThreadSummary:
+    owner = owners.get(thread.owner_user_id, (None, None))
     return AdminThreadSummary(
         thread_id=thread.id,
         title=thread.title,
         owner_user_id=thread.owner_user_id,
+        owner_email=owner[0],
+        owner_name=owner[1],
+        message_count=counts.get(thread.id, 0),
         created_at=thread.created_at,
         updated_at=thread.updated_at,
     )
+
+
+async def _resolve_owners(
+    sessions: SessionStore, user_ids: list[str]
+) -> dict[str, tuple[str | None, str | None]]:
+    """Return `mentee_sub -> (email, name)` for the given ids. Missing ids are
+    omitted; callers should treat them as unknown."""
+    unique = list({uid for uid in user_ids if uid})
+    if not unique:
+        return {}
+    return await sessions.get_identities(unique)

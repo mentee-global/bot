@@ -11,6 +11,7 @@ session cookie, so the conversation history persists across logout/login.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from app.domain.models import Message, Thread
@@ -99,6 +100,13 @@ class ThreadStore(ABC):
     async def delete_any_thread(self, thread_id: str) -> None:
         """Admin-only hard delete. Removes the thread row and all messages.
         Raises ThreadNotFoundError only when the thread does not exist."""
+
+    @abstractmethod
+    async def count_messages_for_threads(
+        self, thread_ids: Sequence[str]
+    ) -> dict[str, int]:
+        """Return a `thread_id -> message_count` map for the given threads.
+        Missing ids are omitted (not defaulted to 0)."""
 
 
 class InMemoryThreadStore(ThreadStore):
@@ -209,6 +217,15 @@ class InMemoryThreadStore(ThreadStore):
             raise ThreadNotFoundError(thread_id)
         del self._threads_by_id[thread_id]
 
+    async def count_messages_for_threads(
+        self, thread_ids: Sequence[str]
+    ) -> dict[str, int]:
+        return {
+            tid: len(self._threads_by_id[tid].messages)
+            for tid in thread_ids
+            if tid in self._threads_by_id
+        }
+
 
 def _filter_sort_strip(
     threads: list[Thread], *, query: str | None
@@ -216,10 +233,7 @@ def _filter_sort_strip(
     if query:
         needle = query.lower()
         threads = [
-            t
-            for t in threads
-            if (t.title and needle in t.title.lower())
-            or any(needle in m.body.lower() for m in t.messages)
+            t for t in threads if t.title and needle in t.title.lower()
         ]
     threads.sort(key=lambda t: t.updated_at, reverse=True)
     return [

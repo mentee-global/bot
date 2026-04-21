@@ -48,9 +48,15 @@ function Landing() {
 				</p>
 				<div className="flex flex-wrap gap-3">
 					{isLoggedIn ? (
-						<Link to="/chat" className="btn-primary">
-							{m.landing_cta_goto_chat()} <ArrowRight size={16} />
-						</Link>
+						session.data?.role === "admin" ? (
+							<Link to="/admin" className="btn-primary">
+								{m.landing_cta_goto_admin()} <ArrowRight size={16} />
+							</Link>
+						) : (
+							<Link to="/chat" className="btn-primary">
+								{m.landing_cta_goto_chat()} <ArrowRight size={16} />
+							</Link>
+						)
 					) : (
 						<button
 							type="button"

@@ -23,6 +23,9 @@ export interface AdminThreadSummary {
 	thread_id: string;
 	title: string | null;
 	owner_user_id: string;
+	owner_email: string | null;
+	owner_name: string | null;
+	message_count: number;
 	created_at: string;
 	updated_at: string;
 }
@@ -38,6 +41,10 @@ export interface AdminThreadResponse {
 	thread_id: string;
 	title: string | null;
 	owner_user_id: string;
+	owner_email: string | null;
+	owner_name: string | null;
+	created_at: string;
+	updated_at: string;
 	messages: Message[];
 }
 

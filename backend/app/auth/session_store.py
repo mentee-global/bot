@@ -160,6 +160,35 @@ class SessionStore:
             await session.commit()
             return result.rowcount or 0
 
+    async def get_identities(
+        self, mentee_subs: list[str]
+    ) -> dict[str, tuple[str | None, str | None]]:
+        """Return `mentee_sub -> (email, name)` for the given ids.
+
+        Picks the most-recently-used session per user so renames/email changes
+        on Mentee take effect. Missing ids are omitted from the result.
+        """
+        if not mentee_subs:
+            return {}
+        async with self._factory() as session:
+            stmt = (
+                select(
+                    SessionRecord.mentee_sub,
+                    SessionRecord.email,
+                    SessionRecord.name,
+                    SessionRecord.last_used_at,
+                )
+                .where(SessionRecord.mentee_sub.in_(mentee_subs))
+                .order_by(SessionRecord.last_used_at.desc())
+            )
+            rows = (await session.execute(stmt)).all()
+        out: dict[str, tuple[str | None, str | None]] = {}
+        for sub, email, name, _used in rows:
+            if sub in out:
+                continue
+            out[sub] = (email or None, name or None)
+        return out
+
     async def list_distinct_users(
         self,
         *,

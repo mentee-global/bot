@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import type {
 	AdminForceLogoutResponse,
 	AdminStatsResponse,
@@ -99,6 +99,7 @@ export const adminUsersQueryOptions = (params: UserListParams = {}) =>
 		queryKey: adminKeys.users(params),
 		queryFn: ({ signal }) => adminService.listUsers(params, signal),
 		staleTime: 30 * 1000,
+		placeholderData: keepPreviousData,
 	});
 
 export const adminUserThreadsQueryOptions = (
@@ -111,6 +112,7 @@ export const adminUserThreadsQueryOptions = (
 			adminService.listUserThreads(menteeSub, params, signal),
 		enabled: Boolean(menteeSub),
 		staleTime: 30 * 1000,
+		placeholderData: keepPreviousData,
 	});
 
 export const adminUserSessionsQueryOptions = (menteeSub: string) =>
@@ -134,6 +136,10 @@ export const adminAllThreadsQueryOptions = (params: ThreadListParams = {}) =>
 		queryKey: adminKeys.allThreads(params),
 		queryFn: ({ signal }) => adminService.listAllThreads(params, signal),
 		staleTime: 15 * 1000,
+		// Keep the previous page visible while the new query runs so typing in
+		// the search box doesn't wipe the table to a loading flash between
+		// keystrokes.
+		placeholderData: keepPreviousData,
 	});
 
 export const adminStatsQueryOptions = queryOptions({

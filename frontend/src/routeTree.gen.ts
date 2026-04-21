@@ -12,7 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AuthErrorRouteImport } from './routes/auth.error'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminActivityRouteImport } from './routes/admin.activity'
+import { Route as AdminActivityIndexRouteImport } from './routes/admin.activity.index'
+import { Route as AdminActivityThreadIdRouteImport } from './routes/admin.activity.$threadId'
 
 const ChatRoute = ChatRouteImport.update({
   id: '/chat',
@@ -29,42 +34,106 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AuthErrorRoute = AuthErrorRouteImport.update({
   id: '/auth/error',
   path: '/auth/error',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminActivityRoute = AdminActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminActivityIndexRoute = AdminActivityIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminActivityRoute,
+} as any)
+const AdminActivityThreadIdRoute = AdminActivityThreadIdRouteImport.update({
+  id: '/$threadId',
+  path: '/$threadId',
+  getParentRoute: () => AdminActivityRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/chat': typeof ChatRoute
+  '/admin/activity': typeof AdminActivityRouteWithChildren
+  '/admin/users': typeof AdminUsersRoute
   '/auth/error': typeof AuthErrorRoute
+  '/admin/': typeof AdminIndexRoute
+  '/admin/activity/$threadId': typeof AdminActivityThreadIdRoute
+  '/admin/activity/': typeof AdminActivityIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
   '/chat': typeof ChatRoute
+  '/admin/users': typeof AdminUsersRoute
   '/auth/error': typeof AuthErrorRoute
+  '/admin': typeof AdminIndexRoute
+  '/admin/activity/$threadId': typeof AdminActivityThreadIdRoute
+  '/admin/activity': typeof AdminActivityIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/chat': typeof ChatRoute
+  '/admin/activity': typeof AdminActivityRouteWithChildren
+  '/admin/users': typeof AdminUsersRoute
   '/auth/error': typeof AuthErrorRoute
+  '/admin/': typeof AdminIndexRoute
+  '/admin/activity/$threadId': typeof AdminActivityThreadIdRoute
+  '/admin/activity/': typeof AdminActivityIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/chat' | '/auth/error'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/chat'
+    | '/admin/activity'
+    | '/admin/users'
+    | '/auth/error'
+    | '/admin/'
+    | '/admin/activity/$threadId'
+    | '/admin/activity/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/chat' | '/auth/error'
-  id: '__root__' | '/' | '/admin' | '/chat' | '/auth/error'
+  to:
+    | '/'
+    | '/chat'
+    | '/admin/users'
+    | '/auth/error'
+    | '/admin'
+    | '/admin/activity/$threadId'
+    | '/admin/activity'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/chat'
+    | '/admin/activity'
+    | '/admin/users'
+    | '/auth/error'
+    | '/admin/'
+    | '/admin/activity/$threadId'
+    | '/admin/activity/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AdminRoute: typeof AdminRoute
+  AdminRoute: typeof AdminRouteWithChildren
   ChatRoute: typeof ChatRoute
   AuthErrorRoute: typeof AuthErrorRoute
 }
@@ -92,6 +161,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/auth/error': {
       id: '/auth/error'
       path: '/auth/error'
@@ -99,12 +175,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthErrorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/activity': {
+      id: '/admin/activity'
+      path: '/activity'
+      fullPath: '/admin/activity'
+      preLoaderRoute: typeof AdminActivityRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/activity/': {
+      id: '/admin/activity/'
+      path: '/'
+      fullPath: '/admin/activity/'
+      preLoaderRoute: typeof AdminActivityIndexRouteImport
+      parentRoute: typeof AdminActivityRoute
+    }
+    '/admin/activity/$threadId': {
+      id: '/admin/activity/$threadId'
+      path: '/$threadId'
+      fullPath: '/admin/activity/$threadId'
+      preLoaderRoute: typeof AdminActivityThreadIdRouteImport
+      parentRoute: typeof AdminActivityRoute
+    }
   }
 }
 
+interface AdminActivityRouteChildren {
+  AdminActivityThreadIdRoute: typeof AdminActivityThreadIdRoute
+  AdminActivityIndexRoute: typeof AdminActivityIndexRoute
+}
+
+const AdminActivityRouteChildren: AdminActivityRouteChildren = {
+  AdminActivityThreadIdRoute: AdminActivityThreadIdRoute,
+  AdminActivityIndexRoute: AdminActivityIndexRoute,
+}
+
+const AdminActivityRouteWithChildren = AdminActivityRoute._addFileChildren(
+  AdminActivityRouteChildren,
+)
+
+interface AdminRouteChildren {
+  AdminActivityRoute: typeof AdminActivityRouteWithChildren
+  AdminUsersRoute: typeof AdminUsersRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminActivityRoute: AdminActivityRouteWithChildren,
+  AdminUsersRoute: AdminUsersRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AdminRoute: AdminRoute,
+  AdminRoute: AdminRouteWithChildren,
   ChatRoute: ChatRoute,
   AuthErrorRoute: AuthErrorRoute,
 }

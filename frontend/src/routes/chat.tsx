@@ -50,8 +50,13 @@ function ChatPage() {
 	}, [queryClient]);
 
 	useEffect(() => {
-		if (!session.isPending && !session.data) {
+		if (session.isPending) return;
+		if (!session.data) {
 			navigate({ to: "/" });
+			return;
+		}
+		if (session.data.role === "admin") {
+			navigate({ to: "/admin" });
 		}
 	}, [session.isPending, session.data, navigate]);
 
@@ -63,7 +68,7 @@ function ChatPage() {
 		);
 	}
 
-	if (!session.data) {
+	if (!session.data || session.data.role === "admin") {
 		return null;
 	}
 
