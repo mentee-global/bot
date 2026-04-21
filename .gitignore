@@ -17,3 +17,5 @@ Thumbs.db
 # Agent local configs (keep agents, ignore local overrides)
 .claude/settings.local.json
 .claude/.credentials*
+.mcp.json
+docs/
