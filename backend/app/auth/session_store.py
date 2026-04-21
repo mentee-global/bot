@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.crypto import encrypt
@@ -134,6 +134,86 @@ class SessionStore:
             )
             await session.commit()
             return result.rowcount or 0
+
+    async def list_sessions_for_user(
+        self, mentee_sub: str, *, limit: int = 10
+    ) -> list[SessionRecord]:
+        """Most-recent sessions for a given mentee_sub, newest first."""
+        async with self._factory() as session:
+            result = await session.execute(
+                select(SessionRecord)
+                .where(SessionRecord.mentee_sub == mentee_sub)
+                .order_by(SessionRecord.last_used_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+    async def delete_all_for_user(self, mentee_sub: str) -> int:
+        """Admin force-logout: delete every session row for a mentee_sub.
+        Returns the number of rows deleted."""
+        async with self._factory() as session:
+            result = await session.execute(
+                delete(SessionRecord).where(
+                    SessionRecord.mentee_sub == mentee_sub
+                )
+            )
+            await session.commit()
+            return result.rowcount or 0
+
+    async def list_distinct_users(
+        self,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        role: str | None = None,
+        query: str | None = None,
+    ) -> list[SessionRecord]:
+        """Most-recent session per mentee_sub, most-recently-active first.
+
+        Supports optional role filter and free-text search over email/name.
+        DISTINCT ON is Postgres-specific; the store's SessionRecord carries
+        profile fields so no separate user table is needed.
+        """
+        stmt = self._distinct_users_base(role=role, query=query)
+        stmt = stmt.order_by(SessionRecord.last_used_at.desc()).limit(limit).offset(
+            offset
+        )
+        async with self._factory() as session:
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def count_distinct_users(
+        self, *, role: str | None = None, query: str | None = None
+    ) -> int:
+        """Total distinct users matching the filter (for pagination)."""
+        inner = self._distinct_users_subquery(role=role, query=query)
+        stmt = select(func.count()).select_from(inner)
+        async with self._factory() as session:
+            return int((await session.execute(stmt)).scalar_one() or 0)
+
+    def _distinct_users_subquery(
+        self, *, role: str | None, query: str | None
+    ):  # type: ignore[no-untyped-def]
+        inner = select(SessionRecord).distinct(SessionRecord.mentee_sub)
+        if role:
+            inner = inner.where(SessionRecord.role == role)
+        if query:
+            needle = f"%{query.lower()}%"
+            inner = inner.where(
+                SessionRecord.email.ilike(needle)
+                | SessionRecord.name.ilike(needle)
+            )
+        return inner.order_by(
+            SessionRecord.mentee_sub, SessionRecord.last_used_at.desc()
+        ).subquery()
+
+    def _distinct_users_base(
+        self, *, role: str | None, query: str | None
+    ):  # type: ignore[no-untyped-def]
+        inner = self._distinct_users_subquery(role=role, query=query)
+        return select(SessionRecord).join(
+            inner, SessionRecord.session_id == inner.c.session_id
+        )
 
 
 def _as_str_or_none(value: Any) -> str | None:

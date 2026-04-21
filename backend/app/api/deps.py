@@ -84,6 +84,14 @@ def get_auth_service() -> AuthService:
     return _auth_service
 
 
+def get_session_store() -> SessionStore:
+    if _session_store is None:
+        raise RuntimeError(
+            "SessionStore not initialized — call init_auth() at startup"
+        )
+    return _session_store
+
+
 def get_message_service() -> MessageService:
     return _service
 
@@ -118,6 +126,18 @@ async def get_current_user(
     resolved: Annotated[tuple[str, User], Depends(_resolve_session)],
 ) -> User:
     return resolved[1]
+
+
+async def require_admin(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    # 404 (not 403) keeps the admin surface invisible to non-admins —
+    # response shape is indistinguishable from a non-existent route.
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+        )
+    return user
 
 
 async def optional_session(

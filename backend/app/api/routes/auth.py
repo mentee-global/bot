@@ -35,9 +35,20 @@ class MeResponse(BaseModel):
 async def login(
     auth: Annotated[AuthService, Depends(get_auth_service)],
     redirect_to: str | None = None,
+    role_hint: str | None = None,
 ) -> RedirectResponse:
-    authorize_url = await auth.start_login(redirect_to=redirect_to)
+    authorize_url = await auth.start_login(
+        redirect_to=redirect_to, login_role_hint=role_hint
+    )
     return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
+
+
+def _safe_post_login_path(redirect_to: str | None) -> str:
+    # Only accept same-origin relative paths. `//evil.com/...` parses as a
+    # protocol-relative URL and must be rejected to avoid open redirects.
+    if redirect_to and redirect_to.startswith("/") and not redirect_to.startswith("//"):
+        return redirect_to
+    return "/chat"
 
 
 @router.get("/callback")
@@ -62,7 +73,9 @@ async def callback(
         )
 
     try:
-        _, session_id = await auth.complete_login(code=code, state=state)
+        _, session_id, redirect_to = await auth.complete_login(
+            code=code, state=state
+        )
     except StateMismatchError:
         return RedirectResponse(
             f"{frontend}/auth/error?reason=oauth",
@@ -76,7 +89,8 @@ async def callback(
         )
 
     response = RedirectResponse(
-        f"{frontend}/chat", status_code=status.HTTP_302_FOUND
+        f"{frontend}{_safe_post_login_path(redirect_to)}",
+        status_code=status.HTTP_302_FOUND,
     )
     response.set_cookie(
         key=SESSION_COOKIE,

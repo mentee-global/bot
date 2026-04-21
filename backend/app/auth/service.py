@@ -47,7 +47,12 @@ class AuthService:
         self._state = state
         self._settings = settings
 
-    async def start_login(self, *, redirect_to: str | None = None) -> str:
+    async def start_login(
+        self,
+        *,
+        redirect_to: str | None = None,
+        login_role_hint: str | None = None,
+    ) -> str:
         state = secrets.token_urlsafe(32)
         code_verifier = secrets.token_urlsafe(64)
         code_challenge = s256_challenge(code_verifier)
@@ -60,10 +65,15 @@ class AuthService:
         )
         logger.info("login started (state prefix %s)", state[:8])
         return self._oauth.build_authorize_url(
-            state=state, code_challenge=code_challenge, nonce=nonce
+            state=state,
+            code_challenge=code_challenge,
+            nonce=nonce,
+            login_role_hint=login_role_hint,
         )
 
-    async def complete_login(self, *, code: str, state: str) -> tuple[User, str]:
+    async def complete_login(
+        self, *, code: str, state: str
+    ) -> tuple[User, str, str | None]:
         state_row = await self._state.pop(state)
         if state_row is None:
             raise StateMismatchError()
@@ -87,7 +97,7 @@ class AuthService:
             session_id[:8],
             merged.get("role", "?"),
         )
-        return _claims_to_user(merged), session_id
+        return _claims_to_user(merged), session_id, state_row.redirect_to
 
     async def current_user(self, session_id: str) -> User:
         row = await self._sessions.get_and_touch(session_id)

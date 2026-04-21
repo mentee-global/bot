@@ -92,11 +92,16 @@ class MenteeOAuthClient:
         return self._jwks
 
     def build_authorize_url(
-        self, *, state: str, code_challenge: str, nonce: str
+        self,
+        *,
+        state: str,
+        code_challenge: str,
+        nonce: str,
+        login_role_hint: str | None = None,
     ) -> str:
         if self._metadata is None:
             raise RuntimeError("Metadata not loaded; call load_metadata() first")
-        params = {
+        params: dict[str, str] = {
             "response_type": "code",
             "client_id": self._settings.mentee_oauth_client_id,
             "redirect_uri": str(self._settings.mentee_oauth_redirect_uri),
@@ -106,6 +111,11 @@ class MenteeOAuthClient:
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
+        if login_role_hint:
+            # Mentee-specific hint: picks which role-scoped login form
+            # (/admin, /support, ...) is shown to unauthenticated users.
+            # Mentee owns the allowlist; unknown values fall back to /login.
+            params["mentee_login_role"] = login_role_hint
         return f"{self._metadata['authorization_endpoint']}?{urlencode(params)}"
 
     async def exchange_code(

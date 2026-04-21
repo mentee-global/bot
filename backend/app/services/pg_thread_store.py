@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.auth.db_models import SessionRecord
 from app.db.engine import async_session_factory
 from app.domain.enums import MessageRole
 from app.domain.models import Message, Thread
@@ -44,7 +45,12 @@ class PostgresThreadStore(ThreadStore):
         self._factory = session_factory or async_session_factory
 
     async def list_threads(
-        self, user_id: str, *, query: str | None = None
+        self,
+        user_id: str,
+        *,
+        query: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[Thread]:
         async with self._factory() as session:
             stmt = (
@@ -52,22 +58,49 @@ class PostgresThreadStore(ThreadStore):
                 .where(ThreadRecord.owner_user_id == user_id)
                 .order_by(ThreadRecord.updated_at.desc())
             )
-            if query:
-                needle = f"%{query.lower()}%"
-                # Match title OR any message body. The `exists(...)` subquery
-                # keeps a single thread row even when multiple messages match.
-                message_match = (
-                    select(MessageRecord.id)
-                    .where(MessageRecord.thread_id == ThreadRecord.id)
-                    .where(MessageRecord.body.ilike(needle))
-                    .limit(1)
-                )
-                stmt = stmt.where(
-                    ThreadRecord.title.ilike(needle)  # type: ignore[union-attr]
-                    | message_match.exists()
-                )
+            stmt = _apply_search(stmt, query, include_owner_email=False)
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            if offset:
+                stmt = stmt.offset(offset)
             rows = (await session.execute(stmt)).scalars().all()
             return [_thread_from_record(r) for r in rows]
+
+    async def count_threads(
+        self, user_id: str, *, query: str | None = None
+    ) -> int:
+        async with self._factory() as session:
+            stmt = (
+                select(func.count())
+                .select_from(ThreadRecord)
+                .where(ThreadRecord.owner_user_id == user_id)
+            )
+            stmt = _apply_search(stmt, query, include_owner_email=False)
+            return int((await session.execute(stmt)).scalar_one() or 0)
+
+    async def list_all_threads(
+        self,
+        *,
+        query: str | None = None,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> list[Thread]:
+        async with self._factory() as session:
+            stmt = (
+                select(ThreadRecord)
+                .order_by(ThreadRecord.updated_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            stmt = _apply_search(stmt, query, include_owner_email=True)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_thread_from_record(r) for r in rows]
+
+    async def count_all_threads(self, *, query: str | None = None) -> int:
+        async with self._factory() as session:
+            stmt = select(func.count()).select_from(ThreadRecord)
+            stmt = _apply_search(stmt, query, include_owner_email=True)
+            return int((await session.execute(stmt)).scalar_one() or 0)
 
     async def create_thread(
         self, user_id: str, *, title: str | None = None
@@ -90,15 +123,19 @@ class PostgresThreadStore(ThreadStore):
         async with self._factory() as session:
             return await self._load_thread(session, thread_id, user_id)
 
+    async def get_any_thread(self, thread_id: str) -> Thread:
+        async with self._factory() as session:
+            return await self._load_thread(session, thread_id, None)
+
     async def _load_thread(
-        self, session: AsyncSession, thread_id: str, user_id: str
+        self, session: AsyncSession, thread_id: str, user_id: str | None
     ) -> Thread:
         row = (
             await session.execute(
                 select(ThreadRecord).where(ThreadRecord.id == thread_id)
             )
         ).scalar_one_or_none()
-        if row is None or row.owner_user_id != user_id:
+        if row is None or (user_id is not None and row.owner_user_id != user_id):
             raise ThreadNotFoundError(thread_id)
 
         message_rows = (
@@ -197,3 +234,57 @@ class PostgresThreadStore(ThreadStore):
                 delete(ThreadRecord).where(ThreadRecord.id == thread_id)
             )
             await session.commit()
+
+    async def delete_any_thread(self, thread_id: str) -> None:
+        async with self._factory() as session:
+            exists = (
+                await session.execute(
+                    select(ThreadRecord.id).where(ThreadRecord.id == thread_id)
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                raise ThreadNotFoundError(thread_id)
+            await session.execute(
+                delete(MessageRecord).where(MessageRecord.thread_id == thread_id)
+            )
+            await session.execute(
+                delete(ThreadRecord).where(ThreadRecord.id == thread_id)
+            )
+            await session.commit()
+
+
+def _apply_search(  # type: ignore[no-untyped-def]
+    stmt, query: str | None, *, include_owner_email: bool = False
+):
+    if not query:
+        return stmt
+    needle = f"%{query.lower()}%"
+    message_match = (
+        select(MessageRecord.id)
+        .where(MessageRecord.thread_id == ThreadRecord.id)
+        .where(MessageRecord.body.ilike(needle))
+        .limit(1)
+    )
+    clauses = [
+        ThreadRecord.title.ilike(needle),  # type: ignore[union-attr]
+        message_match.exists(),
+    ]
+    if include_owner_email:
+        # Admin-scope search also matches the thread's owner email / name so
+        # typing "alice@..." pulls up all of Alice's conversations even if
+        # her threads have no titles yet. Uses EXISTS to dedupe multiple
+        # sessions per user.
+        owner_match = (
+            select(SessionRecord.session_id)
+            .where(SessionRecord.mentee_sub == ThreadRecord.owner_user_id)
+            .where(
+                SessionRecord.email.ilike(needle)
+                | SessionRecord.name.ilike(needle)
+            )
+            .limit(1)
+        )
+        clauses.append(owner_match.exists())
+    combined = clauses[0]
+    for c in clauses[1:]:
+        combined = combined | c
+    return stmt.where(combined)

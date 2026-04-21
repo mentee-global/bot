@@ -25,11 +25,17 @@ export const authService = {
 	 * the PKCE flow, redirects the browser through Mentee, and lands the user
 	 * on /chat with a session cookie already set — the frontend never touches
 	 * /api/auth/callback.
+	 *
+	 * `roleHint` is forwarded to Mentee via the `mentee_login_role` authorize
+	 * param so unauthenticated users see the matching role-scoped login form
+	 * (e.g. /admin, /support). Mentee owns the allowlist; unknown values fall
+	 * back to /login.
 	 */
-	startLogin: (opts?: { redirectTo?: string }) => {
-		const qs = opts?.redirectTo
-			? `?redirect_to=${encodeURIComponent(opts.redirectTo)}`
-			: "";
+	startLogin: (opts?: { redirectTo?: string; roleHint?: string }) => {
+		const params = new URLSearchParams();
+		if (opts?.redirectTo) params.set("redirect_to", opts.redirectTo);
+		if (opts?.roleHint) params.set("role_hint", opts.roleHint);
+		const qs = params.toString() ? `?${params.toString()}` : "";
 		window.location.href = `${API_URL}/api/auth/login${qs}`;
 	},
 	logout: () => api.post<{ ok: boolean }>("/api/auth/logout"),
