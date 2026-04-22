@@ -5,7 +5,7 @@ import {
 	useLocation,
 	useNavigate,
 } from "@tanstack/react-router";
-import { LogOut } from "lucide-react";
+import { LogOut, MessageSquare } from "lucide-react";
 import { useEffect } from "react";
 import { Button } from "#/components/ui/button";
 import { AdminShellSkeleton } from "#/features/admin/components/shared";
@@ -49,10 +49,10 @@ function AdminLayout() {
 	}
 
 	return (
-		<main className="page-wrap min-w-0 px-3 py-5 sm:px-6 sm:py-10">
+		<main className="page-wrap flex h-[calc(100dvh-10rem)] min-w-0 flex-col overflow-hidden px-3 py-5 sm:px-6 sm:py-10">
 			<AdminHeader />
 			<AdminNav />
-			<div className="mt-5 sm:mt-6">
+			<div className="mt-5 flex min-h-0 flex-1 flex-col overflow-hidden sm:mt-6">
 				<Outlet />
 			</div>
 		</main>
@@ -77,15 +77,23 @@ function AdminHeader() {
 					</p>
 				) : null}
 			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				onClick={() => logout.mutate()}
-				className="shrink-0 gap-1.5"
-			>
-				<LogOut className="size-3.5" />
-				{m.admin_sign_out()}
-			</Button>
+			<div className="flex shrink-0 items-center gap-2">
+				<Button asChild variant="outline" size="sm" className="gap-1.5">
+					<Link to="/chat">
+						<MessageSquare className="size-3.5" />
+						{m.admin_go_to_chat()}
+					</Link>
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={() => logout.mutate()}
+					className="gap-1.5"
+				>
+					<LogOut className="size-3.5" />
+					{m.admin_sign_out()}
+				</Button>
+			</div>
 		</header>
 	);
 }
@@ -95,6 +103,7 @@ function AdminNav() {
 	const items = [
 		{ to: "/admin/activity", label: m.admin_tab_activity() },
 		{ to: "/admin/users", label: m.admin_tab_users() },
+		{ to: "/admin/budget", label: "Budget" },
 	] as const;
 
 	return (
