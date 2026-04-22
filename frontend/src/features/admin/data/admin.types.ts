@@ -2,14 +2,19 @@ import type { UserRole } from "#/features/auth/data/auth.types";
 import type { Message } from "#/features/chat/data/chat.types";
 
 export interface AdminUserSummary {
+	user_id: string;
 	mentee_sub: string;
 	email: string;
 	name: string;
 	role: UserRole;
 	role_id: number;
 	picture?: string | null;
-	last_used_at: string;
+	last_used_at: string | null;
 	created_at: string;
+	credits_remaining?: number | null;
+	credits_used_period?: number | null;
+	credits_granted_period?: number | null;
+	cost_period_micros?: number | null;
 }
 
 export interface AdminUserListResponse {
@@ -22,7 +27,7 @@ export interface AdminUserListResponse {
 export interface AdminThreadSummary {
 	thread_id: string;
 	title: string | null;
-	owner_user_id: string;
+	user_id: string;
 	owner_email: string | null;
 	owner_name: string | null;
 	message_count: number;
@@ -40,7 +45,7 @@ export interface AdminThreadListResponse {
 export interface AdminThreadResponse {
 	thread_id: string;
 	title: string | null;
-	owner_user_id: string;
+	user_id: string;
 	owner_email: string | null;
 	owner_name: string | null;
 	created_at: string;
@@ -63,7 +68,7 @@ export interface AdminSessionRow {
 }
 
 export interface AdminUserSessionsResponse {
-	mentee_sub: string;
+	user_id: string;
 	session_count: number;
 	first_seen: string | null;
 	last_active: string | null;

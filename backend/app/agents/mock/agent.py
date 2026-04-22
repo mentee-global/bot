@@ -1,6 +1,7 @@
 import asyncio
 
 from app.agents.base import AgentPort
+from app.budget.usage import UsageSummary
 from app.domain.enums import MessageRole
 from app.domain.models import Message, User
 
@@ -21,7 +22,10 @@ class MockAgent(AgentPort):
         history: list[Message],
         *,
         user: User | None = None,
+        usage_out: UsageSummary | None = None,
+        perplexity_enabled: bool = True,
     ) -> str:
+        del usage_out, perplexity_enabled  # mock agent is free + always on
         # Small delay so the frontend loading state is observable during dev.
         await asyncio.sleep(0.2)
 

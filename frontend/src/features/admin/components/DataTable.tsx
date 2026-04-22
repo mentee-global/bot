@@ -26,9 +26,10 @@ export interface DataTableProps<TData> {
 	isFetching?: boolean;
 	emptyState?: React.ReactNode;
 	initialSorting?: SortingState;
-	// When true, the table body is capped at a viewport-relative height and
-	// scrolls internally with a sticky header — so long tables don't drag the
-	// page scrollbar along. Short tables stay at natural height.
+	// When true, the card flex-fills its parent and the body scrolls internally
+	// with a sticky header — so long tables don't drag the page scrollbar along.
+	// Requires an ancestor that provides a constrained height (e.g. the admin
+	// route's viewport-capped main).
 	fillHeight?: boolean;
 }
 
@@ -59,7 +60,7 @@ export function DataTable<TData>({
 			className={cn(
 				"overflow-hidden p-0 transition-opacity",
 				fillHeight &&
-					"[&>[data-slot=table-container]]:max-h-[calc(100dvh-22rem)] [&>[data-slot=table-container]]:overflow-auto",
+					"flex min-h-0 flex-1 flex-col [&>[data-slot=table-container]]:min-h-0 [&>[data-slot=table-container]]:flex-1 [&>[data-slot=table-container]]:overflow-auto",
 				isFetching && "opacity-60",
 			)}
 			aria-busy={isFetching || undefined}

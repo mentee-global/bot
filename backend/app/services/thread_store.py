@@ -4,8 +4,8 @@ The production impl lives in `app/services/pg_thread_store.py`; pick one via
 `settings.store_impl` ("memory" for tests + local dev, "postgres" for real
 deployments).
 
-Threads are owned by a **user id** (the Mentee OAuth `sub`) rather than a
-session cookie, so the conversation history persists across logout/login.
+Threads are owned by a **user id** (the internal `users.id` UUID) so the
+conversation history persists across logout/login.
 """
 
 from __future__ import annotations
@@ -55,7 +55,8 @@ class ThreadStore(ABC):
     ) -> list[Thread]:
         """Admin cross-user feed: newest-updated first, optionally filtered
         by title/body/owner-email (implementation-specific — Postgres matches
-        owner email via SessionRecord EXISTS; in-memory ignores owner)."""
+        owner email/name via a users-table EXISTS join; in-memory ignores
+        owner)."""
 
     @abstractmethod
     async def count_all_threads(self, *, query: str | None = None) -> int:
@@ -128,7 +129,7 @@ class InMemoryThreadStore(ThreadStore):
         threads = [
             t
             for t in self._threads_by_id.values()
-            if t.owner_user_id == user_id
+            if t.user_id == user_id
         ]
         matches = _filter_sort_strip(threads, query=query)
         start = offset or 0
@@ -140,7 +141,7 @@ class InMemoryThreadStore(ThreadStore):
         threads = [
             t
             for t in self._threads_by_id.values()
-            if t.owner_user_id == user_id
+            if t.user_id == user_id
         ]
         return len(_filter_sort_strip(threads, query=query))
 
@@ -164,13 +165,13 @@ class InMemoryThreadStore(ThreadStore):
     async def create_thread(
         self, user_id: str, *, title: str | None = None
     ) -> Thread:
-        thread = Thread(owner_user_id=user_id, title=title)
+        thread = Thread(user_id=user_id, title=title)
         self._threads_by_id[thread.id] = thread
         return thread
 
     async def get_thread(self, thread_id: str, user_id: str) -> Thread:
         thread = self._threads_by_id.get(thread_id)
-        if thread is None or thread.owner_user_id != user_id:
+        if thread is None or thread.user_id != user_id:
             raise ThreadNotFoundError(thread_id)
         return thread
 
@@ -184,7 +185,7 @@ class InMemoryThreadStore(ThreadStore):
         threads = [
             t
             for t in self._threads_by_id.values()
-            if t.owner_user_id == user_id
+            if t.user_id == user_id
         ]
         if not threads:
             return await self.create_thread(user_id)
@@ -208,7 +209,7 @@ class InMemoryThreadStore(ThreadStore):
 
     async def delete_thread(self, thread_id: str, user_id: str) -> None:
         thread = self._threads_by_id.get(thread_id)
-        if thread is None or thread.owner_user_id != user_id:
+        if thread is None or thread.user_id != user_id:
             raise ThreadNotFoundError(thread_id)
         del self._threads_by_id[thread_id]
 
@@ -239,7 +240,7 @@ def _filter_sort_strip(
     return [
         Thread(
             id=t.id,
-            owner_user_id=t.owner_user_id,
+            user_id=t.user_id,
             title=t.title,
             messages=[],
             created_at=t.created_at,

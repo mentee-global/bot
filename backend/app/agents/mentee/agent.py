@@ -39,6 +39,7 @@ from app.agents.mentee.ports import MenteeProfilePort, NullProfilePort
 from app.agents.mentee.prompts import SYSTEM_PROMPT
 from app.agents.mentee.tools.career import analyze_career_path
 from app.agents.mentee.tools.search import search_perplexity
+from app.budget.usage import UsageSummary
 from app.core.config import Settings
 from app.domain.enums import MessageRole
 from app.domain.models import Message, User
@@ -181,6 +182,36 @@ def _convert_tool_event(event: AgentStreamEvent) -> StreamEvent | None:
     return None
 
 
+def _fill_openai_usage(collector: UsageSummary, usage: object) -> None:
+    """Copy pydantic-ai's Usage into our collector. Usage fields are optional —
+    missing attributes silently contribute zero."""
+    if usage is None:
+        return
+    collector.openai_input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+    collector.openai_output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+
+
+def _count_builtin_tool_calls(
+    collector: UsageSummary, messages: list[ModelMessage]
+) -> None:
+    """Non-streaming path: web_search invocations show up as builtin tool-call
+    parts inside ModelResponse messages. Each occurrence is billed one flat fee.
+    """
+    for msg in messages:
+        if not isinstance(msg, ModelResponse):
+            continue
+        for part in msg.parts:
+            tool_name = getattr(part, "tool_name", None)
+            if tool_name != "web_search":
+                continue
+            # pydantic-ai uses BuiltinToolCallPart for builtin calls; accept
+            # anything that looks like one by duck-typing on the class name
+            # so version bumps don't silently stop billing.
+            cls_name = type(part).__name__
+            if "Builtin" in cls_name and "Call" in cls_name:
+                collector.inc_web_search()
+
+
 def _history_to_messages(history: list[Message], exclude_last: bool) -> list[ModelMessage]:
     # `exclude_last` drops the most recent user message so it can be re-sent
     # as the `user_prompt` argument to `run` / `run_stream`.
@@ -215,11 +246,18 @@ class MenteeAgent(AgentPort):
     def pydantic_agent(self) -> Agent[MenteeDeps, str]:
         return self._agent
 
-    def _deps(self, user: User | None) -> MenteeDeps:
+    def _deps(
+        self,
+        user: User | None,
+        usage: UsageSummary,
+        perplexity_enabled: bool,
+    ) -> MenteeDeps:
         return MenteeDeps(
             user=user,
             settings=self._settings,
             profile_port=self._profile_port,
+            usage=usage,
+            perplexity_enabled=perplexity_enabled,
         )
 
     async def reply(
@@ -228,7 +266,10 @@ class MenteeAgent(AgentPort):
         history: list[Message],
         *,
         user: User | None = None,
+        usage_out: UsageSummary | None = None,
+        perplexity_enabled: bool = True,
     ) -> str:
+        collector = usage_out if usage_out is not None else UsageSummary()
         with logfire.span(
             "agent.mentee.run",
             agent_id=self.agent_id,
@@ -238,11 +279,13 @@ class MenteeAgent(AgentPort):
             try:
                 result = await self._agent.run(
                     user_message.body,
-                    deps=self._deps(user),
+                    deps=self._deps(user, collector, perplexity_enabled),
                     message_history=_history_to_messages(history, exclude_last=True)
                     or None,
                     usage_limits=self._usage_limits,
                 )
+                _fill_openai_usage(collector, result.usage())
+                _count_builtin_tool_calls(collector, result.all_messages())
                 return _strip_citations(result.output)
             except Exception as exc:  # noqa: BLE001 — fallback path
                 logger.exception("mentee agent failed, using fallback: %s", exc)
@@ -254,7 +297,10 @@ class MenteeAgent(AgentPort):
         history: list[Message],
         *,
         user: User | None = None,
+        usage_out: UsageSummary | None = None,
+        perplexity_enabled: bool = True,
     ) -> AsyncIterator[StreamEvent]:
+        collector = usage_out if usage_out is not None else UsageSummary()
         with logfire.span(
             "agent.mentee.stream",
             agent_id=self.agent_id,
@@ -268,6 +314,10 @@ class MenteeAgent(AgentPort):
                 events: AsyncIterable[AgentStreamEvent],
             ) -> None:
                 async for event in events:
+                    if isinstance(event, BuiltinToolCallEvent):
+                        tool_name = getattr(event.part, "tool_name", "")
+                        if tool_name == "web_search":
+                            collector.inc_web_search()
                     converted = _convert_tool_event(event)
                     if converted is not None:
                         await queue.put(converted)
@@ -277,7 +327,7 @@ class MenteeAgent(AgentPort):
                 try:
                     async with self._agent.run_stream(
                         user_message.body,
-                        deps=self._deps(user),
+                        deps=self._deps(user, collector, perplexity_enabled),
                         message_history=_history_to_messages(history, exclude_last=True)
                         or None,
                         usage_limits=self._usage_limits,
@@ -295,6 +345,10 @@ class MenteeAgent(AgentPort):
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
+                        try:
+                            _fill_openai_usage(collector, stream.usage())
+                        except Exception:  # noqa: BLE001 — usage is best-effort
+                            pass
                 finally:
                     queue.put_nowait(None)
 

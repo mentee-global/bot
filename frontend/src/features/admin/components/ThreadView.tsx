@@ -9,6 +9,7 @@ import {
 	DialogFooter,
 	DialogTitle,
 } from "#/components/ui/Dialog";
+import { Skeleton } from "#/components/ui/Skeleton";
 import type { AdminThreadResponse } from "#/features/admin/data/admin.types";
 import {
 	useAdminThreadQuery,
@@ -22,7 +23,6 @@ import {
 	CompactDate,
 	EmptyState,
 	ErrorState,
-	LoadingState,
 	StatItem,
 } from "./shared";
 
@@ -41,7 +41,8 @@ export function ThreadView({
 	const deleteMutation = useDeleteThreadMutation();
 	const [confirmOpen, setConfirmOpen] = useState(false);
 
-	if (thread.isPending) return <LoadingState />;
+	if (thread.isPending)
+		return <ThreadViewSkeleton backLabel={backLabel} onBack={onBack} />;
 	if (thread.isError) return <ErrorState message={thread.error.message} />;
 
 	const data = thread.data;
@@ -59,40 +60,42 @@ export function ThreadView({
 	};
 
 	return (
-		<section>
-			<BackLink onClick={onBack}>{backLabel}</BackLink>
-			<div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-				<div className="min-w-0 flex-1">
-					<h2 className="m-0 break-words text-lg font-semibold">{title}</h2>
-					<OwnerLine data={data} />
+		<section className="flex h-full min-h-0 flex-col">
+			<div className="shrink-0">
+				<BackLink onClick={onBack}>{backLabel}</BackLink>
+				<div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-0 flex-1">
+						<h2 className="m-0 break-words text-lg font-semibold">{title}</h2>
+						<OwnerLine data={data} />
+					</div>
+					<div className="flex flex-wrap gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => downloadThread(data, title)}
+							className="gap-1.5"
+						>
+							<Download className="size-3.5" /> {m.admin_export_json()}
+						</Button>
+						<Button
+							variant="destructive"
+							size="sm"
+							onClick={() => setConfirmOpen(true)}
+							className="gap-1.5"
+						>
+							<Trash2 className="size-3.5" /> {m.admin_delete_thread()}
+						</Button>
+					</div>
 				</div>
-				<div className="flex flex-wrap gap-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => downloadThread(data, title)}
-						className="gap-1.5"
-					>
-						<Download className="size-3.5" /> {m.admin_export_json()}
-					</Button>
-					<Button
-						variant="destructive"
-						size="sm"
-						onClick={() => setConfirmOpen(true)}
-						className="gap-1.5"
-					>
-						<Trash2 className="size-3.5" /> {m.admin_delete_thread()}
-					</Button>
-				</div>
+
+				<ThreadInsights data={data} />
 			</div>
 
-			<ThreadInsights data={data} />
-
-			<div className="mt-4">
+			<div className="mt-4 flex min-h-0 flex-1 flex-col">
 				{data.messages.length === 0 ? (
 					<EmptyState message={m.admin_thread_empty()} />
 				) : (
-					<Card className="gap-3 overflow-y-auto p-3 sm:max-h-[calc(100dvh-24rem)] sm:p-6">
+					<Card className="min-h-0 flex-1 gap-3 overflow-y-auto p-3 sm:p-6">
 						{data.messages.map((message) => (
 							<AdminMessage key={message.id} message={message} />
 						))}
@@ -111,13 +114,64 @@ export function ThreadView({
 	);
 }
 
+function ThreadViewSkeleton({
+	backLabel,
+	onBack,
+}: {
+	backLabel: string;
+	onBack: () => void;
+}) {
+	return (
+		<section className="flex h-full min-h-0 flex-col">
+			<div className="shrink-0">
+				<BackLink onClick={onBack}>{backLabel}</BackLink>
+				<div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-0 flex-1">
+						<Skeleton className="h-6 w-3/4 max-w-sm" />
+						<Skeleton className="mt-2 h-3 w-1/2 max-w-xs" />
+					</div>
+				</div>
+				<Card className="mt-4 gap-3 p-4 sm:p-5">
+					<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+						{Array.from({ length: 6 }, (_, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
+							<div key={i}>
+								<Skeleton className="h-2.5 w-16" />
+								<Skeleton className="mt-2 h-4 w-10" />
+							</div>
+						))}
+					</div>
+				</Card>
+			</div>
+			<div className="mt-4 flex min-h-0 flex-1 flex-col">
+				<Card className="min-h-0 flex-1 gap-4 overflow-hidden p-3 sm:p-6">
+					{Array.from({ length: 5 }, (_, i) => (
+						<div
+							// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
+							key={i}
+							className={cn("flex", i % 2 ? "justify-end" : "")}
+						>
+							<Skeleton
+								className={cn(
+									"h-16",
+									i % 2 ? "w-2/3 sm:w-1/2" : "w-3/4 sm:w-2/3",
+								)}
+							/>
+						</div>
+					))}
+				</Card>
+			</div>
+		</section>
+	);
+}
+
 function OwnerLine({ data }: { data: AdminThreadResponse }) {
 	const name = data.owner_name;
 	const email = data.owner_email;
 	if (!name && !email) {
 		return (
 			<p className="m-0 mt-1 break-all text-xs text-muted-foreground">
-				{m.admin_thread_owner({ id: data.owner_user_id })}
+				{m.admin_thread_owner({ id: data.user_id })}
 			</p>
 		);
 	}

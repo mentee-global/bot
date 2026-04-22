@@ -18,7 +18,9 @@ function Landing() {
 		setIsRedirecting(true);
 		// Defer the full-page redirect one frame so the overlay paints before
 		// the browser starts tearing down this document.
-		requestAnimationFrame(() => authService.startLogin());
+		requestAnimationFrame(() =>
+			authService.startLogin({ roleHint: "mentee" }),
+		);
 	};
 
 	const features = [

@@ -1,19 +1,20 @@
 """Postgres-backed ThreadStore.
 
-Threads are owned by the Mentee user id (OAuth `sub`) so conversations
-persist across logout / login. Lookup is always gated by `owner_user_id` so
-one user can't read another's chats.
+Threads are owned by the internal `users.id` UUID so conversations persist
+across logout / login. Lookup is always gated by `user_id` so one user can't
+read another's chats.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.auth.db_models import SessionRecord
+from app.auth.db_models import UserRecord
 from app.db.engine import async_session_factory
 from app.domain.enums import MessageRole
 from app.domain.models import Message, Thread
@@ -25,12 +26,16 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _as_uuid(value: str | UUID) -> UUID:
+    return value if isinstance(value, UUID) else UUID(value)
+
+
 def _thread_from_record(
     row: ThreadRecord, messages: list[Message] | None = None
 ) -> Thread:
     return Thread(
-        id=row.id,
-        owner_user_id=row.owner_user_id,
+        id=str(row.id),
+        user_id=str(row.user_id),
         title=row.title,
         messages=messages or [],
         created_at=row.created_at,
@@ -53,10 +58,11 @@ class PostgresThreadStore(ThreadStore):
         limit: int | None = None,
         offset: int | None = None,
     ) -> list[Thread]:
+        uid = _as_uuid(user_id)
         async with self._factory() as session:
             stmt = (
                 select(ThreadRecord)
-                .where(ThreadRecord.owner_user_id == user_id)
+                .where(ThreadRecord.user_id == uid)
                 .order_by(ThreadRecord.updated_at.desc())
             )
             stmt = _apply_search(stmt, query, include_owner_email=False)
@@ -70,11 +76,12 @@ class PostgresThreadStore(ThreadStore):
     async def count_threads(
         self, user_id: str, *, query: str | None = None
     ) -> int:
+        uid = _as_uuid(user_id)
         async with self._factory() as session:
             stmt = (
                 select(func.count())
                 .select_from(ThreadRecord)
-                .where(ThreadRecord.owner_user_id == user_id)
+                .where(ThreadRecord.user_id == uid)
             )
             stmt = _apply_search(stmt, query, include_owner_email=False)
             return int((await session.execute(stmt)).scalar_one() or 0)
@@ -106,12 +113,13 @@ class PostgresThreadStore(ThreadStore):
     async def create_thread(
         self, user_id: str, *, title: str | None = None
     ) -> Thread:
-        thread = Thread(owner_user_id=user_id, title=title)
+        uid = _as_uuid(user_id)
+        thread = Thread(user_id=str(uid), title=title)
         async with self._factory() as session:
             session.add(
                 ThreadRecord(
-                    id=thread.id,
-                    owner_user_id=user_id,
+                    id=UUID(thread.id),
+                    user_id=uid,
                     title=title,
                     created_at=thread.created_at,
                     updated_at=thread.updated_at,
@@ -122,22 +130,27 @@ class PostgresThreadStore(ThreadStore):
 
     async def get_thread(self, thread_id: str, user_id: str) -> Thread:
         async with self._factory() as session:
-            return await self._load_thread(session, thread_id, user_id)
+            return await self._load_thread(
+                session, _as_uuid(thread_id), _as_uuid(user_id)
+            )
 
     async def get_any_thread(self, thread_id: str) -> Thread:
         async with self._factory() as session:
-            return await self._load_thread(session, thread_id, None)
+            return await self._load_thread(session, _as_uuid(thread_id), None)
 
     async def _load_thread(
-        self, session: AsyncSession, thread_id: str, user_id: str | None
+        self,
+        session: AsyncSession,
+        thread_id: UUID,
+        user_id: UUID | None,
     ) -> Thread:
         row = (
             await session.execute(
                 select(ThreadRecord).where(ThreadRecord.id == thread_id)
             )
         ).scalar_one_or_none()
-        if row is None or (user_id is not None and row.owner_user_id != user_id):
-            raise ThreadNotFoundError(thread_id)
+        if row is None or (user_id is not None and row.user_id != user_id):
+            raise ThreadNotFoundError(str(thread_id))
 
         message_rows = (
             (
@@ -152,8 +165,8 @@ class PostgresThreadStore(ThreadStore):
         )
         messages = [
             Message(
-                id=m.id,
-                thread_id=m.thread_id,
+                id=str(m.id),
+                thread_id=str(m.thread_id),
                 role=MessageRole(m.role),
                 body=m.body,
                 created_at=m.created_at,
@@ -163,27 +176,29 @@ class PostgresThreadStore(ThreadStore):
         return _thread_from_record(row, messages)
 
     async def get_or_create_latest(self, user_id: str) -> Thread:
+        uid = _as_uuid(user_id)
         async with self._factory() as session:
             row = (
                 await session.execute(
                     select(ThreadRecord)
-                    .where(ThreadRecord.owner_user_id == user_id)
+                    .where(ThreadRecord.user_id == uid)
                     .order_by(ThreadRecord.updated_at.desc())
                     .limit(1)
                 )
             ).scalar_one_or_none()
             if row is not None:
-                return await self._load_thread(session, row.id, user_id)
+                return await self._load_thread(session, row.id, uid)
 
         return await self.create_thread(user_id)
 
     async def append_message(self, thread: Thread, message: Message) -> None:
         now = _now()
+        thread_uuid = _as_uuid(thread.id)
         async with self._factory() as session:
             session.add(
                 MessageRecord(
-                    id=message.id,
-                    thread_id=thread.id,
+                    id=_as_uuid(message.id),
+                    thread_id=thread_uuid,
                     role=message.role.value,
                     body=message.body,
                     created_at=message.created_at,
@@ -191,7 +206,7 @@ class PostgresThreadStore(ThreadStore):
             )
             row = (
                 await session.execute(
-                    select(ThreadRecord).where(ThreadRecord.id == thread.id)
+                    select(ThreadRecord).where(ThreadRecord.id == thread_uuid)
                 )
             ).scalar_one_or_none()
             if row is not None:
@@ -206,13 +221,15 @@ class PostgresThreadStore(ThreadStore):
     async def set_title(
         self, thread_id: str, user_id: str, title: str
     ) -> None:
+        tid = _as_uuid(thread_id)
+        uid = _as_uuid(user_id)
         async with self._factory() as session:
             row = (
                 await session.execute(
-                    select(ThreadRecord).where(ThreadRecord.id == thread_id)
+                    select(ThreadRecord).where(ThreadRecord.id == tid)
                 )
             ).scalar_one_or_none()
-            if row is None or row.owner_user_id != user_id:
+            if row is None or row.user_id != uid:
                 raise ThreadNotFoundError(thread_id)
             row.title = title
             row.updated_at = _now()
@@ -220,19 +237,19 @@ class PostgresThreadStore(ThreadStore):
             await session.commit()
 
     async def delete_thread(self, thread_id: str, user_id: str) -> None:
+        tid = _as_uuid(thread_id)
+        uid = _as_uuid(user_id)
         async with self._factory() as session:
             row = (
                 await session.execute(
-                    select(ThreadRecord).where(ThreadRecord.id == thread_id)
+                    select(ThreadRecord).where(ThreadRecord.id == tid)
                 )
             ).scalar_one_or_none()
-            if row is None or row.owner_user_id != user_id:
+            if row is None or row.user_id != uid:
                 raise ThreadNotFoundError(thread_id)
+            # FK cascade removes messages automatically.
             await session.execute(
-                delete(MessageRecord).where(MessageRecord.thread_id == thread_id)
-            )
-            await session.execute(
-                delete(ThreadRecord).where(ThreadRecord.id == thread_id)
+                delete(ThreadRecord).where(ThreadRecord.id == tid)
             )
             await session.commit()
 
@@ -241,29 +258,28 @@ class PostgresThreadStore(ThreadStore):
     ) -> dict[str, int]:
         if not thread_ids:
             return {}
+        uuids = [_as_uuid(t) for t in thread_ids]
         async with self._factory() as session:
             stmt = (
                 select(MessageRecord.thread_id, func.count())
-                .where(MessageRecord.thread_id.in_(list(thread_ids)))
+                .where(MessageRecord.thread_id.in_(uuids))
                 .group_by(MessageRecord.thread_id)
             )
             rows = (await session.execute(stmt)).all()
-            return {tid: int(n) for tid, n in rows}
+            return {str(tid): int(n) for tid, n in rows}
 
     async def delete_any_thread(self, thread_id: str) -> None:
+        tid = _as_uuid(thread_id)
         async with self._factory() as session:
             exists = (
                 await session.execute(
-                    select(ThreadRecord.id).where(ThreadRecord.id == thread_id)
+                    select(ThreadRecord.id).where(ThreadRecord.id == tid)
                 )
             ).scalar_one_or_none()
             if exists is None:
                 raise ThreadNotFoundError(thread_id)
             await session.execute(
-                delete(MessageRecord).where(MessageRecord.thread_id == thread_id)
-            )
-            await session.execute(
-                delete(ThreadRecord).where(ThreadRecord.id == thread_id)
+                delete(ThreadRecord).where(ThreadRecord.id == tid)
             )
             await session.commit()
 
@@ -278,14 +294,12 @@ def _apply_search(  # type: ignore[no-untyped-def]
     if include_owner_email:
         # Admin-scope search also matches the thread's owner email / name so
         # typing "alice@..." pulls up all of Alice's conversations even if
-        # her threads have no titles yet. Uses EXISTS to dedupe multiple
-        # sessions per user.
+        # her threads have no titles yet.
         owner_match = (
-            select(SessionRecord.session_id)
-            .where(SessionRecord.mentee_sub == ThreadRecord.owner_user_id)
+            select(UserRecord.id)
+            .where(UserRecord.id == ThreadRecord.user_id)
             .where(
-                SessionRecord.email.ilike(needle)
-                | SessionRecord.name.ilike(needle)
+                or_(UserRecord.email.ilike(needle), UserRecord.name.ilike(needle))
             )
             .limit(1)
         )

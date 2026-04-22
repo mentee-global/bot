@@ -2,6 +2,8 @@ from collections.abc import AsyncIterator
 
 from app.agents.base import AgentPort
 from app.agents.events import TextDelta, ToolEnd, ToolStart
+from app.budget.service import BudgetService
+from app.budget.usage import UsageSummary
 from app.domain.enums import MessageRole
 from app.domain.models import Message, Thread, User
 from app.services.thread_store import ThreadStore
@@ -12,14 +14,20 @@ _TITLE_MAX_LEN = 80
 def _derive_title(body: str) -> str:
     cleaned = body.strip().splitlines()[0] if body.strip() else "New chat"
     if len(cleaned) > _TITLE_MAX_LEN:
-        cleaned = cleaned[: _TITLE_MAX_LEN - 1].rstrip() + "\u2026"
+        cleaned = cleaned[: _TITLE_MAX_LEN - 1].rstrip() + "…"
     return cleaned or "New chat"
 
 
 class MessageService:
-    def __init__(self, store: ThreadStore, agent: AgentPort) -> None:
+    def __init__(
+        self,
+        store: ThreadStore,
+        agent: AgentPort,
+        budget: BudgetService,
+    ) -> None:
         self.store = store
         self.agent = agent
+        self.budget = budget
 
     async def _resolve_thread(
         self, user_id: str, thread_id: str | None
@@ -32,7 +40,7 @@ class MessageService:
         if thread.title:
             return
         title = _derive_title(first_body)
-        await self.store.set_title(thread.id, thread.owner_user_id, title)
+        await self.store.set_title(thread.id, thread.user_id, title)
         thread.title = title
 
     async def handle_user_message(
@@ -40,9 +48,10 @@ class MessageService:
         user_id: str,
         body: str,
         *,
-        user: User | None = None,
+        user: User,
         thread_id: str | None = None,
     ) -> tuple[Thread, Message, Message]:
+        snap = await self.budget.check_can_chat(user)
         thread = await self._resolve_thread(user_id, thread_id)
         is_first_message = not thread.messages
 
@@ -51,11 +60,25 @@ class MessageService:
         if is_first_message:
             await self._maybe_auto_title(thread, body)
 
-        reply_body = await self.agent.reply(user_message, thread.messages, user=user)
+        usage = UsageSummary()
+        reply_body = await self.agent.reply(
+            user_message,
+            thread.messages,
+            user=user,
+            usage_out=usage,
+            perplexity_enabled=not snap.perplexity_degraded,
+        )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
         )
         await self.store.append_message(thread, assistant_message)
+
+        await self.budget.record_turn(
+            user=user,
+            thread_id=thread.id,
+            message_id=assistant_message.id,
+            usage=usage,
+        )
 
         return thread, user_message, assistant_message
 
@@ -64,7 +87,7 @@ class MessageService:
         user_id: str,
         body: str,
         *,
-        user: User | None = None,
+        user: User,
         thread_id: str | None = None,
     ) -> AsyncIterator[tuple[str, dict | str]]:
         """Yield (event_name, payload) tuples for the SSE response.
@@ -73,6 +96,7 @@ class MessageService:
         `done`. The caller handles SSE framing. The assistant message is
         persisted with the accumulated body just before `done`.
         """
+        snap = await self.budget.check_can_chat(user)
         thread = await self._resolve_thread(user_id, thread_id)
         is_first_message = not thread.messages
 
@@ -94,9 +118,14 @@ class MessageService:
             },
         )
 
+        usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
-            user_message, thread.messages, user=user
+            user_message,
+            thread.messages,
+            user=user,
+            usage_out=usage,
+            perplexity_enabled=not snap.perplexity_degraded,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:
@@ -127,6 +156,13 @@ class MessageService:
 
         assistant_message = assistant_message.model_copy(update={"body": "".join(chunks)})
         await self.store.append_message(thread, assistant_message)
+
+        await self.budget.record_turn(
+            user=user,
+            thread_id=thread.id,
+            message_id=assistant_message.id,
+            usage=usage,
+        )
 
         yield (
             "done",

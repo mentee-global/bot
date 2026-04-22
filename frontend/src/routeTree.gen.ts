@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AuthErrorRouteImport } from './routes/auth.error'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminBudgetRouteImport } from './routes/admin.budget'
 import { Route as AdminActivityRouteImport } from './routes/admin.activity'
 import { Route as AdminActivityIndexRouteImport } from './routes/admin.activity.index'
 import { Route as AdminActivityThreadIdRouteImport } from './routes/admin.activity.$threadId'
@@ -49,6 +50,11 @@ const AdminUsersRoute = AdminUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminBudgetRoute = AdminBudgetRouteImport.update({
+  id: '/budget',
+  path: '/budget',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminActivityRoute = AdminActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/chat': typeof ChatRoute
   '/admin/activity': typeof AdminActivityRouteWithChildren
+  '/admin/budget': typeof AdminBudgetRoute
   '/admin/users': typeof AdminUsersRoute
   '/auth/error': typeof AuthErrorRoute
   '/admin/': typeof AdminIndexRoute
@@ -79,6 +86,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
+  '/admin/budget': typeof AdminBudgetRoute
   '/admin/users': typeof AdminUsersRoute
   '/auth/error': typeof AuthErrorRoute
   '/admin': typeof AdminIndexRoute
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/chat': typeof ChatRoute
   '/admin/activity': typeof AdminActivityRouteWithChildren
+  '/admin/budget': typeof AdminBudgetRoute
   '/admin/users': typeof AdminUsersRoute
   '/auth/error': typeof AuthErrorRoute
   '/admin/': typeof AdminIndexRoute
@@ -104,6 +113,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/chat'
     | '/admin/activity'
+    | '/admin/budget'
     | '/admin/users'
     | '/auth/error'
     | '/admin/'
@@ -113,6 +123,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/chat'
+    | '/admin/budget'
     | '/admin/users'
     | '/auth/error'
     | '/admin'
@@ -124,6 +135,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/chat'
     | '/admin/activity'
+    | '/admin/budget'
     | '/admin/users'
     | '/auth/error'
     | '/admin/'
@@ -182,6 +194,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/budget': {
+      id: '/admin/budget'
+      path: '/budget'
+      fullPath: '/admin/budget'
+      preLoaderRoute: typeof AdminBudgetRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/activity': {
       id: '/admin/activity'
       path: '/activity'
@@ -222,12 +241,14 @@ const AdminActivityRouteWithChildren = AdminActivityRoute._addFileChildren(
 
 interface AdminRouteChildren {
   AdminActivityRoute: typeof AdminActivityRouteWithChildren
+  AdminBudgetRoute: typeof AdminBudgetRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminActivityRoute: AdminActivityRouteWithChildren,
+  AdminBudgetRoute: AdminBudgetRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminIndexRoute: AdminIndexRoute,
 }

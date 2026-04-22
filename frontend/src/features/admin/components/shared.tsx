@@ -11,6 +11,14 @@ import {
 	PaginationPrevious,
 } from "#/components/ui/pagination";
 import { Skeleton } from "#/components/ui/Skeleton";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "#/components/ui/table";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -184,5 +192,103 @@ export function AdminShellSkeleton() {
 			<Skeleton className="h-8 w-48" />
 			<Skeleton className="mt-6 h-64 rounded-xl" />
 		</main>
+	);
+}
+
+export function DataTableSkeleton({
+	columns,
+	rows = 10,
+	fillHeight,
+}: {
+	columns: Array<{ width?: number; align?: "right" }>;
+	rows?: number;
+	fillHeight?: boolean;
+}) {
+	const rowIndexes = Array.from({ length: rows }, (_, i) => i);
+	return (
+		<Card
+			aria-busy
+			aria-label={m.admin_loading()}
+			className={cn(
+				"overflow-hidden p-0",
+				fillHeight &&
+					"flex min-h-0 flex-1 flex-col [&>[data-slot=table-container]]:min-h-0 [&>[data-slot=table-container]]:flex-1 [&>[data-slot=table-container]]:overflow-auto",
+			)}
+		>
+			<Table>
+				<TableHeader className={cn(fillHeight && "sticky top-0 z-10 bg-card")}>
+					<TableRow>
+						{columns.map((col, i) => (
+							<TableHead
+								// biome-ignore lint/suspicious/noArrayIndexKey: shape is static for a given page
+								key={i}
+								style={{ width: col.width || undefined }}
+							>
+								<Skeleton
+									className={cn(
+										"h-3.5 w-20",
+										col.align === "right" && "ml-auto",
+									)}
+								/>
+							</TableHead>
+						))}
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{rowIndexes.map((r) => (
+						<TableRow key={r}>
+							{columns.map((col, c) => (
+								<TableCell
+									// biome-ignore lint/suspicious/noArrayIndexKey: shape is static
+									key={c}
+								>
+									<Skeleton
+										className={cn(
+											"h-4",
+											col.align === "right" ? "ml-auto w-10" : "w-3/4",
+										)}
+									/>
+								</TableCell>
+							))}
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+		</Card>
+	);
+}
+
+export function MobileCardListSkeleton({ rows = 6 }: { rows?: number }) {
+	const items = Array.from({ length: rows }, (_, i) => i);
+	return (
+		<ul
+			className="flex flex-col gap-2"
+			aria-busy
+			aria-label={m.admin_loading()}
+		>
+			{items.map((i) => (
+				<li key={i} className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+					<Skeleton className="h-4 w-2/3" />
+					<Skeleton className="mt-2 h-3 w-1/2" />
+					<Skeleton className="mt-2 h-3 w-1/3" />
+				</li>
+			))}
+		</ul>
+	);
+}
+
+export function StatsTilesSkeleton({ count = 4 }: { count?: number }) {
+	const tiles = Array.from({ length: count }, (_, i) => i);
+	return (
+		<div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+			{tiles.map((i) => (
+				<Card key={i} className="gap-1.5 py-4">
+					<div className="px-4">
+						<Skeleton className="h-2.5 w-16" />
+						<Skeleton className="mt-2 h-6 w-12" />
+					</div>
+				</Card>
+			))}
+		</div>
 	);
 }

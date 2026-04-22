@@ -8,9 +8,10 @@ import { DataTable } from "#/features/admin/components/DataTable";
 import {
 	AdminPagination,
 	CompactDate,
+	DataTableSkeleton,
 	EmptyState,
 	ErrorState,
-	LoadingState,
+	MobileCardListSkeleton,
 	Muted,
 	ResultsCount,
 } from "#/features/admin/components/shared";
@@ -92,7 +93,7 @@ function ActivityIndexRoute() {
 			{
 				id: "owner",
 				header: m.admin_col_owner(),
-				accessorFn: (r) => r.owner_name || r.owner_email || r.owner_user_id,
+				accessorFn: (r) => r.owner_name || r.owner_email || r.user_id,
 				cell: ({ row }) => <OwnerCell thread={row.original} />,
 				sortingFn: "alphanumeric",
 			},
@@ -122,8 +123,34 @@ function ActivityIndexRoute() {
 			params: { threadId: thread.thread_id },
 		});
 
+	const skeletonColumns = useMemo(
+		() => [{}, {}, { width: 100, align: "right" as const }, { width: 160 }],
+		[],
+	);
+
+	if (threads.isPending && !data) {
+		return (
+			<section className="flex h-full min-h-0 flex-col gap-4">
+				<StatsTiles />
+				<Input
+					type="search"
+					value={queryInput}
+					onChange={(e) => setQueryInput(e.target.value)}
+					placeholder={m.admin_activity_search_placeholder()}
+					disabled
+				/>
+				<div className="min-h-0 flex-1 sm:hidden">
+					<MobileCardListSkeleton />
+				</div>
+				<div className="hidden min-h-0 flex-1 flex-col sm:flex">
+					<DataTableSkeleton columns={skeletonColumns} rows={12} fillHeight />
+				</div>
+			</section>
+		);
+	}
+
 	return (
-		<section className="flex flex-col gap-4">
+		<section className="flex h-full min-h-0 flex-col gap-4">
 			<StatsTiles />
 
 			<Input
@@ -133,9 +160,7 @@ function ActivityIndexRoute() {
 				placeholder={m.admin_activity_search_placeholder()}
 			/>
 
-			{threads.isPending && !data ? (
-				<LoadingState />
-			) : threads.isError ? (
+			{threads.isError ? (
 				<ErrorState message={threads.error.message} />
 			) : rows.length === 0 && !threads.isFetching ? (
 				<EmptyState
@@ -154,7 +179,7 @@ function ActivityIndexRoute() {
 						shown={rows.length}
 					/>
 					{/* Mobile: stacked cards. */}
-					<ul className="flex flex-col gap-2 sm:hidden">
+					<ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:hidden">
 						{rows.map((t) => (
 							<li key={t.thread_id}>
 								<button
@@ -179,8 +204,8 @@ function ActivityIndexRoute() {
 							</li>
 						))}
 					</ul>
-					{/* Desktop: sortable data table with its own scroll cap. */}
-					<div className="hidden sm:block">
+					{/* Desktop: sortable data table that flex-fills the admin shell. */}
+					<div className="hidden min-h-0 flex-1 flex-col sm:flex">
 						<DataTable
 							data={rows}
 							columns={columns}

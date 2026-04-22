@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { sessionQueryOptions } from "#/features/auth/data/auth.service";
@@ -7,6 +7,7 @@ import {
 	useLogoutMutation,
 	useSession,
 } from "#/features/auth/hooks/useSession";
+import { CreditsPill } from "#/features/budget/components/CreditsPill";
 import { ChatInput } from "#/features/chat/components/ChatInput";
 import { MessageListSkeleton } from "#/features/chat/components/ChatSkeletons";
 import { ChatWelcome } from "#/features/chat/components/ChatWelcome";
@@ -53,10 +54,6 @@ function ChatPage() {
 		if (session.isPending) return;
 		if (!session.data) {
 			navigate({ to: "/" });
-			return;
-		}
-		if (session.data.role === "admin") {
-			navigate({ to: "/admin" });
 		}
 	}, [session.isPending, session.data, navigate]);
 
@@ -68,13 +65,16 @@ function ChatPage() {
 		);
 	}
 
-	if (!session.data || session.data.role === "admin") {
+	if (!session.data) {
 		return null;
 	}
 
 	return (
 		<PageShell>
-			<ChatView userName={session.data.name} />
+			<ChatView
+				userName={session.data.name}
+				isAdmin={session.data.role === "admin"}
+			/>
 		</PageShell>
 	);
 }
@@ -101,7 +101,13 @@ function ChatViewSkeleton() {
 	);
 }
 
-function ChatView({ userName }: { userName: string }) {
+function ChatView({
+	userName,
+	isAdmin,
+}: {
+	userName: string;
+	isAdmin: boolean;
+}) {
 	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
 
@@ -210,6 +216,17 @@ function ChatView({ userName }: { userName: string }) {
 							{m.chat_signed_in_as({ name: userName })}
 						</p>
 					</div>
+					<div className="hidden sm:block">
+						<CreditsPill />
+					</div>
+					{isAdmin ? (
+						<Link
+							to="/admin"
+							className="shrink-0 text-sm font-medium text-[var(--theme-muted)] underline-offset-4 transition hover:text-[var(--theme-primary)] hover:underline"
+						>
+							{m.chat_admin_panel_link()}
+						</Link>
+					) : null}
 					<button
 						type="button"
 						onClick={() => logout.mutate()}

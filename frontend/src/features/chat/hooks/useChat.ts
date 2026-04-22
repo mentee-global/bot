@@ -4,6 +4,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
+import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import type {
 	SendMessageResponse,
@@ -86,6 +87,7 @@ export function useDeleteThreadMutation() {
 		onSuccess: (_data, threadId) => {
 			queryClient.removeQueries({ queryKey: chatKeys.thread(threadId) });
 			queryClient.invalidateQueries({ queryKey: chatKeys.threadsRoot() });
+			queryClient.invalidateQueries({ queryKey: budgetKeys.me() });
 		},
 	});
 }

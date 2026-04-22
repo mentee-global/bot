@@ -17,14 +17,14 @@ export function useAdminUsersQuery(params: UserListParams = {}) {
 }
 
 export function useAdminUserThreadsQuery(
-	menteeSub: string | null,
+	userId: string | null,
 	params: ThreadListParams = {},
 ) {
-	return useQuery(adminUserThreadsQueryOptions(menteeSub ?? "", params));
+	return useQuery(adminUserThreadsQueryOptions(userId ?? "", params));
 }
 
-export function useAdminUserSessionsQuery(menteeSub: string | null) {
-	return useQuery(adminUserSessionsQueryOptions(menteeSub ?? ""));
+export function useAdminUserSessionsQuery(userId: string | null) {
+	return useQuery(adminUserSessionsQueryOptions(userId ?? ""));
 }
 
 export function useAdminThreadQuery(threadId: string | null) {
@@ -53,10 +53,10 @@ export function useDeleteThreadMutation() {
 export function useForceLogoutMutation() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (menteeSub: string) => adminService.forceLogout(menteeSub),
-		onSuccess: (_, menteeSub) => {
+		mutationFn: (userId: string) => adminService.forceLogout(userId),
+		onSuccess: (_, userId) => {
 			queryClient.invalidateQueries({
-				queryKey: adminKeys.userSessions(menteeSub),
+				queryKey: adminKeys.userSessions(userId),
 			});
 			queryClient.invalidateQueries({ queryKey: adminKeys.all });
 		},

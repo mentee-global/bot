@@ -76,6 +76,16 @@ async def search_perplexity(
             "on web_search results only.",
         )
 
+    if not ctx.deps.perplexity_enabled:
+        # Silent degrade: the monthly Perplexity sub-budget is near-exhausted.
+        # Tell the model to fall back to web_search so the mentee still gets a
+        # grounded answer without blowing the cap.
+        return insufficient_context(
+            ["perplexity_quota"],
+            "Perplexity is temporarily unavailable this month. Rely on "
+            "web_search results only.",
+        )
+
     if not query or not query.strip():
         return insufficient_context(
             ["query"],
@@ -113,6 +123,11 @@ async def search_perplexity(
                 "message": "Perplexity search failed; rely on web_search results.",
             }
         )
+
+    ctx.deps.usage.record_perplexity(
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
 
     return ok(
         {

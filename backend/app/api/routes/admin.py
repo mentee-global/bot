@@ -15,18 +15,21 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.api.deps import (
+    get_budget_service,
     get_message_service,
     get_session_store,
     require_admin,
 )
-from app.auth.db_models import SessionRecord
+from app.auth.db_models import UserRecord
 from app.auth.session_store import SessionStore
+from app.budget.service import BudgetService
 from app.db.engine import async_session_factory
 from app.domain.models import Message, User
 from app.services.db_models import MessageRecord, ThreadRecord
@@ -48,14 +51,19 @@ router = APIRouter(
 
 
 class AdminUserSummary(BaseModel):
+    user_id: str
     mentee_sub: str
     email: str
     name: str
     role: str
     role_id: int
     picture: str | None = None
-    last_used_at: datetime
+    last_used_at: datetime | None = None
     created_at: datetime
+    credits_remaining: int | None = None
+    credits_used_period: int | None = None
+    credits_granted_period: int | None = None
+    cost_period_micros: int | None = None
 
 
 class AdminUserListResponse(BaseModel):
@@ -68,7 +76,7 @@ class AdminUserListResponse(BaseModel):
 class AdminThreadSummary(BaseModel):
     thread_id: str
     title: str | None = None
-    owner_user_id: str
+    user_id: str
     owner_email: str | None = None
     owner_name: str | None = None
     message_count: int
@@ -86,7 +94,7 @@ class AdminThreadListResponse(BaseModel):
 class AdminThreadResponse(BaseModel):
     thread_id: str
     title: str | None = None
-    owner_user_id: str
+    user_id: str
     owner_email: str | None = None
     owner_name: str | None = None
     created_at: datetime
@@ -109,7 +117,7 @@ class AdminSessionRow(BaseModel):
 
 
 class AdminUserSessionsResponse(BaseModel):
-    mentee_sub: str
+    user_id: str
     session_count: int
     first_seen: datetime | None
     last_active: datetime | None
@@ -130,9 +138,7 @@ async def get_stats() -> AdminStatsResponse:
     """Four platform-wide counts. Issued concurrently for latency."""
     cutoff = datetime.now(UTC) - timedelta(hours=24)
     users, threads, messages, messages_24h = await asyncio.gather(
-        _scalar(
-            select(func.count(func.distinct(SessionRecord.mentee_sub)))
-        ),
+        _scalar(select(func.count()).select_from(UserRecord)),
         _scalar(select(func.count()).select_from(ThreadRecord)),
         _scalar(select(func.count()).select_from(MessageRecord)),
         _scalar(
@@ -160,6 +166,7 @@ def _normalize_page(page: int | None) -> int:
 @router.get("/users", response_model=AdminUserListResponse)
 async def list_users(
     sessions: Annotated[SessionStore, Depends(get_session_store)],
+    budget: Annotated[BudgetService, Depends(get_budget_service)],
     q: str | None = None,
     role: str | None = None,
     page: int | None = None,
@@ -169,13 +176,17 @@ async def list_users(
     query = (q or "").strip() or None
     role_filter = (role or "").strip() or None
     rows, total = await asyncio.gather(
-        sessions.list_distinct_users(
+        sessions.list_users(
             limit=_PAGE_SIZE, offset=offset, role=role_filter, query=query
         ),
-        sessions.count_distinct_users(role=role_filter, query=query),
+        sessions.count_users(role=role_filter, query=query),
     )
+    quotas = await budget.list_user_quotas([user.id for user, _ in rows])
     return AdminUserListResponse(
-        users=[_user_summary(row) for row in rows],
+        users=[
+            _user_summary(user, last_used_at, quotas.get(user.id))
+            for user, last_used_at in rows
+        ],
         total=total,
         page=page,
         page_size=_PAGE_SIZE,
@@ -183,10 +194,10 @@ async def list_users(
 
 
 @router.get(
-    "/users/{mentee_sub}/threads", response_model=AdminThreadListResponse
+    "/users/{user_id}/threads", response_model=AdminThreadListResponse
 )
 async def list_user_threads(
-    mentee_sub: str,
+    user_id: UUID,
     service: Annotated[MessageService, Depends(get_message_service)],
     sessions: Annotated[SessionStore, Depends(get_session_store)],
     q: str | None = None,
@@ -195,16 +206,17 @@ async def list_user_threads(
     page = _normalize_page(page)
     offset = (page - 1) * _PAGE_SIZE
     query = (q or "").strip() or None
+    uid_str = str(user_id)
     threads, total = await asyncio.gather(
         service.store.list_threads(
-            mentee_sub, query=query, limit=_PAGE_SIZE, offset=offset
+            uid_str, query=query, limit=_PAGE_SIZE, offset=offset
         ),
-        service.store.count_threads(mentee_sub, query=query),
+        service.store.count_threads(uid_str, query=query),
     )
     counts = await service.store.count_messages_for_threads(
         [t.id for t in threads]
     )
-    owners = await _resolve_owners(sessions, [t.owner_user_id for t in threads])
+    owners = await _resolve_owners(sessions, [t.user_id for t in threads])
     return AdminThreadListResponse(
         threads=[_thread_summary(t, counts, owners) for t in threads],
         total=total,
@@ -214,16 +226,16 @@ async def list_user_threads(
 
 
 @router.get(
-    "/users/{mentee_sub}/sessions",
+    "/users/{user_id}/sessions",
     response_model=AdminUserSessionsResponse,
 )
 async def get_user_sessions(
-    mentee_sub: str,
+    user_id: UUID,
     sessions: Annotated[SessionStore, Depends(get_session_store)],
 ) -> AdminUserSessionsResponse:
-    rows = await sessions.list_sessions_for_user(mentee_sub, limit=10)
+    rows = await sessions.list_sessions_for_user(user_id, limit=10)
     return AdminUserSessionsResponse(
-        mentee_sub=mentee_sub,
+        user_id=str(user_id),
         session_count=len(rows),
         first_seen=min((r.created_at for r in rows), default=None),
         last_active=max((r.last_used_at for r in rows), default=None),
@@ -258,7 +270,7 @@ async def list_all_threads(
     counts = await service.store.count_messages_for_threads(
         [t.id for t in threads]
     )
-    owners = await _resolve_owners(sessions, [t.owner_user_id for t in threads])
+    owners = await _resolve_owners(sessions, [t.user_id for t in threads])
     return AdminThreadListResponse(
         threads=[_thread_summary(t, counts, owners) for t in threads],
         total=total,
@@ -279,12 +291,12 @@ async def read_thread(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
         ) from err
-    owners = await _resolve_owners(sessions, [thread.owner_user_id])
-    owner = owners.get(thread.owner_user_id)
+    owners = await _resolve_owners(sessions, [thread.user_id])
+    owner = owners.get(thread.user_id)
     return AdminThreadResponse(
         thread_id=thread.id,
         title=thread.title,
-        owner_user_id=thread.owner_user_id,
+        user_id=thread.user_id,
         owner_email=owner[0] if owner else None,
         owner_name=owner[1] if owner else None,
         created_at=thread.created_at,
@@ -318,19 +330,19 @@ async def delete_thread(
 
 
 @router.post(
-    "/users/{mentee_sub}/force-logout",
+    "/users/{user_id}/force-logout",
     response_model=AdminForceLogoutResponse,
 )
 async def force_logout(
-    mentee_sub: str,
+    user_id: UUID,
     sessions: Annotated[SessionStore, Depends(get_session_store)],
     actor: Annotated[User, Depends(require_admin)],
 ) -> AdminForceLogoutResponse:
-    deleted = await sessions.delete_all_for_user(mentee_sub)
+    deleted = await sessions.delete_all_for_user(user_id)
     logger.warning(
         "admin force_logout: actor=%s target=%s sessions_deleted=%d",
         actor.email,
-        mentee_sub,
+        user_id,
         deleted,
     )
     return AdminForceLogoutResponse(sessions_deleted=deleted)
@@ -347,16 +359,23 @@ async def _scalar(stmt) -> int:  # type: ignore[no-untyped-def]
         return int(result.scalar_one() or 0)
 
 
-def _user_summary(row: SessionRecord) -> AdminUserSummary:
+def _user_summary(
+    user: UserRecord, last_used_at: datetime | None, quota=None  # type: ignore[no-untyped-def]
+) -> AdminUserSummary:
     return AdminUserSummary(
-        mentee_sub=row.mentee_sub,
-        email=row.email,
-        name=row.name,
-        role=row.role,
-        role_id=row.role_id,
-        picture=row.picture,
-        last_used_at=row.last_used_at,
-        created_at=row.created_at,
+        user_id=str(user.id),
+        mentee_sub=user.mentee_sub,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        role_id=user.role_id,
+        picture=user.picture,
+        last_used_at=last_used_at,
+        created_at=user.created_at,
+        credits_remaining=quota.credits_remaining if quota else None,
+        credits_used_period=quota.credits_used_period if quota else None,
+        credits_granted_period=quota.credits_granted_period if quota else None,
+        cost_period_micros=None,  # available on the detail endpoint to avoid N+1.
     )
 
 
@@ -365,11 +384,11 @@ def _thread_summary(  # type: ignore[no-untyped-def]
     counts: dict[str, int],
     owners: dict[str, tuple[str | None, str | None]],
 ) -> AdminThreadSummary:
-    owner = owners.get(thread.owner_user_id, (None, None))
+    owner = owners.get(thread.user_id, (None, None))
     return AdminThreadSummary(
         thread_id=thread.id,
         title=thread.title,
-        owner_user_id=thread.owner_user_id,
+        user_id=thread.user_id,
         owner_email=owner[0],
         owner_name=owner[1],
         message_count=counts.get(thread.id, 0),
@@ -381,9 +400,11 @@ def _thread_summary(  # type: ignore[no-untyped-def]
 async def _resolve_owners(
     sessions: SessionStore, user_ids: list[str]
 ) -> dict[str, tuple[str | None, str | None]]:
-    """Return `mentee_sub -> (email, name)` for the given ids. Missing ids are
-    omitted; callers should treat them as unknown."""
-    unique = list({uid for uid in user_ids if uid})
-    if not unique:
+    """Return `user_id (str) -> (email, name)` for the given ids. Missing ids
+    are omitted; callers should treat them as unknown."""
+    unique_strs = list({uid for uid in user_ids if uid})
+    if not unique_strs:
         return {}
-    return await sessions.get_identities(unique)
+    uuids = [UUID(uid) for uid in unique_strs]
+    resolved = await sessions.get_identities(uuids)
+    return {str(uid): identity for uid, identity in resolved.items()}

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
+import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import { streamChatMessage } from "#/features/chat/data/chat.stream";
 import type {
@@ -243,6 +244,7 @@ export function useStreamMessage(threadId: string | null | undefined) {
 			if (titleFromMeta) {
 				queryClient.invalidateQueries({ queryKey: chatKeys.threadsRoot() });
 			}
+			queryClient.invalidateQueries({ queryKey: budgetKeys.me() });
 		},
 	});
 

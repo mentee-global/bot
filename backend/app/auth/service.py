@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.auth.crypto import decrypt
-from app.auth.db_models import SessionRecord
+from app.auth.db_models import SessionRecord, UserRecord
 from app.auth.errors import (
     AuthError,
     RefreshFailedError,
@@ -84,7 +84,7 @@ class AuthService:
         # userinfo is authoritative over id_token for user-visible fields.
         merged: dict[str, Any] = {**bundle.id_token_claims, **profile}
         session_id = secrets.token_urlsafe(32)
-        await self._sessions.create(
+        user_row, _session_row = await self._sessions.create(
             session_id=session_id,
             claims=merged,
             access_token=bundle.access_token,
@@ -95,17 +95,18 @@ class AuthService:
         logger.info(
             "login completed: session %s, role=%s",
             session_id[:8],
-            merged.get("role", "?"),
+            user_row.role or "?",
         )
-        return _claims_to_user(merged), session_id, state_row.redirect_to
+        return _user_from_row(user_row), session_id, state_row.redirect_to
 
     async def current_user(self, session_id: str) -> User:
-        row = await self._sessions.get_and_touch(session_id)
-        if row is None:
+        loaded = await self._sessions.get_and_touch_with_user(session_id)
+        if loaded is None:
             raise AuthError("Unknown session")
-        if row.access_token_expires_at <= _now() + timedelta(seconds=60):
-            row = await self._refresh(row)
-        return _row_to_user(row)
+        session_row, user_row = loaded
+        if session_row.access_token_expires_at <= _now() + timedelta(seconds=60):
+            session_row, user_row = await self._refresh(session_row)
+        return _user_from_row(user_row)
 
     async def logout(self, session_id: str) -> None:
         row = await self._sessions.get(session_id)
@@ -117,7 +118,9 @@ class AuthService:
         await self._sessions.delete(session_id)
         logger.info("logout for session %s", session_id[:8])
 
-    async def _refresh(self, row: SessionRecord) -> SessionRecord:
+    async def _refresh(
+        self, row: SessionRecord
+    ) -> tuple[SessionRecord, UserRecord]:
         if row.refresh_token_enc is None:
             await self._sessions.delete(row.session_id)
             raise RefreshFailedError("No refresh token stored")
@@ -156,32 +159,20 @@ class AuthService:
             refresh_token=bundle.refresh_token,
             profile=profile,
         )
-        refreshed = await self._sessions.get(row.session_id)
+        refreshed = await self._sessions.get_and_touch_with_user(row.session_id)
         assert refreshed is not None
         return refreshed
 
 
-def _claims_to_user(claims: dict[str, Any]) -> User:
+def _user_from_row(user: UserRecord) -> User:
     return User(
-        id=str(claims["sub"]),
-        email=str(claims["email"]),
-        name=str(claims.get("name", "")),
-        role=str(claims.get("role", "")),
-        role_id=int(claims.get("role_id", 0)),
-        picture=claims.get("picture"),
-        preferred_language=claims.get("preferred_language"),
-        timezone=claims.get("timezone"),
-    )
-
-
-def _row_to_user(row: SessionRecord) -> User:
-    return User(
-        id=row.mentee_sub,
-        email=row.email,
-        name=row.name,
-        role=row.role,
-        role_id=row.role_id,
-        picture=row.picture,
-        preferred_language=row.preferred_language,
-        timezone=row.timezone,
+        id=str(user.id),
+        mentee_sub=user.mentee_sub,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        role_id=user.role_id,
+        picture=user.picture,
+        preferred_language=user.preferred_language,
+        timezone=user.timezone,
     )

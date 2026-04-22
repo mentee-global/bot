@@ -10,6 +10,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, get_message_service, require_session
+from app.budget.service import (
+    BudgetError,
+    GlobalBudgetExhaustedError,
+    QuotaExhaustedError,
+)
 from app.domain.models import Message, User
 from app.services.message_service import MessageService
 from app.services.thread_store import ThreadNotFoundError
@@ -74,6 +79,23 @@ async def send_message(
                 user=user,
                 thread_id=payload.thread_id,
             )
+        except QuotaExhaustedError as err:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "code": "quota_exhausted",
+                    "credits_remaining": err.credits_remaining,
+                    "resets_at": err.resets_at.isoformat(),
+                },
+            ) from err
+        except GlobalBudgetExhaustedError as err:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "budget_exhausted",
+                    "resets_at": err.resets_at.isoformat(),
+                },
+            ) from err
         except ThreadNotFoundError as err:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
@@ -116,6 +138,28 @@ async def stream_message(
                     thread_id=payload.thread_id,
                 ):
                     yield _sse(event, data)
+            except QuotaExhaustedError as err:
+                yield _sse(
+                    "error",
+                    {
+                        "code": "quota_exhausted",
+                        "credits_remaining": err.credits_remaining,
+                        "resets_at": err.resets_at.isoformat(),
+                    },
+                )
+            except GlobalBudgetExhaustedError as err:
+                yield _sse(
+                    "error",
+                    {
+                        "code": "budget_exhausted",
+                        "resets_at": err.resets_at.isoformat(),
+                    },
+                )
+            except BudgetError:
+                yield _sse(
+                    "error",
+                    {"code": "budget_error", "message": "Chat is paused."},
+                )
             except ThreadNotFoundError:
                 yield _sse(
                     "error",

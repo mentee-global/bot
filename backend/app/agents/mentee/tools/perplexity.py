@@ -20,6 +20,8 @@ from perplexity import AsyncPerplexity
 class PerplexityAnswer:
     answer: str
     citations: list[str]
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 async def call_perplexity(
@@ -50,4 +52,14 @@ async def call_perplexity(
             answer = str(message.content)
 
     citations = list(response.citations) if response.citations else []
-    return PerplexityAnswer(answer=answer, citations=citations)
+    # Usage fields are optional on the Perplexity SDK; default to 0 so the
+    # budget ledger still records the request fee even if tokens are missing.
+    usage = getattr(response, "usage", None)
+    input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+    output_tokens = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+    return PerplexityAnswer(
+        answer=answer,
+        citations=citations,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )

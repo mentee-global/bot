@@ -24,7 +24,7 @@ class Message(BaseModel):
 
 class Thread(BaseModel):
     id: str = Field(default_factory=_uuid)
-    owner_user_id: str
+    user_id: str
     title: str | None = None
     messages: list[Message] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_now)
@@ -33,6 +33,7 @@ class Thread(BaseModel):
 
 class User(BaseModel):
     id: str
+    mentee_sub: str
     email: EmailStr
     name: str
     role: str

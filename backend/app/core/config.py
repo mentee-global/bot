@@ -47,8 +47,12 @@ class Settings(BaseSettings):
 
     # Agent
     openai_api_key: SecretStr | None = None
+    # Separate admin-scoped key for the /v1/organization/costs endpoint —
+    # generated at platform.openai.com/settings/organization/admin-keys. Leave
+    # unset to skip provider-side spend pulls and show "not available" in UI.
+    openai_admin_api_key: SecretStr | None = None
     perplexity_api_key: SecretStr | None = None
-    perplexity_model: str = "sonar-pro"
+    perplexity_model: str = "sonar"
     agent_impl: Literal["mock", "mentee"] = "mock"
     agent_model: str = "gpt-5.4-mini"
     agent_request_timeout_s: float = 30.0

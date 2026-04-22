@@ -10,6 +10,7 @@ from app.auth.oauth_client import MenteeOAuthClient
 from app.auth.service import AuthService
 from app.auth.session_store import SessionStore
 from app.auth.state_store import StateStore
+from app.budget.service import BudgetService
 from app.core.config import Settings, settings
 from app.domain.models import User
 from app.services.message_service import MessageService
@@ -36,7 +37,8 @@ def _build_store(s: Settings) -> ThreadStore:
 # Process-wide singletons. Swap with a proper DI container when scope grows.
 _store: ThreadStore = _build_store(settings)
 _agent: AgentPort = _build_agent(settings)
-_service = MessageService(store=_store, agent=_agent)
+_budget = BudgetService()
+_service = MessageService(store=_store, agent=_agent, budget=_budget)
 
 _http: httpx.AsyncClient | None = None
 _oauth_client: MenteeOAuthClient | None = None
@@ -94,6 +96,10 @@ def get_session_store() -> SessionStore:
 
 def get_message_service() -> MessageService:
     return _service
+
+
+def get_budget_service() -> BudgetService:
+    return _budget
 
 
 async def _resolve_session(

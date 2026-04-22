@@ -24,9 +24,10 @@ import {
 	AdminPagination,
 	BackLink,
 	CompactDate,
+	DataTableSkeleton,
 	EmptyState,
 	ErrorState,
-	LoadingState,
+	MobileCardListSkeleton,
 	Muted,
 	ResultsCount,
 	RolePill,
@@ -51,6 +52,9 @@ import {
 	useAdminUserThreadsQuery,
 	useForceLogoutMutation,
 } from "#/features/admin/hooks/useAdmin";
+import { UsageHistoryList } from "#/features/budget/components/UsageHistoryList";
+import { UserQuotaCard } from "#/features/budget/components/UserQuotaCard";
+import { useBudgetUserUsageQuery } from "#/features/budget/hooks/useBudget";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
 import { m } from "#/paraglide/messages";
 
@@ -142,8 +146,8 @@ function UsersList() {
 	const total = data?.total ?? 0;
 	const pageSize = data?.page_size ?? 25;
 
-	const handleSelect = (menteeSub: string) =>
-		navigate({ to: "/admin/users", search: { userId: menteeSub } });
+	const handleSelect = (id: string) =>
+		navigate({ to: "/admin/users", search: { userId: id } });
 
 	const handleRoleChange = (next: string | undefined) => {
 		navigate({
@@ -182,21 +186,76 @@ function UsersList() {
 				size: 120,
 			},
 			{
+				id: "credits",
+				header: "Credits",
+				accessorFn: (u) => u.credits_remaining ?? -1,
+				cell: ({ row }) => {
+					const u = row.original;
+					if (u.credits_remaining == null) return <Muted>—</Muted>;
+					const granted = u.credits_granted_period ?? 0;
+					return (
+						<span className="tabular-nums">
+							{u.credits_remaining}
+							<span className="text-muted-foreground"> / {granted}</span>
+						</span>
+					);
+				},
+				size: 130,
+			},
+			{
 				id: "last_seen",
 				header: m.admin_col_last_seen(),
-				accessorFn: (u) => new Date(u.last_used_at).getTime(),
-				cell: ({ row }) => <CompactDate iso={row.original.last_used_at} />,
+				accessorFn: (u) =>
+					u.last_used_at ? new Date(u.last_used_at).getTime() : 0,
+				cell: ({ row }) =>
+					row.original.last_used_at ? (
+						<CompactDate iso={row.original.last_used_at} />
+					) : (
+						<Muted>—</Muted>
+					),
 				size: 160,
 			},
 		],
 		[],
 	);
 
-	if (users.isPending && !data) return <LoadingState />;
+	const userSkeletonColumns = useMemo(
+		() => [{}, {}, { width: 120 }, { width: 130 }, { width: 160 }],
+		[],
+	);
+
+	if (users.isPending && !data) {
+		return (
+			<section className="flex h-full min-h-0 flex-col gap-4">
+				<div className="flex flex-wrap items-center gap-2">
+					<div className="min-w-[12rem] flex-1">
+						<Input
+							type="search"
+							value={queryInput}
+							onChange={(e) => setQueryInput(e.target.value)}
+							placeholder={m.admin_user_search_placeholder()}
+							disabled
+						/>
+					</div>
+					<RoleFilter value={role} onChange={handleRoleChange} />
+				</div>
+				<div className="min-h-0 flex-1 sm:hidden">
+					<MobileCardListSkeleton />
+				</div>
+				<div className="hidden min-h-0 flex-1 flex-col sm:flex">
+					<DataTableSkeleton
+						columns={userSkeletonColumns}
+						rows={12}
+						fillHeight
+					/>
+				</div>
+			</section>
+		);
+	}
 	if (users.isError) return <ErrorState message={users.error.message} />;
 
 	return (
-		<section className="flex flex-col gap-4">
+		<section className="flex h-full min-h-0 flex-col gap-4">
 			<div className="flex flex-wrap items-center gap-2">
 				<div className="min-w-[12rem] flex-1">
 					<Input
@@ -226,21 +285,21 @@ function UsersList() {
 						shown={rows.length}
 					/>
 					{/* Mobile: stacked cards. */}
-					<ul className="flex flex-col gap-2 sm:hidden">
+					<ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:hidden">
 						{rows.map((user) => (
 							<UserCard
-								key={user.mentee_sub}
+								key={user.user_id}
 								user={user}
-								onSelect={() => handleSelect(user.mentee_sub)}
+								onSelect={() => handleSelect(user.user_id)}
 							/>
 						))}
 					</ul>
-					{/* Desktop: sortable data table. */}
-					<div className="hidden sm:block">
+					{/* Desktop: sortable data table that flex-fills the admin shell. */}
+					<div className="hidden min-h-0 flex-1 flex-col sm:flex">
 						<DataTable
 							data={rows}
 							columns={userColumns}
-							onRowClick={(u) => handleSelect(u.mentee_sub)}
+							onRowClick={(u) => handleSelect(u.user_id)}
 							isFetching={users.isFetching}
 							initialSorting={[{ id: "last_seen", desc: true }]}
 							fillHeight
@@ -295,7 +354,11 @@ function UserCard({
 					<RolePill role={user.role} />
 				</div>
 				<p className="m-0 mt-2 text-xs text-muted-foreground">
-					<CompactDate iso={user.last_used_at} />
+					{user.last_used_at ? (
+						<CompactDate iso={user.last_used_at} />
+					) : (
+						<Muted>—</Muted>
+					)}
 				</p>
 			</button>
 		</li>
@@ -340,7 +403,7 @@ function UserDetailView({ userId }: { userId: string }) {
 	const users = useAdminUsersQuery();
 	const navigate = useNavigate();
 
-	const user = users.data?.users.find((u) => u.mentee_sub === userId);
+	const user = users.data?.users.find((u) => u.user_id === userId);
 	const displayName = user?.name || user?.email || userId;
 
 	const data = threads.data;
@@ -383,11 +446,17 @@ function UserDetailView({ userId }: { userId: string }) {
 		[],
 	);
 
-	if (threads.isPending && !data) return <LoadingState />;
+	const threadSkeletonColumns = useMemo(
+		() => [{}, { width: 100, align: "right" as const }, { width: 160 }],
+		[],
+	);
+
 	if (threads.isError) return <ErrorState message={threads.error.message} />;
 
+	const threadsPending = threads.isPending && !data;
+
 	return (
-		<section className="flex flex-col gap-5">
+		<section className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto">
 			<BackLink onClick={() => navigate({ to: "/admin/users", search: {} })}>
 				{m.admin_back_users()}
 			</BackLink>
@@ -403,11 +472,22 @@ function UserDetailView({ userId }: { userId: string }) {
 
 			<UserSessionsPanel userId={userId} displayName={displayName} />
 
+			<UserBudgetPanel userId={userId} />
+
 			<div>
 				<h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
 					{m.admin_threads_heading()}
 				</h3>
-				{rows.length === 0 && !threads.isFetching ? (
+				{threadsPending ? (
+					<div className="flex flex-col gap-3">
+						<div className="sm:hidden">
+							<MobileCardListSkeleton rows={4} />
+						</div>
+						<div className="hidden sm:block">
+							<DataTableSkeleton columns={threadSkeletonColumns} rows={6} />
+						</div>
+					</div>
+				) : rows.length === 0 && !threads.isFetching ? (
 					<EmptyState message={m.admin_threads_empty()} />
 				) : (
 					<div className="flex flex-col gap-3">
@@ -446,7 +526,6 @@ function UserDetailView({ userId }: { userId: string }) {
 								onRowClick={(t) => handleSelect(t.thread_id)}
 								isFetching={threads.isFetching}
 								initialSorting={[{ id: "updated", desc: true }]}
-								fillHeight
 							/>
 						</div>
 						<AdminPagination
@@ -467,6 +546,31 @@ function UserDetailView({ userId }: { userId: string }) {
 				)}
 			</div>
 		</section>
+	);
+}
+
+function UserBudgetPanel({ userId }: { userId: string }) {
+	const usage = useBudgetUserUsageQuery(userId);
+	if (usage.isPending) {
+		return <p className="m-0 text-sm text-muted-foreground">Loading quota…</p>;
+	}
+	if (usage.isError) {
+		return (
+			<p className="m-0 text-sm text-destructive">{usage.error.message}</p>
+		);
+	}
+	const data = usage.data;
+	if (!data) return null;
+	return (
+		<div className="flex flex-col gap-3">
+			<UserQuotaCard data={data} />
+			<div>
+				<h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+					Recent usage
+				</h3>
+				<UsageHistoryList rows={data.recent_usage} />
+			</div>
+		</div>
 	);
 }
 

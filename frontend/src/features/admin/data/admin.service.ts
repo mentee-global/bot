@@ -41,12 +41,12 @@ export const adminService = {
 			signal,
 		),
 	listUserThreads: (
-		menteeSub: string,
+		userId: string,
 		params: ThreadListParams = {},
 		signal?: AbortSignal,
 	) =>
 		api.get<AdminThreadListResponse>(
-			`/api/admin/users/${encodeURIComponent(menteeSub)}/threads${buildQuery({
+			`/api/admin/users/${encodeURIComponent(userId)}/threads${buildQuery({
 				q: params.query,
 				page: params.page,
 			})}`,
@@ -67,16 +67,16 @@ export const adminService = {
 		),
 	getStats: (signal?: AbortSignal) =>
 		api.get<AdminStatsResponse>("/api/admin/stats", signal),
-	getUserSessions: (menteeSub: string, signal?: AbortSignal) =>
+	getUserSessions: (userId: string, signal?: AbortSignal) =>
 		api.get<AdminUserSessionsResponse>(
-			`/api/admin/users/${encodeURIComponent(menteeSub)}/sessions`,
+			`/api/admin/users/${encodeURIComponent(userId)}/sessions`,
 			signal,
 		),
 	deleteThread: (threadId: string) =>
 		api.delete<void>(`/api/admin/threads/${encodeURIComponent(threadId)}`),
-	forceLogout: (menteeSub: string) =>
+	forceLogout: (userId: string) =>
 		api.post<AdminForceLogoutResponse>(
-			`/api/admin/users/${encodeURIComponent(menteeSub)}/force-logout`,
+			`/api/admin/users/${encodeURIComponent(userId)}/force-logout`,
 		),
 };
 
@@ -84,10 +84,10 @@ export const adminKeys = {
 	all: ["admin"] as const,
 	users: (params: UserListParams = {}) =>
 		[...adminKeys.all, "users", params] as const,
-	userThreads: (menteeSub: string, params: ThreadListParams = {}) =>
-		[...adminKeys.all, "userThreads", menteeSub, params] as const,
-	userSessions: (menteeSub: string) =>
-		[...adminKeys.all, "userSessions", menteeSub] as const,
+	userThreads: (userId: string, params: ThreadListParams = {}) =>
+		[...adminKeys.all, "userThreads", userId, params] as const,
+	userSessions: (userId: string) =>
+		[...adminKeys.all, "userSessions", userId] as const,
 	thread: (threadId: string) => [...adminKeys.all, "thread", threadId] as const,
 	allThreads: (params: ThreadListParams = {}) =>
 		[...adminKeys.all, "allThreads", params] as const,
@@ -103,23 +103,23 @@ export const adminUsersQueryOptions = (params: UserListParams = {}) =>
 	});
 
 export const adminUserThreadsQueryOptions = (
-	menteeSub: string,
+	userId: string,
 	params: ThreadListParams = {},
 ) =>
 	queryOptions({
-		queryKey: adminKeys.userThreads(menteeSub, params),
+		queryKey: adminKeys.userThreads(userId, params),
 		queryFn: ({ signal }) =>
-			adminService.listUserThreads(menteeSub, params, signal),
-		enabled: Boolean(menteeSub),
+			adminService.listUserThreads(userId, params, signal),
+		enabled: Boolean(userId),
 		staleTime: 30 * 1000,
 		placeholderData: keepPreviousData,
 	});
 
-export const adminUserSessionsQueryOptions = (menteeSub: string) =>
+export const adminUserSessionsQueryOptions = (userId: string) =>
 	queryOptions({
-		queryKey: adminKeys.userSessions(menteeSub),
-		queryFn: ({ signal }) => adminService.getUserSessions(menteeSub, signal),
-		enabled: Boolean(menteeSub),
+		queryKey: adminKeys.userSessions(userId),
+		queryFn: ({ signal }) => adminService.getUserSessions(userId, signal),
+		enabled: Boolean(userId),
 		staleTime: 30 * 1000,
 	});
 
