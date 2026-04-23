@@ -20,11 +20,11 @@ from app.services.thread_store import InMemoryThreadStore, ThreadStore
 SESSION_COOKIE = settings.session_cookie_name
 
 
-def _build_agent(s: Settings) -> AgentPort:
+def _build_agent(s: Settings, budget: BudgetService) -> AgentPort:
     if s.agent_impl == "mentee":
         from app.agents.mentee.agent import build_mentee_agent
 
-        return build_mentee_agent(s)
+        return build_mentee_agent(s, budget=budget)
     return MockAgent()
 
 
@@ -35,9 +35,10 @@ def _build_store(s: Settings) -> ThreadStore:
 
 
 # Process-wide singletons. Swap with a proper DI container when scope grows.
+# Budget is built first so the agent can call it on provider errors.
 _store: ThreadStore = _build_store(settings)
-_agent: AgentPort = _build_agent(settings)
 _budget = BudgetService()
+_agent: AgentPort = _build_agent(settings, _budget)
 _service = MessageService(store=_store, agent=_agent, budget=_budget)
 
 _http: httpx.AsyncClient | None = None

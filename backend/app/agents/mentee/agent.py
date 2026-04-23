@@ -39,6 +39,8 @@ from app.agents.mentee.ports import MenteeProfilePort, NullProfilePort
 from app.agents.mentee.prompts import SYSTEM_PROMPT
 from app.agents.mentee.tools.career import analyze_career_path
 from app.agents.mentee.tools.search import search_perplexity
+from app.budget.provider_errors import build_reason, is_insufficient_funds
+from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
 from app.core.config import Settings
 from app.domain.enums import MessageRole
@@ -233,10 +235,12 @@ class MenteeAgent(AgentPort):
         pydantic_agent: Agent[MenteeDeps, str],
         settings: Settings,
         profile_port: MenteeProfilePort | None = None,
+        budget: BudgetService | None = None,
     ) -> None:
         self._agent = pydantic_agent
         self._settings = settings
         self._profile_port: MenteeProfilePort = profile_port or NullProfilePort()
+        self._budget = budget
         self._usage_limits = UsageLimits(
             request_limit=settings.agent_request_limit,
             total_tokens_limit=settings.agent_total_tokens_limit,
@@ -258,7 +262,26 @@ class MenteeAgent(AgentPort):
             profile_port=self._profile_port,
             usage=usage,
             perplexity_enabled=perplexity_enabled,
+            budget=self._budget,
         )
+
+    async def _handle_openai_error(self, exc: Exception) -> None:
+        """If an OpenAI call blew up because the account is out of funds,
+        stamp the hard-stop flag so future turns skip the failing call.
+
+        Safe to call for any exception — returns without acting when the error
+        is not an insufficient-funds signal. Best-effort: a logging failure
+        here must not mask the original error from the caller.
+        """
+        if self._budget is None or not is_insufficient_funds(exc):
+            return
+        reason = build_reason(exc, provider="openai")
+        try:
+            await self._budget.record_provider_out_of_funds(
+                "openai", reason=reason
+            )
+        except Exception:  # noqa: BLE001 — best-effort
+            logger.exception("failed to record openai out-of-funds flag")
 
     async def reply(
         self,
@@ -288,6 +311,7 @@ class MenteeAgent(AgentPort):
                 _count_builtin_tool_calls(collector, result.all_messages())
                 return _strip_citations(result.output)
             except Exception as exc:  # noqa: BLE001 — fallback path
+                await self._handle_openai_error(exc)
                 logger.exception("mentee agent failed, using fallback: %s", exc)
                 return await fallback_response(history, user, self._settings)
 
@@ -361,6 +385,7 @@ class MenteeAgent(AgentPort):
                     yield event
                 await task  # surface exceptions from drive()
             except Exception as exc:  # noqa: BLE001 — fallback path
+                await self._handle_openai_error(exc)
                 logger.exception("mentee agent stream failed, using fallback: %s", exc)
                 if not task.done():
                     task.cancel()
@@ -372,8 +397,12 @@ class MenteeAgent(AgentPort):
 def build_mentee_agent(
     settings: Settings,
     profile_port: MenteeProfilePort | None = None,
+    budget: BudgetService | None = None,
 ) -> MenteeAgent:
     pydantic_agent = _build_pydantic_agent(settings)
     return MenteeAgent(
-        pydantic_agent=pydantic_agent, settings=settings, profile_port=profile_port
+        pydantic_agent=pydantic_agent,
+        settings=settings,
+        profile_port=profile_port,
+        budget=budget,
     )

@@ -17,6 +17,7 @@ from pydantic_ai import RunContext
 from app.agents.mentee.deps import MenteeDeps
 from app.agents.mentee.tools.perplexity import call_perplexity
 from app.agents.mentee.tools.schemas import insufficient_context, ok
+from app.budget.provider_errors import build_reason, is_insufficient_funds
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,17 @@ async def search_perplexity(
         )
     except (APIStatusError, APITimeoutError, APIConnectionError) as exc:
         logger.warning("perplexity sdk error: %s", exc)
+        # If Perplexity rejected the call because the account is out of funds,
+        # flip the degrade flag so this tool gets skipped on subsequent turns
+        # instead of burning latency + retries on every request.
+        if ctx.deps.budget is not None and is_insufficient_funds(exc):
+            try:
+                await ctx.deps.budget.record_provider_out_of_funds(
+                    "perplexity",
+                    reason=build_reason(exc, provider="perplexity"),
+                )
+            except Exception:  # noqa: BLE001 — best-effort
+                logger.exception("failed to record perplexity out-of-funds flag")
         return json.dumps(
             {
                 "status": "error",
