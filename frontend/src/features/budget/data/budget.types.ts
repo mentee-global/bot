@@ -22,11 +22,6 @@ export interface MeResponse {
 export interface BudgetConfig {
 	default_monthly_credits: number;
 	credit_usd_value_micros: number;
-	openai_budget_micros: number;
-	perplexity_budget_micros: number;
-	global_budget_micros: number;
-	perplexity_degrade_threshold_pct: number;
-	hard_stop_threshold_pct: number;
 	pricing_openai_input_per_mtok_micros: number;
 	pricing_openai_output_per_mtok_micros: number;
 	pricing_perplexity_input_per_mtok_micros: number;
@@ -44,11 +39,12 @@ export interface GlobalSpend {
 	perplexity_spend_micros: number;
 	web_search_spend_micros: number;
 	total_spend_micros: number;
-	openai_budget_micros: number;
-	perplexity_budget_micros: number;
-	global_budget_micros: number;
 	perplexity_degraded: boolean;
 	hard_stopped: boolean;
+	perplexity_degrade_reason: string | null;
+	perplexity_degraded_at: string | null;
+	hard_stop_reason: string | null;
+	hard_stopped_at: string | null;
 }
 
 export interface ProviderSpend {

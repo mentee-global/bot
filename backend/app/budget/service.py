@@ -3,13 +3,16 @@
 Every turn flows through two methods:
 
 1. `check_can_chat(user)` — pre-run gate. Raises `QuotaError` / `BudgetError`
-   if the user or the platform is out of budget. Returns a snapshot of how
-   many credits the user has and whether Perplexity is degraded.
+   if the user is out of credits or the provider kill-switch is engaged.
+   Returns a snapshot of how many credits the user has and whether Perplexity
+   is degraded.
 
 2. `record_turn(user, message_id, thread_id, usage)` — post-run debit. Writes
    one `MessageUsage` row per model called, adjusts the user's remaining
-   credits, rolls the per-provider spend totals, and flips the degraded /
-   hard-stopped flags if thresholds are crossed.
+   credits, and rolls the per-provider spend totals. The ledger is an estimate
+   (tokens × configured pricing); the authoritative signal for "the provider
+   is out of money" is the provider itself returning an insufficient-funds
+   error — see `record_provider_out_of_funds`.
 
 Admin reset / grant / revoke mutate `UserQuota` directly. All of it is
 auditable via `MessageUsage` + WARNING-level logs on admin mutations.
@@ -92,11 +95,12 @@ class GlobalSpendSnapshot:
     perplexity_spend_micros: int
     web_search_spend_micros: int
     total_spend_micros: int
-    openai_budget_micros: int
-    perplexity_budget_micros: int
-    global_budget_micros: int
     perplexity_degraded: bool
     hard_stopped: bool
+    perplexity_degrade_reason: str | None
+    perplexity_degraded_at: datetime | None
+    hard_stop_reason: str | None
+    hard_stopped_at: datetime | None
 
 
 def _next_period_start(period_start: datetime) -> datetime:
@@ -140,11 +144,6 @@ class BudgetService:
         allowed = {
             "default_monthly_credits",
             "credit_usd_value_micros",
-            "openai_budget_micros",
-            "perplexity_budget_micros",
-            "global_budget_micros",
-            "perplexity_degrade_threshold_pct",
-            "hard_stop_threshold_pct",
             "pricing_openai_input_per_mtok_micros",
             "pricing_openai_output_per_mtok_micros",
             "pricing_perplexity_input_per_mtok_micros",
@@ -186,13 +185,19 @@ class BudgetService:
             return row
 
         if row.period_start < period:
-            # Monthly roll — zero the counters and clear the flags.
+            # Monthly roll — zero the counters and clear the flags. Provider
+            # balances reset at the calendar rollover too, so any reason that
+            # was stamped for the previous period is no longer accurate.
             row.period_start = period
             row.openai_spend_micros = 0
             row.perplexity_spend_micros = 0
             row.web_search_spend_micros = 0
             row.perplexity_degraded = False
             row.hard_stopped = False
+            row.perplexity_degrade_reason = None
+            row.perplexity_degraded_at = None
+            row.hard_stop_reason = None
+            row.hard_stopped_at = None
             row.updated_at = now
             session.add(row)
             await session.flush()
@@ -200,7 +205,7 @@ class BudgetService:
 
     async def get_global_snapshot(self) -> GlobalSpendSnapshot:
         async with self._factory() as session:
-            cfg = await self._load_config(session)
+            await self._load_config(session)
             state = await self._load_global_state(session)
             await session.commit()
         return GlobalSpendSnapshot(
@@ -213,11 +218,12 @@ class BudgetService:
                 + state.perplexity_spend_micros
                 + state.web_search_spend_micros
             ),
-            openai_budget_micros=cfg.openai_budget_micros,
-            perplexity_budget_micros=cfg.perplexity_budget_micros,
-            global_budget_micros=cfg.global_budget_micros,
             perplexity_degraded=state.perplexity_degraded,
             hard_stopped=state.hard_stopped,
+            perplexity_degrade_reason=state.perplexity_degrade_reason,
+            perplexity_degraded_at=state.perplexity_degraded_at,
+            hard_stop_reason=state.hard_stop_reason,
+            hard_stopped_at=state.hard_stopped_at,
         )
 
     async def override_flags(
@@ -225,19 +231,63 @@ class BudgetService:
         *,
         perplexity_degraded: bool | None = None,
         hard_stopped: bool | None = None,
+        perplexity_degrade_reason: str | None = None,
+        hard_stop_reason: str | None = None,
     ) -> GlobalSpendSnapshot:
-        """Admin kill-switch: force degrade / hard-stop without waiting for
-        threshold. Clearing a flag is also allowed mid-period."""
+        """Flip / clear the kill-switch flags with an optional reason string.
+
+        Flipping ON stamps the supplied reason + timestamp. Flipping OFF clears
+        both. Callers include the admin route (reason left as None for manual
+        actions) and the agent layer (reason set to an insufficient-funds
+        signal from the provider). Idempotent — no-ops if already in the
+        requested state.
+        """
         async with self._factory() as session:
             state = await self._load_global_state(session)
+            now = _now()
             if perplexity_degraded is not None:
-                state.perplexity_degraded = perplexity_degraded
+                if perplexity_degraded and not state.perplexity_degraded:
+                    state.perplexity_degraded = True
+                    state.perplexity_degrade_reason = perplexity_degrade_reason
+                    state.perplexity_degraded_at = now
+                elif not perplexity_degraded and state.perplexity_degraded:
+                    state.perplexity_degraded = False
+                    state.perplexity_degrade_reason = None
+                    state.perplexity_degraded_at = None
             if hard_stopped is not None:
-                state.hard_stopped = hard_stopped
-            state.updated_at = _now()
+                if hard_stopped and not state.hard_stopped:
+                    state.hard_stopped = True
+                    state.hard_stop_reason = hard_stop_reason
+                    state.hard_stopped_at = now
+                elif not hard_stopped and state.hard_stopped:
+                    state.hard_stopped = False
+                    state.hard_stop_reason = None
+                    state.hard_stopped_at = None
+            state.updated_at = now
             session.add(state)
             await session.commit()
         return await self.get_global_snapshot()
+
+    async def record_provider_out_of_funds(
+        self, provider: str, *, reason: str
+    ) -> GlobalSpendSnapshot:
+        """Called from the agent layer when a provider returns an
+        insufficient-funds error. OpenAI kills chat entirely; Perplexity just
+        disables the Sonar tool. Safe to call repeatedly — `override_flags`
+        is idempotent and won't overwrite a reason set by an earlier call.
+        """
+        if provider == "openai":
+            logger.warning("provider out of funds: openai — hard-stopping chat")
+            return await self.override_flags(
+                hard_stopped=True, hard_stop_reason=reason
+            )
+        if provider == "perplexity":
+            logger.warning("provider out of funds: perplexity — degrading Sonar")
+            return await self.override_flags(
+                perplexity_degraded=True,
+                perplexity_degrade_reason=reason,
+            )
+        raise ValueError(f"unknown provider: {provider!r}")
 
     # ---- Per-user quota -------------------------------------------------
 
@@ -415,43 +465,11 @@ class BudgetService:
             state.openai_spend_micros += breakdown.openai_micros
             state.perplexity_spend_micros += breakdown.perplexity_micros
             state.web_search_spend_micros += breakdown.web_search_micros
-
-            self._recompute_flags(state, cfg)
             state.updated_at = now
             session.add(state)
 
             await session.commit()
             return credits_charged
-
-    @staticmethod
-    def _recompute_flags(state: GlobalBudgetState, cfg: BudgetConfig) -> None:
-        # Degrade Perplexity if EITHER the Perplexity sub-budget crosses its
-        # threshold OR the global sub-budget does. Hard-stop if OpenAI OR total
-        # blows past the hard threshold.
-        perp_ratio = _safe_ratio(
-            state.perplexity_spend_micros, cfg.perplexity_budget_micros
-        )
-        total_spend = (
-            state.openai_spend_micros
-            + state.perplexity_spend_micros
-            + state.web_search_spend_micros
-        )
-        total_ratio = _safe_ratio(total_spend, cfg.global_budget_micros)
-        openai_ratio = _safe_ratio(
-            state.openai_spend_micros, cfg.openai_budget_micros
-        )
-
-        if not state.perplexity_degraded:
-            if perp_ratio * 100 >= cfg.perplexity_degrade_threshold_pct:
-                state.perplexity_degraded = True
-
-        if not state.hard_stopped:
-            hard_pct = cfg.hard_stop_threshold_pct
-            if (
-                total_ratio * 100 >= hard_pct
-                or openai_ratio * 100 >= hard_pct
-            ):
-                state.hard_stopped = True
 
     # ---- Admin mutations ------------------------------------------------
 
@@ -624,9 +642,3 @@ class BudgetService:
                 )
             ).scalar_one()
             return int(result or 0)
-
-
-def _safe_ratio(num: int, denom: int) -> float:
-    if denom <= 0:
-        return 0.0
-    return num / denom

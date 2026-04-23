@@ -48,11 +48,6 @@ router = APIRouter(
 class BudgetConfigResponse(BaseModel):
     default_monthly_credits: int
     credit_usd_value_micros: int
-    openai_budget_micros: int
-    perplexity_budget_micros: int
-    global_budget_micros: int
-    perplexity_degrade_threshold_pct: int
-    hard_stop_threshold_pct: int
     pricing_openai_input_per_mtok_micros: int
     pricing_openai_output_per_mtok_micros: int
     pricing_perplexity_input_per_mtok_micros: int
@@ -65,11 +60,6 @@ class BudgetConfigResponse(BaseModel):
 class BudgetConfigUpdate(BaseModel):
     default_monthly_credits: int | None = Field(default=None, ge=0)
     credit_usd_value_micros: int | None = Field(default=None, ge=1)
-    openai_budget_micros: int | None = Field(default=None, ge=0)
-    perplexity_budget_micros: int | None = Field(default=None, ge=0)
-    global_budget_micros: int | None = Field(default=None, ge=0)
-    perplexity_degrade_threshold_pct: int | None = Field(default=None, ge=0, le=100)
-    hard_stop_threshold_pct: int | None = Field(default=None, ge=0, le=100)
     pricing_openai_input_per_mtok_micros: int | None = Field(default=None, ge=0)
     pricing_openai_output_per_mtok_micros: int | None = Field(default=None, ge=0)
     pricing_perplexity_input_per_mtok_micros: int | None = Field(default=None, ge=0)
@@ -84,11 +74,12 @@ class GlobalSpendResponse(BaseModel):
     perplexity_spend_micros: int
     web_search_spend_micros: int
     total_spend_micros: int
-    openai_budget_micros: int
-    perplexity_budget_micros: int
-    global_budget_micros: int
     perplexity_degraded: bool
     hard_stopped: bool
+    perplexity_degrade_reason: str | None = None
+    perplexity_degraded_at: datetime | None = None
+    hard_stop_reason: str | None = None
+    hard_stopped_at: datetime | None = None
 
 
 class FlagsUpdate(BaseModel):
@@ -194,23 +185,28 @@ async def update_config(
     return BudgetConfigResponse.model_validate(cfg, from_attributes=True)
 
 
-@router.get("/state", response_model=GlobalSpendResponse)
-async def get_global_state(
-    budget: Annotated[BudgetService, Depends(get_budget_service)],
-) -> GlobalSpendResponse:
-    snap = await budget.get_global_snapshot()
+def _snap_to_response(snap) -> GlobalSpendResponse:  # type: ignore[no-untyped-def]
     return GlobalSpendResponse(
         period_start=snap.period_start,
         openai_spend_micros=snap.openai_spend_micros,
         perplexity_spend_micros=snap.perplexity_spend_micros,
         web_search_spend_micros=snap.web_search_spend_micros,
         total_spend_micros=snap.total_spend_micros,
-        openai_budget_micros=snap.openai_budget_micros,
-        perplexity_budget_micros=snap.perplexity_budget_micros,
-        global_budget_micros=snap.global_budget_micros,
         perplexity_degraded=snap.perplexity_degraded,
         hard_stopped=snap.hard_stopped,
+        perplexity_degrade_reason=snap.perplexity_degrade_reason,
+        perplexity_degraded_at=snap.perplexity_degraded_at,
+        hard_stop_reason=snap.hard_stop_reason,
+        hard_stopped_at=snap.hard_stopped_at,
     )
+
+
+@router.get("/state", response_model=GlobalSpendResponse)
+async def get_global_state(
+    budget: Annotated[BudgetService, Depends(get_budget_service)],
+) -> GlobalSpendResponse:
+    snap = await budget.get_global_snapshot()
+    return _snap_to_response(snap)
 
 
 @router.patch("/flags", response_model=GlobalSpendResponse)
@@ -219,9 +215,14 @@ async def update_flags(
     budget: Annotated[BudgetService, Depends(get_budget_service)],
     actor: Annotated[User, Depends(require_admin)],
 ) -> GlobalSpendResponse:
+    # Manual admin toggle — stamp a reason so the audit trail shows *who*
+    # tripped the kill-switch vs. an automatic provider-error flip.
+    reason = f"manual (admin {actor.email})"
     snap = await budget.override_flags(
         perplexity_degraded=payload.perplexity_degraded,
         hard_stopped=payload.hard_stopped,
+        perplexity_degrade_reason=reason if payload.perplexity_degraded else None,
+        hard_stop_reason=reason if payload.hard_stopped else None,
     )
     logger.warning(
         "admin budget_flags: actor=%s degraded=%s hard_stopped=%s",
@@ -229,18 +230,7 @@ async def update_flags(
         payload.perplexity_degraded,
         payload.hard_stopped,
     )
-    return GlobalSpendResponse(
-        period_start=snap.period_start,
-        openai_spend_micros=snap.openai_spend_micros,
-        perplexity_spend_micros=snap.perplexity_spend_micros,
-        web_search_spend_micros=snap.web_search_spend_micros,
-        total_spend_micros=snap.total_spend_micros,
-        openai_budget_micros=snap.openai_budget_micros,
-        perplexity_budget_micros=snap.perplexity_budget_micros,
-        global_budget_micros=snap.global_budget_micros,
-        perplexity_degraded=snap.perplexity_degraded,
-        hard_stopped=snap.hard_stopped,
-    )
+    return _snap_to_response(snap)
 
 
 # ---------------------------------------------------------------------------

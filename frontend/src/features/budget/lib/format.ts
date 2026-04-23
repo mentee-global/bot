@@ -26,11 +26,6 @@ export function usdToMicros(usd: string | number): number {
 	return Math.round(n * 1_000_000);
 }
 
-export function clampPct(num: number, denom: number): number {
-	if (denom <= 0) return 0;
-	return Math.max(0, Math.min(100, (num / denom) * 100));
-}
-
 export function formatDate(iso: string): string {
 	const d = new Date(iso);
 	if (Number.isNaN(d.getTime())) return "—";

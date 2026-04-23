@@ -11,6 +11,7 @@ import { SpendBar } from "#/features/budget/components/SpendBar";
 import type {
 	BudgetConfig,
 	BudgetConfigPatch,
+	GlobalSpend,
 } from "#/features/budget/data/budget.types";
 import {
 	useBudgetConfigQuery,
@@ -32,7 +33,7 @@ function BudgetRoute() {
 		>
 			<TabsList className="shrink-0 self-start">
 				<TabsTrigger value="overview">Overview</TabsTrigger>
-				<TabsTrigger value="config">Configuration</TabsTrigger>
+				<TabsTrigger value="credits">Credits</TabsTrigger>
 				<TabsTrigger value="pricing">Pricing</TabsTrigger>
 				<TabsTrigger value="controls">Controls</TabsTrigger>
 			</TabsList>
@@ -40,8 +41,8 @@ function BudgetRoute() {
 				<TabsContent value="overview">
 					<OverviewTab />
 				</TabsContent>
-				<TabsContent value="config">
-					<ConfigTab />
+				<TabsContent value="credits">
+					<CreditsTab />
 				</TabsContent>
 				<TabsContent value="pricing">
 					<PricingTab />
@@ -55,19 +56,16 @@ function BudgetRoute() {
 }
 
 // ---------------------------------------------------------------------------
-// Overview — spend bars + flags
+// Overview — estimated spend + flag-reason banner + flag status
 // ---------------------------------------------------------------------------
 
 function OverviewTab() {
 	const state = useBudgetStateQuery();
-	const cfg = useBudgetConfigQuery();
 
-	if (state.isPending || cfg.isPending) return <LoadingState />;
+	if (state.isPending) return <LoadingState />;
 	if (state.isError) return <ErrorState message={state.error.message} />;
-	if (cfg.isError) return <ErrorState message={cfg.error.message} />;
 	const s = state.data;
-	const c = cfg.data;
-	if (!s || !c) return null;
+	if (!s) return null;
 
 	const periodLabel = new Date(s.period_start).toLocaleString(undefined, {
 		month: "long",
@@ -85,20 +83,24 @@ function OverviewTab() {
 						<span className="font-semibold text-foreground">
 							{formatMicros(s.total_spend_micros)}
 						</span>{" "}
-						of {formatMicros(s.global_budget_micros)} monthly cap. Quota
-						enforcement uses this number — it counts only turns that ran through
-						this bot. Real provider billing is below.
+						so far this period. This number is{" "}
+						<em>estimated from token counts × configured pricing</em> — it's not
+						a real provider balance. Authoritative billing comes from Providers
+						below; the kill-switches flip automatically when a provider returns
+						an insufficient-funds error.
 					</p>
 				</CardContent>
 			</Card>
 
+			<FlagReasonBanner state={s} />
+
 			<div className="flex flex-col gap-2">
 				<div className="flex items-baseline justify-between gap-3">
 					<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-						Bot ledger
+						Bot ledger (estimate)
 					</h3>
 					<p className="m-0 text-[11px] text-muted-foreground">
-						What this bot has tracked — drives credits and kill-switches.
+						What this bot thinks it spent — not a real balance.
 					</p>
 				</div>
 				<div className="grid gap-4 sm:grid-cols-2">
@@ -107,8 +109,6 @@ function OverviewTab() {
 							<SpendBar
 								label="OpenAI"
 								spentMicros={s.openai_spend_micros}
-								budgetMicros={s.openai_budget_micros}
-								hardStopThresholdPct={c.hard_stop_threshold_pct}
 								stopped={s.hard_stopped}
 							/>
 						</CardContent>
@@ -118,8 +118,6 @@ function OverviewTab() {
 							<SpendBar
 								label="Perplexity"
 								spentMicros={s.perplexity_spend_micros}
-								budgetMicros={s.perplexity_budget_micros}
-								degradeThresholdPct={c.perplexity_degrade_threshold_pct}
 								warn={s.perplexity_degraded}
 							/>
 						</CardContent>
@@ -129,17 +127,14 @@ function OverviewTab() {
 							<SpendBar
 								label="Web search (OpenAI builtin)"
 								spentMicros={s.web_search_spend_micros}
-								budgetMicros={s.openai_budget_micros}
 							/>
 						</CardContent>
 					</Card>
 					<Card>
 						<CardContent className="flex flex-col gap-3">
 							<SpendBar
-								label="Global"
+								label="Total"
 								spentMicros={s.total_spend_micros}
-								budgetMicros={s.global_budget_micros}
-								hardStopThresholdPct={c.hard_stop_threshold_pct}
 								stopped={s.hard_stopped}
 							/>
 						</CardContent>
@@ -155,17 +150,88 @@ function OverviewTab() {
 						<FlagRow
 							label="Perplexity degraded"
 							active={s.perplexity_degraded}
-							hint="Users can still chat; Sonar searches are disabled to protect the sub-budget."
+							hint="Users can still chat; Sonar searches are disabled until this clears."
 						/>
 						<FlagRow
 							label="Hard stopped"
 							active={s.hard_stopped}
-							hint="All chat is paused until month rolls or the flag is cleared."
+							hint="All chat is paused until the flag is cleared or the provider balance is topped up."
 						/>
 					</dl>
 				</CardContent>
 			</Card>
 		</section>
+	);
+}
+
+function FlagReasonBanner({ state }: { state: GlobalSpend }) {
+	if (!state.hard_stopped && !state.perplexity_degraded) return null;
+	return (
+		<div className="flex flex-col gap-3">
+			{state.hard_stopped ? (
+				<ReasonCard
+					severity="danger"
+					title="Chat is paused"
+					reason={state.hard_stop_reason}
+					at={state.hard_stopped_at}
+				/>
+			) : null}
+			{state.perplexity_degraded ? (
+				<ReasonCard
+					severity="warn"
+					title="Sonar (Perplexity) is disabled"
+					reason={state.perplexity_degrade_reason}
+					at={state.perplexity_degraded_at}
+				/>
+			) : null}
+		</div>
+	);
+}
+
+function ReasonCard({
+	severity,
+	title,
+	reason,
+	at,
+}: {
+	severity: "warn" | "danger";
+	title: string;
+	reason: string | null;
+	at: string | null;
+}) {
+	const color =
+		severity === "danger"
+			? "var(--theme-danger)"
+			: "var(--theme-warning,theme(colors.amber.500))";
+	const when = at
+		? new Date(at).toLocaleString(undefined, {
+				month: "short",
+				day: "numeric",
+				hour: "numeric",
+				minute: "2-digit",
+				timeZoneName: "short",
+			})
+		: null;
+	return (
+		<Card>
+			<CardContent className="flex flex-col gap-2">
+				<div className="flex items-center gap-2">
+					<span
+						className="inline-block h-2.5 w-2.5 rounded-full"
+						style={{ background: color }}
+					/>
+					<h3 className="m-0 text-sm font-semibold">{title}</h3>
+				</div>
+				<p className="m-0 text-sm text-muted-foreground">
+					{reason ?? "No reason recorded."}
+				</p>
+				{when ? (
+					<p className="m-0 text-[11px] text-muted-foreground">
+						Triggered {when}
+					</p>
+				) : null}
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -197,10 +263,10 @@ function FlagRow({
 }
 
 // ---------------------------------------------------------------------------
-// Config — caps, thresholds, defaults
+// Credits — per-user defaults + credit-to-USD value
 // ---------------------------------------------------------------------------
 
-function ConfigTab() {
+function CreditsTab() {
 	const cfg = useBudgetConfigQuery();
 	const update = useUpdateConfigMutation();
 	const [draft, setDraft] = useState<BudgetConfigPatch>({});
@@ -255,49 +321,6 @@ function ConfigTab() {
 						hint="One credit ≈ this many US dollars. Smaller = credits deplete faster."
 						micros={val("credit_usd_value_micros") as number}
 						onChange={(n) => set("credit_usd_value_micros", n)}
-					/>
-				</CardContent>
-			</Card>
-
-			<Card>
-				<CardContent className="flex flex-col gap-4">
-					<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-						Monthly budget caps (USD)
-					</h3>
-					<UsdField
-						label="OpenAI budget"
-						micros={val("openai_budget_micros") as number}
-						onChange={(n) => set("openai_budget_micros", n)}
-					/>
-					<UsdField
-						label="Perplexity budget"
-						micros={val("perplexity_budget_micros") as number}
-						onChange={(n) => set("perplexity_budget_micros", n)}
-					/>
-					<UsdField
-						label="Total global budget"
-						micros={val("global_budget_micros") as number}
-						onChange={(n) => set("global_budget_micros", n)}
-					/>
-				</CardContent>
-			</Card>
-
-			<Card>
-				<CardContent className="flex flex-col gap-4">
-					<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-						Thresholds
-					</h3>
-					<PctField
-						label="Perplexity degrade threshold"
-						hint="When Perplexity spend crosses this % of its cap, Sonar is disabled globally."
-						value={val("perplexity_degrade_threshold_pct") as number}
-						onChange={(n) => set("perplexity_degrade_threshold_pct", n)}
-					/>
-					<PctField
-						label="Hard-stop threshold"
-						hint="When OpenAI or global spend crosses this % of their cap, chat is paused."
-						value={val("hard_stop_threshold_pct") as number}
-						onChange={(n) => set("hard_stop_threshold_pct", n)}
 					/>
 				</CardContent>
 			</Card>
@@ -365,8 +388,9 @@ function PricingTab() {
 			className="flex flex-col gap-5"
 		>
 			<p className="m-0 text-sm text-muted-foreground">
-				Rates used to convert token counts into dollars spent. Adjust when
-				OpenAI or Perplexity change their API prices.
+				Rates used to convert token counts into the estimated-spend display and
+				per-user credit charge. Adjust when OpenAI or Perplexity change their
+				API prices.
 			</p>
 
 			<Card>
@@ -562,39 +586,6 @@ function UsdField({
 					}}
 					className="pl-6"
 				/>
-			</div>
-		</Field>
-	);
-}
-
-function PctField({
-	label,
-	hint,
-	value,
-	onChange,
-}: {
-	label: string;
-	hint?: string;
-	value: number;
-	onChange: (n: number) => void;
-}) {
-	return (
-		<Field label={label} hint={hint}>
-			<div className="relative">
-				<Input
-					type="number"
-					min={0}
-					max={100}
-					value={String(value)}
-					onChange={(e) => {
-						const n = Number.parseInt(e.target.value, 10);
-						if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)));
-					}}
-					className="pr-8"
-				/>
-				<span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-					%
-				</span>
 			</div>
 		</Field>
 	);

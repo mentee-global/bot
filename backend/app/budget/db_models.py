@@ -70,6 +70,17 @@ class GlobalBudgetState(SQLModel, table=True):
     web_search_spend_micros: int = Field(default=0)
     perplexity_degraded: bool = Field(default=False)
     hard_stopped: bool = Field(default=False)
+    # Flags are flipped either by an admin from the Controls tab or by the
+    # agent layer when a provider returns an insufficient-funds error. The
+    # reason is admin-only — users see generic copy.
+    perplexity_degrade_reason: str | None = Field(default=None, max_length=200)
+    perplexity_degraded_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+    hard_stop_reason: str | None = Field(default=None, max_length=200)
+    hard_stopped_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
     updated_at: datetime = Field(sa_type=DateTime(timezone=True))
 
 
@@ -81,15 +92,6 @@ class BudgetConfig(SQLModel, table=True):
     # Per-user + unit
     default_monthly_credits: int = Field(default=100)
     credit_usd_value_micros: int = Field(default=10_000)  # $0.01/credit
-
-    # Global caps (micros = USD × 1_000_000)
-    openai_budget_micros: int = Field(default=30_000_000)       # $30.00
-    perplexity_budget_micros: int = Field(default=20_000_000)   # $20.00
-    global_budget_micros: int = Field(default=50_000_000)       # $50.00
-
-    # Threshold percentages (0-100)
-    perplexity_degrade_threshold_pct: int = Field(default=90)
-    hard_stop_threshold_pct: int = Field(default=95)
 
     # Pricing — adjust when provider rates change. Per-million-token values are
     # stored as micros so admin edits stay integer-accurate.
