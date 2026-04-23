@@ -671,7 +671,6 @@ function PricingTab() {
 						}
 						micros={v("pricing_openai_input_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_openai_input_per_mtok_micros", n)}
-						precision={4}
 					/>
 					<UsdField
 						label="Price per million output words"
@@ -684,7 +683,6 @@ function PricingTab() {
 						}
 						micros={v("pricing_openai_output_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_openai_output_per_mtok_micros", n)}
-						precision={4}
 					/>
 					<UsdField
 						label="Web search fee per search"
@@ -697,7 +695,6 @@ function PricingTab() {
 						}
 						micros={v("pricing_web_search_per_call_micros") as number}
 						onChange={(n) => s("pricing_web_search_per_call_micros", n)}
-						precision={4}
 					/>
 				</CardContent>
 			</Card>
@@ -734,14 +731,12 @@ function PricingTab() {
 						tooltip="What Perplexity charges for the words sent to it, per 1,000,000 tokens."
 						micros={v("pricing_perplexity_input_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_perplexity_input_per_mtok_micros", n)}
-						precision={4}
 					/>
 					<UsdField
 						label="Price per million output words"
 						tooltip="What Perplexity charges for the research answer it returns, per 1,000,000 tokens."
 						micros={v("pricing_perplexity_output_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_perplexity_output_per_mtok_micros", n)}
-						precision={4}
 					/>
 					<UsdField
 						label="Fee per research request"
@@ -760,7 +755,6 @@ function PricingTab() {
 						}
 						micros={v("pricing_perplexity_request_fee_micros") as number}
 						onChange={(n) => s("pricing_perplexity_request_fee_micros", n)}
-						precision={4}
 					/>
 				</CardContent>
 			</Card>
@@ -978,16 +972,47 @@ function IntField({
 	value: number;
 	onChange: (n: number) => void;
 }) {
+	const [draft, setDraft] = useState<string | null>(null);
+	const displayed = draft ?? (Number.isFinite(value) ? String(value) : "");
 	return (
 		<Field label={label} hint={hint} tooltip={tooltip}>
 			<Input
 				type="number"
 				min={0}
-				value={Number.isFinite(value) ? String(value) : ""}
-				onChange={(e) => onChange(Number.parseInt(e.target.value, 10) || 0)}
+				value={displayed}
+				onChange={(e) => {
+					const text = e.target.value;
+					setDraft(text);
+					if (text === "") return;
+					const n = Number.parseInt(text, 10);
+					if (Number.isFinite(n) && n >= 0) onChange(n);
+				}}
+				onBlur={() => {
+					const n = Number.parseInt(draft ?? "", 10);
+					if (Number.isFinite(n) && n >= 0) onChange(n);
+					setDraft(null);
+				}}
 			/>
 		</Field>
 	);
+}
+
+// Display micros as a dollar string using just enough decimals to round-trip
+// the stored value, with a minimum of 2. e.g. 750_000 → "0.75", 4_500_000 →
+// "4.50", 10_000 → "0.01", 5_000 → "0.005", 1_000 → "0.001", 100 → "0.0001".
+// Micros are integer thousandths of a cent, so 6 decimals is the max.
+function formatUsdForEdit(micros: number): string {
+	const usd = micros / 1_000_000;
+	for (let p = 2; p <= 6; p++) {
+		const fixed = usd.toFixed(p);
+		if (Math.round(Number.parseFloat(fixed) * 1_000_000) === micros) {
+			const [whole, frac = ""] = fixed.split(".");
+			const padded = frac.padEnd(2, "0");
+			const trimmed = padded.replace(/0+$/, "");
+			return `${whole}.${trimmed.length > 2 ? trimmed : padded.slice(0, 2)}`;
+		}
+	}
+	return usd.toFixed(6);
 }
 
 function UsdField({
@@ -996,16 +1021,15 @@ function UsdField({
 	tooltip,
 	micros,
 	onChange,
-	precision = 2,
 }: {
 	label: string;
 	hint?: string;
 	tooltip?: React.ReactNode;
 	micros: number;
 	onChange: (nextMicros: number) => void;
-	precision?: number;
 }) {
-	const usd = (micros / 1_000_000).toFixed(precision);
+	const [draft, setDraft] = useState<string | null>(null);
+	const displayed = draft ?? formatUsdForEdit(micros);
 	return (
 		<Field label={label} hint={hint} tooltip={tooltip}>
 			<div className="relative">
@@ -1014,13 +1038,24 @@ function UsdField({
 				</span>
 				<Input
 					type="number"
-					step={precision >= 4 ? "0.0001" : "0.01"}
+					step="any"
 					min={0}
-					value={usd}
+					value={displayed}
 					onChange={(e) => {
-						const n = Number.parseFloat(e.target.value);
-						if (!Number.isFinite(n) || n < 0) return onChange(0);
-						onChange(Math.round(n * 1_000_000));
+						const text = e.target.value;
+						setDraft(text);
+						if (text === "") return;
+						const n = Number.parseFloat(text);
+						if (Number.isFinite(n) && n >= 0) {
+							onChange(Math.round(n * 1_000_000));
+						}
+					}}
+					onBlur={() => {
+						const n = Number.parseFloat(draft ?? "");
+						if (Number.isFinite(n) && n >= 0) {
+							onChange(Math.round(n * 1_000_000));
+						}
+						setDraft(null);
 					}}
 					className="pl-6"
 				/>
