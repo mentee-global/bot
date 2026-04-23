@@ -5,6 +5,7 @@ import {
 	HeadContent,
 	Link,
 	Scripts,
+	useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ArrowLeft } from "lucide-react";
@@ -75,6 +76,22 @@ function NotFound() {
 	);
 }
 
+// The admin section owns its own chrome (sidebar + top bar) and shouldn't
+// stack the marketing header/footer on top — they crowd the sidebar header
+// and footer slots and break the full-height app-shell feel.
+function RootChrome({ children }: { children: React.ReactNode }) {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const bare = pathname.startsWith("/admin");
+
+	return (
+		<div className="flex min-h-[100dvh] flex-col">
+			{bare ? null : <Header />}
+			<div className="flex flex-1 flex-col">{children}</div>
+			{bare ? null : <Footer />}
+		</div>
+	);
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
 	const locale = getLocale();
 	const dir = RTL_LOCALES.has(locale) ? "rtl" : "ltr";
@@ -91,11 +108,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				suppressHydrationWarning
 			>
 				<PostHogProvider>
-					<div className="flex min-h-[100dvh] flex-col">
-						<Header />
-						<div className="flex flex-1 flex-col">{children}</div>
-						<Footer />
-					</div>
+					<RootChrome>{children}</RootChrome>
 					<TanStackDevtools
 						config={{ position: "bottom-right" }}
 						plugins={[

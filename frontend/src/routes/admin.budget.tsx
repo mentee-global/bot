@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
@@ -33,8 +33,30 @@ import {
 } from "#/features/budget/hooks/useBudget";
 import { formatMicros } from "#/features/budget/lib/format";
 import { cn } from "#/lib/utils";
+import { m } from "#/paraglide/messages";
+
+export const BUDGET_SECTIONS = [
+	"overview",
+	"credits",
+	"pricing",
+	"controls",
+] as const;
+export type BudgetSection = (typeof BUDGET_SECTIONS)[number];
+
+function isBudgetSection(value: unknown): value is BudgetSection {
+	return (
+		typeof value === "string" &&
+		(BUDGET_SECTIONS as readonly string[]).includes(value)
+	);
+}
 
 export const Route = createFileRoute("/admin/budget")({
+	validateSearch: (
+		search: Record<string, unknown>,
+	): { section: BudgetSection } => {
+		const raw = search.section;
+		return { section: isBudgetSection(raw) ? raw : "overview" };
+	},
 	component: BudgetRoute,
 });
 
@@ -125,16 +147,32 @@ function TokensExplainer() {
 // ---------------------------------------------------------------------------
 
 function BudgetRoute() {
+	const { section } = Route.useSearch();
+	const navigate = useNavigate({ from: Route.fullPath });
+
 	return (
 		<Tabs
-			defaultValue="overview"
+			value={section}
+			onValueChange={(value) => {
+				if (isBudgetSection(value)) {
+					navigate({ search: { section: value }, replace: true });
+				}
+			}}
 			className="flex h-full min-h-0 flex-col gap-4"
 		>
 			<TabsList className="shrink-0 self-start">
-				<TabsTrigger value="overview">Overview</TabsTrigger>
-				<TabsTrigger value="credits">Credits</TabsTrigger>
-				<TabsTrigger value="pricing">Pricing</TabsTrigger>
-				<TabsTrigger value="controls">Controls</TabsTrigger>
+				<TabsTrigger value="overview">
+					{m.admin_budget_section_overview()}
+				</TabsTrigger>
+				<TabsTrigger value="credits">
+					{m.admin_budget_section_credits()}
+				</TabsTrigger>
+				<TabsTrigger value="pricing">
+					{m.admin_budget_section_pricing()}
+				</TabsTrigger>
+				<TabsTrigger value="controls">
+					{m.admin_budget_section_controls()}
+				</TabsTrigger>
 			</TabsList>
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<TabsContent value="overview">
