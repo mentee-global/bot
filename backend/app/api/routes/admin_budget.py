@@ -58,6 +58,10 @@ class BudgetConfigResponse(BaseModel):
 
 
 class BudgetConfigUpdate(BaseModel):
+    # Required — every config edit is audited with a reason, enforced at the
+    # API boundary so no caller can bypass it. Min length rejects empties /
+    # placeholders like "." or "x".
+    reason: str = Field(min_length=5, max_length=500)
     default_monthly_credits: int | None = Field(default=None, ge=0)
     credit_usd_value_micros: int | None = Field(default=None, ge=1)
     pricing_openai_input_per_mtok_micros: int | None = Field(default=None, ge=0)
@@ -66,6 +70,20 @@ class BudgetConfigUpdate(BaseModel):
     pricing_perplexity_output_per_mtok_micros: int | None = Field(default=None, ge=0)
     pricing_perplexity_request_fee_micros: int | None = Field(default=None, ge=0)
     pricing_web_search_per_call_micros: int | None = Field(default=None, ge=0)
+
+
+class BudgetConfigChangeResponse(BaseModel):
+    id: str
+    field: str
+    old_value: int | None
+    new_value: int
+    reason: str
+    actor_email: str
+    changed_at: datetime
+
+
+class BudgetConfigHistoryResponse(BaseModel):
+    changes: list[BudgetConfigChangeResponse]
 
 
 class GlobalSpendResponse(BaseModel):
@@ -174,15 +192,47 @@ async def update_config(
     budget: Annotated[BudgetService, Depends(get_budget_service)],
     actor: Annotated[User, Depends(require_admin)],
 ) -> BudgetConfigResponse:
-    changes = {k: v for k, v in payload.model_dump().items() if v is not None}
+    dumped = payload.model_dump()
+    reason = dumped.pop("reason")
+    changes = {k: v for k, v in dumped.items() if v is not None}
     if not changes:
         cfg = await budget.get_config()
     else:
-        cfg = await budget.update_config(**changes)
+        try:
+            cfg = await budget.update_config(
+                reason=reason, actor_email=actor.email, **changes
+            )
+        except ValueError as err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
+            ) from err
         logger.warning(
-            "admin budget_config: actor=%s changes=%s", actor.email, changes
+            "admin budget_config: actor=%s reason=%r changes=%s",
+            actor.email, reason, changes,
         )
     return BudgetConfigResponse.model_validate(cfg, from_attributes=True)
+
+
+@router.get("/config/history", response_model=BudgetConfigHistoryResponse)
+async def get_config_history(
+    budget: Annotated[BudgetService, Depends(get_budget_service)],
+    limit: int = 50,
+) -> BudgetConfigHistoryResponse:
+    rows = await budget.list_config_changes(limit=max(1, min(limit, 200)))
+    return BudgetConfigHistoryResponse(
+        changes=[
+            BudgetConfigChangeResponse(
+                id=str(r.id),
+                field=r.field,
+                old_value=r.old_value,
+                new_value=r.new_value,
+                reason=r.reason,
+                actor_email=r.actor_email,
+                changed_at=r.changed_at,
+            )
+            for r in rows
+        ]
+    )
 
 
 def _snap_to_response(snap) -> GlobalSpendResponse:  # type: ignore[no-untyped-def]

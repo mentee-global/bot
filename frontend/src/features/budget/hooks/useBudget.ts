@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+	type BudgetConfigPatchWithReason,
+	budgetConfigHistoryQueryOptions,
 	budgetConfigQueryOptions,
 	budgetKeys,
 	budgetProvidersQueryOptions,
@@ -8,7 +10,6 @@ import {
 	budgetUserUsageQueryOptions,
 	meQueryOptions,
 } from "#/features/budget/data/budget.service";
-import type { BudgetConfigPatch } from "#/features/budget/data/budget.types";
 import { ApiError } from "#/lib/api/errors";
 
 export function useMeQuery(opts?: { enabled?: boolean }) {
@@ -24,6 +25,10 @@ export function useMeQuery(opts?: { enabled?: boolean }) {
 
 export function useBudgetConfigQuery() {
 	return useQuery(budgetConfigQueryOptions);
+}
+
+export function useBudgetConfigHistoryQuery() {
+	return useQuery(budgetConfigHistoryQueryOptions);
 }
 
 export function useBudgetStateQuery() {
@@ -56,7 +61,8 @@ function invalidateAll(queryClient: ReturnType<typeof useQueryClient>) {
 export function useUpdateConfigMutation() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (patch: BudgetConfigPatch) => budgetService.patchConfig(patch),
+		mutationFn: (patch: BudgetConfigPatchWithReason) =>
+			budgetService.patchConfig(patch),
 		onSuccess: () => invalidateAll(queryClient),
 	});
 }

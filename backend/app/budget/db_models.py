@@ -5,6 +5,11 @@ from sqlalchemy import DateTime, Index
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlmodel import Field, SQLModel
 
+# Append-only audit trail for BudgetConfig edits. Every field change made via
+# the admin UI writes one row here with the reason the admin supplied — so a
+# future admin opening the history sees *why* rates / credit values moved,
+# not just that they moved.
+
 
 class UserQuota(SQLModel, table=True):
     __tablename__ = "user_quota"
@@ -82,6 +87,28 @@ class GlobalBudgetState(SQLModel, table=True):
         default=None, sa_type=DateTime(timezone=True)
     )
     updated_at: datetime = Field(sa_type=DateTime(timezone=True))
+
+
+class BudgetConfigChangeLog(SQLModel, table=True):
+    __tablename__ = "budget_config_change_log"
+    __table_args__ = (
+        Index(
+            "ix_budget_config_change_log_changed_at",
+            "changed_at",
+        ),
+    )
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        primary_key=True,
+        sa_type=PG_UUID(as_uuid=True),
+    )
+    field: str = Field(max_length=64)
+    old_value: int | None = Field(default=None)
+    new_value: int = Field(default=0)
+    reason: str = Field(max_length=500)
+    actor_email: str = Field(max_length=255)
+    changed_at: datetime = Field(sa_type=DateTime(timezone=True))
 
 
 class BudgetConfig(SQLModel, table=True):

@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.budget.db_models import (
     BudgetConfig,
+    BudgetConfigChangeLog,
     GlobalBudgetState,
     MessageUsage,
     UserQuota,
@@ -139,28 +140,75 @@ class BudgetService:
             await session.commit()
             return cfg
 
-    async def update_config(self, **changes: int) -> BudgetConfig:
-        """Partial update. Unknown keys are ignored — the caller validates."""
-        allowed = {
-            "default_monthly_credits",
-            "credit_usd_value_micros",
-            "pricing_openai_input_per_mtok_micros",
-            "pricing_openai_output_per_mtok_micros",
-            "pricing_perplexity_input_per_mtok_micros",
-            "pricing_perplexity_output_per_mtok_micros",
-            "pricing_perplexity_request_fee_micros",
-            "pricing_web_search_per_call_micros",
-        }
+    CONFIG_FIELDS = (
+        "default_monthly_credits",
+        "credit_usd_value_micros",
+        "pricing_openai_input_per_mtok_micros",
+        "pricing_openai_output_per_mtok_micros",
+        "pricing_perplexity_input_per_mtok_micros",
+        "pricing_perplexity_output_per_mtok_micros",
+        "pricing_perplexity_request_fee_micros",
+        "pricing_web_search_per_call_micros",
+    )
+
+    async def update_config(
+        self,
+        *,
+        reason: str,
+        actor_email: str,
+        **changes: int,
+    ) -> BudgetConfig:
+        """Partial update with an audit row per changed field.
+
+        Every admin edit must be accompanied by a `reason` string — a future
+        admin looking at the history should understand *why* a rate moved.
+        No-op fields (value unchanged) are skipped so the log only records
+        real edits. Unknown keys are ignored; the caller (API layer) does
+        value validation.
+        """
+        reason = reason.strip()
+        if len(reason) < 5:
+            raise ValueError("reason must be at least 5 characters")
         async with self._factory() as session:
             cfg = await self._load_config(session)
+            now = _now()
             for key, value in changes.items():
-                if key in allowed and value is not None:
-                    setattr(cfg, key, int(value))
-            cfg.updated_at = _now()
+                if key not in self.CONFIG_FIELDS or value is None:
+                    continue
+                new_value = int(value)
+                old_value = int(getattr(cfg, key))
+                if new_value == old_value:
+                    continue
+                setattr(cfg, key, new_value)
+                session.add(
+                    BudgetConfigChangeLog(
+                        field=key,
+                        old_value=old_value,
+                        new_value=new_value,
+                        reason=reason,
+                        actor_email=actor_email,
+                        changed_at=now,
+                    )
+                )
+            cfg.updated_at = now
             session.add(cfg)
             await session.commit()
             await session.refresh(cfg)
             return cfg
+
+    async def list_config_changes(
+        self, *, limit: int = 50
+    ) -> list[BudgetConfigChangeLog]:
+        """Most recent config edits first. Capped so one scroll is bounded."""
+        async with self._factory() as session:
+            rows = (
+                await session.execute(
+                    select(BudgetConfigChangeLog)
+                    .order_by(desc(BudgetConfigChangeLog.changed_at))
+                    .limit(limit)
+                )
+            ).scalars().all()
+            return list(rows)
 
     # ---- Global state ---------------------------------------------------
 

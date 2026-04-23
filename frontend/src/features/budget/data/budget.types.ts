@@ -33,6 +33,20 @@ export interface BudgetConfig {
 
 export type BudgetConfigPatch = Partial<Omit<BudgetConfig, "updated_at">>;
 
+export interface BudgetConfigChange {
+	id: string;
+	field: string;
+	old_value: number | null;
+	new_value: number;
+	reason: string;
+	actor_email: string;
+	changed_at: string;
+}
+
+export interface BudgetConfigHistory {
+	changes: BudgetConfigChange[];
+}
+
 export interface GlobalSpend {
 	period_start: string;
 	openai_spend_micros: number;

@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type {
 	BudgetConfig,
+	BudgetConfigHistory,
 	BudgetConfigPatch,
 	GlobalSpend,
 	MeResponse,
@@ -8,14 +9,21 @@ import type {
 	UserQuota,
 	UserUsageResponse,
 } from "#/features/budget/data/budget.types";
+
+export type BudgetConfigPatchWithReason = BudgetConfigPatch & {
+	reason: string;
+};
+
 import { api } from "#/lib/api/client";
 
 export const budgetService = {
 	getMe: (signal?: AbortSignal) => api.get<MeResponse>("/api/me", signal),
 	getConfig: (signal?: AbortSignal) =>
 		api.get<BudgetConfig>("/api/admin/budget/config", signal),
-	patchConfig: (patch: BudgetConfigPatch) =>
+	patchConfig: (patch: BudgetConfigPatchWithReason) =>
 		api.patch<BudgetConfig>("/api/admin/budget/config", patch),
+	getConfigHistory: (signal?: AbortSignal) =>
+		api.get<BudgetConfigHistory>("/api/admin/budget/config/history", signal),
 	getGlobalState: (signal?: AbortSignal) =>
 		api.get<GlobalSpend>("/api/admin/budget/state", signal),
 	getProviders: (opts: { refresh?: boolean } = {}, signal?: AbortSignal) =>
@@ -67,6 +75,7 @@ export const budgetKeys = {
 	all: ["budget"] as const,
 	me: () => [...budgetKeys.all, "me"] as const,
 	config: () => [...budgetKeys.all, "config"] as const,
+	configHistory: () => [...budgetKeys.all, "configHistory"] as const,
 	state: () => [...budgetKeys.all, "state"] as const,
 	providers: () => [...budgetKeys.all, "providers"] as const,
 	userUsage: (userId: string) =>
@@ -85,6 +94,12 @@ export const budgetConfigQueryOptions = queryOptions({
 	queryKey: budgetKeys.config(),
 	queryFn: ({ signal }) => budgetService.getConfig(signal),
 	staleTime: 60 * 1000,
+});
+
+export const budgetConfigHistoryQueryOptions = queryOptions({
+	queryKey: budgetKeys.configHistory(),
+	queryFn: ({ signal }) => budgetService.getConfigHistory(signal),
+	staleTime: 30 * 1000,
 });
 
 export const budgetStateQueryOptions = queryOptions({
