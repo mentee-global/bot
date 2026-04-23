@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { InfoTooltip } from "#/components/ui/info-tooltip";
 import { Input } from "#/components/ui/input";
 import {
 	Table,
@@ -51,35 +52,35 @@ interface FieldMeta {
 
 const FIELD_META: Record<string, FieldMeta> = {
 	default_monthly_credits: {
-		label: "Default monthly credits",
+		label: "Monthly credits per user",
 		kind: "credits_int",
 	},
 	credit_usd_value_micros: {
-		label: "Credit → USD value",
+		label: "Value of one credit",
 		kind: "credits_usd",
 	},
 	pricing_openai_input_per_mtok_micros: {
-		label: "OpenAI input / 1M tokens",
+		label: "ChatGPT — price per million input words",
 		kind: "pricing_usd",
 	},
 	pricing_openai_output_per_mtok_micros: {
-		label: "OpenAI output / 1M tokens",
+		label: "ChatGPT — price per million output words",
 		kind: "pricing_usd",
 	},
 	pricing_perplexity_input_per_mtok_micros: {
-		label: "Perplexity input / 1M tokens",
+		label: "Research assistant — price per million input words",
 		kind: "pricing_usd",
 	},
 	pricing_perplexity_output_per_mtok_micros: {
-		label: "Perplexity output / 1M tokens",
+		label: "Research assistant — price per million output words",
 		kind: "pricing_usd",
 	},
 	pricing_perplexity_request_fee_micros: {
-		label: "Perplexity request fee / call",
+		label: "Research assistant — fee per request",
 		kind: "pricing_usd",
 	},
 	pricing_web_search_per_call_micros: {
-		label: "Web search fee / call",
+		label: "Web search — fee per search",
 		kind: "pricing_usd",
 	},
 };
@@ -98,11 +99,27 @@ function formatFieldValue(field: string, value: number | null): string {
 	const meta = FIELD_META[field];
 	if (!meta) return String(value);
 	if (meta.kind === "credits_int") return String(value);
-	// Both credits_usd and pricing_usd are micros. Pricing rates go to 4dp so
-	// sub-cent provider rates (e.g. $0.0075) don't round to zero.
 	return formatMicros(value, {
 		precision: meta.kind === "pricing_usd" ? 4 : 2,
 	});
+}
+
+// Shared tooltip bodies — each admin-facing term has one canonical explanation.
+function TokensExplainer() {
+	return (
+		<>
+			<p className="m-0">
+				AI providers measure conversation length in <b>tokens</b>, not words.
+				One token is roughly three-quarters of an English word, so 1,000,000
+				tokens ≈ 750,000 words.
+			</p>
+			<p className="m-0 mt-2">
+				You almost never need to think about this — the page converts rates into
+				dollars for you. It only matters when an admin is comparing our rate
+				against the provider's published price per million tokens.
+			</p>
+		</>
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +155,7 @@ function BudgetRoute() {
 }
 
 // ---------------------------------------------------------------------------
-// Overview — estimated spend + flag-reason banner + flag status
+// Overview — what's happened this month
 // ---------------------------------------------------------------------------
 
 function OverviewTab() {
@@ -156,21 +173,31 @@ function OverviewTab() {
 
 	return (
 		<section className="flex flex-col gap-5">
+			<TabIntro
+				title={`How things are going — ${periodLabel}`}
+				body="A live summary of what the chatbot has cost this month and whether anything needs your attention. Numbers reset on the 1st of each month."
+			/>
+
 			<Card>
 				<CardContent className="flex flex-col gap-2">
-					<p className="island-kicker m-0">Period</p>
-					<h2 className="m-0 text-lg font-semibold">{periodLabel}</h2>
-					<p className="m-0 text-sm text-muted-foreground">
-						Bot-ledger spend{" "}
-						<span className="font-semibold text-foreground">
-							{formatMicros(s.total_spend_micros)}
-						</span>{" "}
-						so far this period. This number is{" "}
-						<em>estimated from token counts × configured pricing</em> — it's not
-						a real provider balance. Authoritative billing comes from Providers
-						below; the kill-switches flip automatically when a provider returns
-						an insufficient-funds error.
+					<p className="m-0 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+						Estimated spend so far
+						<InfoTooltip title="How is this calculated?">
+							<p className="m-0">
+								We keep our own running estimate of what the chatbot costs based
+								on how long each conversation is and the prices on the{" "}
+								<b>Pricing</b> tab.
+							</p>
+							<p className="m-0 mt-2">
+								It's an estimate, not a bill. The true numbers live in{" "}
+								<b>Actual bill this month</b> below, straight from OpenAI and
+								Perplexity.
+							</p>
+						</InfoTooltip>
 					</p>
+					<h2 className="m-0 text-3xl font-semibold tabular-nums">
+						{formatMicros(s.total_spend_micros)}
+					</h2>
 				</CardContent>
 			</Card>
 
@@ -178,18 +205,35 @@ function OverviewTab() {
 
 			<div className="flex flex-col gap-2">
 				<div className="flex items-baseline justify-between gap-3">
-					<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-						Bot ledger (estimate)
+					<h3 className="m-0 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						Estimated spend by service
+						<InfoTooltip title="What are these services?">
+							<p className="m-0">
+								The chatbot uses three paid services behind the scenes:
+							</p>
+							<ul className="m-0 mt-2 list-disc pl-4">
+								<li>
+									<b>ChatGPT</b> — writes the mentor's replies.
+								</li>
+								<li>
+									<b>Research assistant</b> — pulls in-depth answers from the
+									web for scholarship and study-abroad questions.
+								</li>
+								<li>
+									<b>Web search</b> — quick lookups for facts and recent news.
+								</li>
+							</ul>
+						</InfoTooltip>
 					</h3>
 					<p className="m-0 text-[11px] text-muted-foreground">
-						What this bot thinks it spent — not a real balance.
+						Our estimate — see the actual bill below.
 					</p>
 				</div>
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Card>
 						<CardContent className="flex flex-col gap-3">
 							<SpendBar
-								label="OpenAI"
+								label="ChatGPT (OpenAI)"
 								spentMicros={s.openai_spend_micros}
 								stopped={s.hard_stopped}
 							/>
@@ -198,7 +242,7 @@ function OverviewTab() {
 					<Card>
 						<CardContent className="flex flex-col gap-3">
 							<SpendBar
-								label="Perplexity"
+								label="Research assistant (Perplexity)"
 								spentMicros={s.perplexity_spend_micros}
 								warn={s.perplexity_degraded}
 							/>
@@ -207,7 +251,7 @@ function OverviewTab() {
 					<Card>
 						<CardContent className="flex flex-col gap-3">
 							<SpendBar
-								label="Web search (OpenAI builtin)"
+								label="Web search"
 								spentMicros={s.web_search_spend_micros}
 							/>
 						</CardContent>
@@ -230,14 +274,22 @@ function OverviewTab() {
 				<CardContent>
 					<dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<FlagRow
-							label="Perplexity degraded"
-							active={s.perplexity_degraded}
-							hint="Users can still chat; Sonar searches are disabled until this clears."
+							label="Research assistant"
+							active={!s.perplexity_degraded}
+							hint={
+								s.perplexity_degraded
+									? "Off. Users can still chat, but answers won't include deep research."
+									: "On. Research answers available."
+							}
 						/>
 						<FlagRow
-							label="Hard stopped"
-							active={s.hard_stopped}
-							hint="All chat is paused until the flag is cleared or the provider balance is topped up."
+							label="Chat availability"
+							active={!s.hard_stopped}
+							hint={
+								s.hard_stopped
+									? "Paused. No one can chat until this is turned back on."
+									: "Live. Users can chat normally."
+							}
 						/>
 					</dl>
 				</CardContent>
@@ -261,7 +313,7 @@ function FlagReasonBanner({ state }: { state: GlobalSpend }) {
 			{state.perplexity_degraded ? (
 				<ReasonCard
 					severity="warn"
-					title="Sonar (Perplexity) is disabled"
+					title="Research assistant is off"
 					reason={state.perplexity_degrade_reason}
 					at={state.perplexity_degraded_at}
 				/>
@@ -295,7 +347,7 @@ function ReasonCard({
 			})
 		: null;
 	return (
-		<Card>
+		<Card className="border-[var(--theme-accent-ring)]">
 			<CardContent className="flex flex-col gap-2">
 				<div className="flex items-center gap-2">
 					<span
@@ -309,7 +361,7 @@ function ReasonCard({
 				</p>
 				{when ? (
 					<p className="m-0 text-[11px] text-muted-foreground">
-						Triggered {when}
+						Started {when}. Go to <b>Controls</b> to turn it back on.
 					</p>
 				) : null}
 			</CardContent>
@@ -331,12 +383,12 @@ function FlagRow({
 			<dt className="m-0 flex items-center gap-2 text-sm font-medium">
 				<span
 					className={`inline-block h-2 w-2 rounded-full ${
-						active ? "bg-[var(--theme-danger)]" : "bg-[var(--theme-accent)]"
+						active ? "bg-[var(--theme-accent)]" : "bg-[var(--theme-danger)]"
 					}`}
 				/>
 				{label}
 				<span className="ml-1 text-xs font-normal text-muted-foreground">
-					{active ? "active" : "idle"}
+					{active ? "on" : "off"}
 				</span>
 			</dt>
 			<dd className="m-0 mt-1 text-xs text-muted-foreground">{hint}</dd>
@@ -345,7 +397,7 @@ function FlagRow({
 }
 
 // ---------------------------------------------------------------------------
-// Credits — per-user defaults + credit-to-USD value. Reason required.
+// Credits — how much usage each user gets per month
 // ---------------------------------------------------------------------------
 
 function CreditsTab() {
@@ -396,20 +448,47 @@ function CreditsTab() {
 			}}
 			className="flex flex-col gap-5"
 		>
+			<CreditsIntroBanner />
+
 			<Card>
 				<CardContent className="flex flex-col gap-4">
 					<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-						Per-user defaults
+						Defaults for new users
 					</h3>
 					<IntField
-						label="Default monthly credits (per user)"
-						hint="New users and monthly resets start with this number."
+						label="Monthly credits per user"
+						hint="The starting balance every user gets on the 1st of each month."
+						tooltip={
+							<>
+								<p className="m-0">
+									How many credits each user starts the month with. Think of it
+									as their monthly allowance for talking to the mentor.
+								</p>
+								<p className="m-0 mt-2">
+									Raise it if users report running out early. Lower it if the
+									monthly bill is growing faster than you'd like.
+								</p>
+							</>
+						}
 						value={val("default_monthly_credits") as number}
 						onChange={(n) => set("default_monthly_credits", n)}
 					/>
 					<UsdField
-						label="Credit → USD value"
-						hint="One credit ≈ this many US dollars. Smaller = credits deplete faster."
+						label="Value of one credit"
+						hint="How much one credit is worth in dollars of AI usage."
+						tooltip={
+							<>
+								<p className="m-0">
+									One credit covers roughly this much spending on the AI
+									providers. Example: at <b>$0.01</b>, a user with 100 credits
+									can use up to $1 worth of chat each month.
+								</p>
+								<p className="m-0 mt-2">
+									Lowering this number makes credits stricter — the same monthly
+									allowance covers fewer messages. Raising it is more generous.
+								</p>
+							</>
+						}
 						micros={val("credit_usd_value_micros") as number}
 						onChange={(n) => set("credit_usd_value_micros", n)}
 					/>
@@ -420,7 +499,8 @@ function CreditsTab() {
 				value={reason}
 				onChange={setReason}
 				hasChanges={hasChanges}
-				helpText="Why are you changing the credit defaults? Be specific — a future admin looking at the audit log should understand the decision without asking you."
+				helpText="Why are you making this change? A short note helps whoever audits this later understand the decision."
+				placeholder="e.g. Raised monthly credits from 100 to 150 so active mentees stop hitting their limit mid-month."
 			/>
 
 			<SaveRow
@@ -431,16 +511,33 @@ function CreditsTab() {
 			/>
 
 			<ChangeHistoryCard
-				title="Recent Credits changes"
+				title="Past changes"
+				subtitle="Every edit to the credit settings is recorded here."
 				fieldFilter={(f) => CREDITS_FIELDS.has(f)}
 			/>
 		</form>
 	);
 }
 
+function CreditsIntroBanner() {
+	return (
+		<TabIntro
+			title="How credits work"
+			body={
+				<>
+					Credits are how we cap usage so one user can't burn through the whole
+					monthly budget. Each user gets a fresh balance on the 1st; every
+					message they send uses some credits based on how long the conversation
+					is. Change the defaults below — individual users can be adjusted
+					separately from <b>Users → Billing</b>.
+				</>
+			}
+		/>
+	);
+}
+
 // ---------------------------------------------------------------------------
-// Pricing — per-model rates. Banners explain why to think twice + why we
-// can't auto-pull these from the provider.
+// Pricing — provider rates
 // ---------------------------------------------------------------------------
 
 function PricingTab() {
@@ -496,37 +593,70 @@ function PricingTab() {
 			<Card>
 				<CardContent className="flex flex-col gap-4">
 					<div className="flex flex-col gap-1">
-						<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-							OpenAI
+						<h3 className="m-0 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+							ChatGPT (OpenAI)
+							<InfoTooltip title="ChatGPT (OpenAI)">
+								<p className="m-0">
+									The service that writes the mentor's replies. OpenAI charges
+									separately for what the user types (<b>input</b>) and what the
+									mentor writes back (<b>output</b>) — output is usually more
+									expensive.
+								</p>
+							</InfoTooltip>
 						</h3>
 						<p className="m-0 text-xs text-muted-foreground">
-							Verify the current rates for the exact model we run (check
-							Overview → Provider column for the live model) before editing.{" "}
+							Find the current rates on OpenAI's pricing page, pick the exact
+							model we use, and paste those numbers here.{" "}
 							<a
 								className="underline underline-offset-2"
 								href="https://openai.com/api/pricing/"
 								target="_blank"
 								rel="noreferrer"
 							>
-								OpenAI pricing page →
+								Open OpenAI pricing →
 							</a>
 						</p>
 					</div>
 					<UsdField
-						label="Input — USD per 1M tokens"
+						label="Price per million input words"
+						tooltip={
+							<>
+								<p className="m-0">
+									What OpenAI charges us for the words <b>the user sends</b> to
+									the chatbot, per 1,000,000 tokens.
+								</p>
+								<p className="m-0 mt-2">
+									Find the exact number on OpenAI's pricing page under the model
+									name we're running.
+								</p>
+							</>
+						}
 						micros={v("pricing_openai_input_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_openai_input_per_mtok_micros", n)}
 						precision={4}
 					/>
 					<UsdField
-						label="Output — USD per 1M tokens"
+						label="Price per million output words"
+						tooltip={
+							<p className="m-0">
+								What OpenAI charges us for the words{" "}
+								<b>the mentor replies with</b>, per 1,000,000 tokens. Usually
+								higher than the input price.
+							</p>
+						}
 						micros={v("pricing_openai_output_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_openai_output_per_mtok_micros", n)}
 						precision={4}
 					/>
 					<UsdField
-						label="Web search — USD per call"
-						hint="Flat per-call fee for the built-in web_search tool."
+						label="Web search fee per search"
+						tooltip={
+							<p className="m-0">
+								Flat fee OpenAI charges every time the chatbot does a quick web
+								search to fact-check something. Charged per search, not per
+								word.
+							</p>
+						}
 						micros={v("pricing_web_search_per_call_micros") as number}
 						onChange={(n) => s("pricing_web_search_per_call_micros", n)}
 						precision={4}
@@ -537,37 +667,59 @@ function PricingTab() {
 			<Card>
 				<CardContent className="flex flex-col gap-4">
 					<div className="flex flex-col gap-1">
-						<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-							Perplexity
+						<h3 className="m-0 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+							Research assistant (Perplexity)
+							<InfoTooltip title="Research assistant (Perplexity)">
+								<p className="m-0">
+									The service that pulls detailed answers from the web for
+									scholarship and study-abroad questions. Perplexity charges for
+									input words, output words, <b>and</b> a flat fee per search
+									request.
+								</p>
+							</InfoTooltip>
 						</h3>
 						<p className="m-0 text-xs text-muted-foreground">
-							Perplexity splits a call into input + output tokens plus a flat
-							request fee that varies with search context size.{" "}
+							Perplexity's rates are listed on their pricing page — pick the
+							exact model we use.{" "}
 							<a
 								className="underline underline-offset-2"
 								href="https://docs.perplexity.ai/getting-started/pricing"
 								target="_blank"
 								rel="noreferrer"
 							>
-								Perplexity pricing →
+								Open Perplexity pricing →
 							</a>
 						</p>
 					</div>
 					<UsdField
-						label="Input — USD per 1M tokens"
+						label="Price per million input words"
+						tooltip="What Perplexity charges for the words sent to it, per 1,000,000 tokens."
 						micros={v("pricing_perplexity_input_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_perplexity_input_per_mtok_micros", n)}
 						precision={4}
 					/>
 					<UsdField
-						label="Output — USD per 1M tokens"
+						label="Price per million output words"
+						tooltip="What Perplexity charges for the research answer it returns, per 1,000,000 tokens."
 						micros={v("pricing_perplexity_output_per_mtok_micros") as number}
 						onChange={(n) => s("pricing_perplexity_output_per_mtok_micros", n)}
 						precision={4}
 					/>
 					<UsdField
-						label="Request fee — USD per call"
-						hint="Low-context fee by default. Bump if you switch to high-context search."
+						label="Fee per research request"
+						tooltip={
+							<>
+								<p className="m-0">
+									Flat fee Perplexity charges for every research request, on top
+									of the word-based prices above.
+								</p>
+								<p className="m-0 mt-2">
+									This number assumes <b>low-context</b> search. If the mentor
+									is configured to use high-context search, the fee is higher —
+									check the pricing page.
+								</p>
+							</>
+						}
 						micros={v("pricing_perplexity_request_fee_micros") as number}
 						onChange={(n) => s("pricing_perplexity_request_fee_micros", n)}
 						precision={4}
@@ -579,7 +731,8 @@ function PricingTab() {
 				value={reason}
 				onChange={setReason}
 				hasChanges={hasChanges}
-				helpText="Why are you changing the pricing? Include the source you verified against (e.g. 'OpenAI raised gpt-5-mini output to $1.20/M on 2026-04-22')."
+				helpText="Include the source you checked. A future admin reading this should be able to tell what price update you were tracking."
+				placeholder="e.g. OpenAI announced on 2026-04-22 that gpt-5-mini output dropped from $2.00 to $1.20 per million tokens."
 			/>
 
 			<SaveRow
@@ -590,7 +743,8 @@ function PricingTab() {
 			/>
 
 			<ChangeHistoryCard
-				title="Recent Pricing changes"
+				title="Past changes"
+				subtitle="Every pricing edit is recorded with the admin, date, and reason."
 				fieldFilter={(f) => PRICING_FIELDS.has(f)}
 			/>
 		</form>
@@ -599,57 +753,53 @@ function PricingTab() {
 
 function PricingIntroBanner() {
 	return (
-		<Card className="border-[var(--theme-warning,theme(colors.amber.500))]/40">
+		<Card className="border-[var(--theme-accent-ring)] bg-[var(--theme-accent-soft)]/40">
 			<CardContent className="flex flex-col gap-3">
 				<div className="flex items-center gap-2">
 					<span
 						className="inline-block h-2.5 w-2.5 rounded-full"
-						style={{
-							background: "var(--theme-warning,theme(colors.amber.500))",
-						}}
+						style={{ background: "var(--theme-accent)" }}
 					/>
 					<h3 className="m-0 text-sm font-semibold">
-						Think twice before editing
+						Please read before editing
 					</h3>
+					<InfoTooltip title="What are tokens?" side="bottom">
+						<TokensExplainer />
+					</InfoTooltip>
 				</div>
 				<div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-3">
 					<div className="flex flex-col gap-1">
 						<p className="m-0 font-semibold text-foreground">
-							What these rates drive
+							What these numbers are for
 						</p>
 						<p className="m-0">
-							Every turn's cost is{" "}
-							<code className="rounded bg-[var(--theme-surface)] px-1">
-								tokens × rate
-							</code>
-							. That cost is then converted into user credits using the{" "}
-							<em>Credit → USD value</em> on the Credits tab. A wrong rate here
-							silently mis-charges every user, every turn, until it's fixed.
+							These are the prices OpenAI and Perplexity charge us. They're how
+							we estimate the monthly bill and how we decide how much each
+							user's chat costs in credits. Numbers here should match what the
+							providers show on their pricing pages.
 						</p>
 					</div>
 					<div className="flex flex-col gap-1">
 						<p className="m-0 font-semibold text-foreground">
-							Why we can't auto-pull them
+							Why you have to update them manually
 						</p>
 						<p className="m-0">
-							Neither OpenAI nor Perplexity exposes a per-model pricing API —
-							rates only live on their public pricing pages and in release
-							notes. OpenAI's{" "}
-							<code className="rounded bg-[var(--theme-surface)] px-1">
-								/v1/organization/costs
-							</code>{" "}
-							returns spend, not rates. We watch the pricing pages manually and
-							mirror them here.
+							Neither OpenAI nor Perplexity gives us a way to read their current
+							prices automatically. They only publish them on their website and
+							in release announcements. Watch those pages and update these
+							fields when you see a change.
 						</p>
 					</div>
 					<div className="flex flex-col gap-1">
-						<p className="m-0 font-semibold text-foreground">What goes wrong</p>
+						<p className="m-0 font-semibold text-foreground">
+							What happens if a number is wrong
+						</p>
 						<p className="m-0">
-							<span className="font-medium">Too low:</span> turns look cheap,
-							credits don't deplete fast enough, we overspend real money.{" "}
-							<span className="font-medium">Too high:</span> users get blocked
-							or downgraded when they shouldn't. Save a reason so whoever audits
-							next month knows what you verified against.
+							Too low: chats look cheaper than they are, users send more
+							messages than we can afford, and our bill grows faster than the
+							Overview tab suggests. Too high: users get blocked even though
+							they still have real budget left. Save a reason so we can trace
+							what you verified.
 						</p>
 					</div>
 				</div>
@@ -659,7 +809,7 @@ function PricingIntroBanner() {
 }
 
 // ---------------------------------------------------------------------------
-// Controls — kill switches
+// Controls — emergency switches
 // ---------------------------------------------------------------------------
 
 function ControlsTab() {
@@ -673,15 +823,34 @@ function ControlsTab() {
 
 	return (
 		<div className="flex flex-col gap-4">
+			<TabIntro
+				title="Emergency switches"
+				body="Manual overrides to turn parts of the chatbot off and back on. The system flips these automatically when a provider runs out of credit — the reason shows on Overview when it happens. Use these buttons to override manually."
+			/>
+
 			<Card>
 				<CardContent className="flex flex-col gap-3">
-					<div className="flex items-center justify-between gap-3">
+					<div className="flex items-start justify-between gap-3">
 						<div>
-							<h3 className="m-0 text-sm font-semibold">Perplexity degraded</h3>
+							<h3 className="m-0 flex items-center gap-2 text-sm font-semibold">
+								Research assistant
+								<InfoTooltip title="Research assistant">
+									<p className="m-0">
+										Turning this off disables the deep-research service
+										(Perplexity). Users can still chat normally and get quick
+										web-search answers — they just won't get detailed
+										scholarship / study-abroad research.
+									</p>
+									<p className="m-0 mt-2">
+										Use this if the research bill is growing too fast, or the
+										provider is unreliable.
+									</p>
+								</InfoTooltip>
+							</h3>
 							<p className="m-0 mt-1 text-xs text-muted-foreground">
 								{s.perplexity_degraded
-									? "Sonar is OFF. Chat still works via OpenAI + web_search."
-									: "Sonar is ON. Users can use grounded research tools."}
+									? "Off. Chat still works, but deep research answers are disabled."
+									: "On. Users can ask for in-depth research."}
 							</p>
 						</div>
 						<Button
@@ -693,7 +862,7 @@ function ControlsTab() {
 								})
 							}
 						>
-							{s.perplexity_degraded ? "Re-enable Sonar" : "Force degrade"}
+							{s.perplexity_degraded ? "Turn back on" : "Turn off"}
 						</Button>
 					</div>
 				</CardContent>
@@ -701,13 +870,26 @@ function ControlsTab() {
 
 			<Card>
 				<CardContent className="flex flex-col gap-3">
-					<div className="flex items-center justify-between gap-3">
+					<div className="flex items-start justify-between gap-3">
 						<div>
-							<h3 className="m-0 text-sm font-semibold">Hard stop</h3>
+							<h3 className="m-0 flex items-center gap-2 text-sm font-semibold">
+								Pause all chat
+								<InfoTooltip title="Pause all chat">
+									<p className="m-0">
+										Stops every user from chatting immediately. Only admins can
+										still use the bot.
+									</p>
+									<p className="m-0 mt-2">
+										This is an emergency switch — use it only if something's
+										seriously wrong, like we're about to be charged a huge
+										unexpected bill, or a bug is causing problems.
+									</p>
+								</InfoTooltip>
+							</h3>
 							<p className="m-0 mt-1 text-xs text-muted-foreground">
 								{s.hard_stopped
-									? "Chat is paused for everyone except admins."
-									: "Chat is live. Engage only in an emergency — this pauses all mentees immediately."}
+									? "Chat is paused. Users see a friendly 'temporarily unavailable' message."
+									: "Chat is live. Pausing stops everyone immediately — think twice."}
 							</p>
 						</div>
 						<Button
@@ -725,22 +907,41 @@ function ControlsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Shared form primitives
+// Shared UI primitives
 // ---------------------------------------------------------------------------
+
+function TabIntro({
+	title,
+	body,
+}: {
+	title: string;
+	body: string | React.ReactNode;
+}) {
+	return (
+		<Card className="bg-[var(--theme-surface)]">
+			<CardContent className="flex flex-col gap-1 py-4">
+				<h2 className="m-0 text-base font-semibold">{title}</h2>
+				<p className="m-0 text-sm text-muted-foreground">{body}</p>
+			</CardContent>
+		</Card>
+	);
+}
 
 function IntField({
 	label,
 	hint,
+	tooltip,
 	value,
 	onChange,
 }: {
 	label: string;
 	hint?: string;
+	tooltip?: React.ReactNode;
 	value: number;
 	onChange: (n: number) => void;
 }) {
 	return (
-		<Field label={label} hint={hint}>
+		<Field label={label} hint={hint} tooltip={tooltip}>
 			<Input
 				type="number"
 				min={0}
@@ -754,19 +955,21 @@ function IntField({
 function UsdField({
 	label,
 	hint,
+	tooltip,
 	micros,
 	onChange,
 	precision = 2,
 }: {
 	label: string;
 	hint?: string;
+	tooltip?: React.ReactNode;
 	micros: number;
 	onChange: (nextMicros: number) => void;
 	precision?: number;
 }) {
 	const usd = (micros / 1_000_000).toFixed(precision);
 	return (
-		<Field label={label} hint={hint}>
+		<Field label={label} hint={hint} tooltip={tooltip}>
 			<div className="relative">
 				<span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
 					$
@@ -793,11 +996,13 @@ function ReasonField({
 	onChange,
 	hasChanges,
 	helpText,
+	placeholder,
 }: {
 	value: string;
 	onChange: (next: string) => void;
 	hasChanges: boolean;
 	helpText: string;
+	placeholder?: string;
 }) {
 	const trimmed = value.trim();
 	const tooShort = hasChanges && trimmed.length > 0 && trimmed.length < 5;
@@ -806,7 +1011,7 @@ function ReasonField({
 			<CardContent className="flex flex-col gap-2">
 				<label className="flex flex-col gap-1" htmlFor="config-change-reason">
 					<span className="text-sm font-medium">
-						Reason for change{" "}
+						Why are you making this change?{" "}
 						<span className="text-xs font-normal text-muted-foreground">
 							(required)
 						</span>
@@ -818,7 +1023,7 @@ function ReasonField({
 					value={value}
 					onChange={(e) => onChange(e.target.value)}
 					rows={3}
-					placeholder="e.g. Matching OpenAI's 2026-04-22 price drop on gpt-5-mini output ($2.00 → $1.20 / M)."
+					placeholder={placeholder}
 					className={cn(
 						"w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none",
 						"placeholder:text-muted-foreground",
@@ -864,9 +1069,11 @@ function SaveRow({
 
 function ChangeHistoryCard({
 	title,
+	subtitle,
 	fieldFilter,
 }: {
 	title: string;
+	subtitle?: string;
 	fieldFilter: (field: string) => boolean;
 }) {
 	const history = useBudgetConfigHistoryQuery();
@@ -876,13 +1083,13 @@ function ChangeHistoryCard({
 	return (
 		<Card>
 			<CardContent className="flex flex-col gap-3">
-				<div className="flex items-baseline justify-between gap-3">
+				<div className="flex flex-col gap-1">
 					<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
 						{title}
 					</h3>
-					<p className="m-0 text-[11px] text-muted-foreground">
-						Last 50 edits, newest first.
-					</p>
+					{subtitle ? (
+						<p className="m-0 text-xs text-muted-foreground">{subtitle}</p>
+					) : null}
 				</div>
 				{history.isPending ? (
 					<p className="m-0 text-xs text-muted-foreground">Loading history…</p>
@@ -900,11 +1107,11 @@ function ChangeHistoryCard({
 						<TableHeader>
 							<TableRow>
 								<TableHead>When</TableHead>
-								<TableHead>Field</TableHead>
-								<TableHead>Old</TableHead>
-								<TableHead>New</TableHead>
+								<TableHead>Setting</TableHead>
+								<TableHead>From</TableHead>
+								<TableHead>To</TableHead>
 								<TableHead>Reason</TableHead>
-								<TableHead>Admin</TableHead>
+								<TableHead>Changed by</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
