@@ -45,7 +45,10 @@ async def get_me(
 ) -> MeResponse:
     snap = await budget.get_user_snapshot(user)
     return MeResponse(
-        user=user,
+        # mentee_profile is only consumed by the agent's system prompt; the
+        # frontend doesn't render it. Strip it here so it never ships to the
+        # browser.
+        user=user.model_copy(update={"mentee_profile": None}),
         credits=CreditsInfo(
             remaining=snap.credits_remaining,
             used=snap.credits_used,

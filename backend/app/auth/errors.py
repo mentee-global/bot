@@ -33,3 +33,7 @@ class UserinfoFetchError(AuthError):
 
 class RevokeFailedError(AuthError):
     """POST /oauth/revoke failed. Always best-effort — never fatal."""
+
+
+class ProfileFetchAuthError(AuthError):
+    """GET /oauth/profile returned 401. Caller should refresh and retry."""

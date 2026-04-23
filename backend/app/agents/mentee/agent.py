@@ -149,6 +149,51 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
             )
         if user.timezone:
             parts.append(f"Their timezone is {user.timezone}.")
+
+        p = user.mentee_profile
+        if p is not None:
+            where = ", ".join(x for x in (p.location, p.country) if x)
+            if where:
+                parts.append(f"They are based in {where}.")
+            demo_bits = [b for b in (p.age and f"{p.age}yo", p.gender) if b]
+            if demo_bits:
+                parts.append(f"Demographics: {' '.join(demo_bits)}.")
+            if p.education_level or p.education:
+                first = p.education[0] if p.education else None
+                edu = p.education_level or (first.level if first else None)
+                major = ", ".join(first.majors) if first and first.majors else None
+                school = first.school if first else None
+                segments = [
+                    s
+                    for s in (
+                        edu,
+                        major and f"in {major}",
+                        school and f"at {school}",
+                    )
+                    if s
+                ]
+                parts.append("Education: " + " ".join(segments) + ".")
+            if p.is_student is True:
+                parts.append("They are currently a student.")
+            if p.work_state:
+                parts.append(f"Work/study status: {', '.join(p.work_state)}.")
+            if p.immigrant_status:
+                parts.append(
+                    f"Context they flagged at intake: {', '.join(p.immigrant_status)}."
+                )
+            if p.interests:
+                parts.append(f"Interests: {', '.join(p.interests)}.")
+            if p.languages:
+                parts.append(f"Languages they speak: {', '.join(p.languages)}.")
+            if p.organization is not None:
+                parts.append(f"Organization: {p.organization.name}.")
+            if p.mentor is not None:
+                parts.append(f"Their assigned mentor on Mentee is {p.mentor.name}.")
+            if p.biography:
+                parts.append(f"Short bio they wrote: {p.biography}")
+            if p.application_notes:
+                parts.append(f"Notes they left at intake: {p.application_notes}")
+
         return " ".join(parts)
 
     return agent

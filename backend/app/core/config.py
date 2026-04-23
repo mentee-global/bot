@@ -27,7 +27,14 @@ class Settings(BaseSettings):
     mentee_oauth_redirect_uri: AnyHttpUrl = AnyHttpUrl(
         "http://localhost:8001/api/auth/callback"
     )
-    mentee_oauth_scopes: str = "openid email profile mentee.role"
+    mentee_oauth_scopes: str = (
+        "openid email profile mentee.role mentee.api.profile.read"
+    )
+
+    # TTL for the per-session cache in AuthService that holds the richer
+    # profile fetched from Mentee's /oauth/profile endpoint.
+    # See docs/oauth/04-mentee-api-profile.md.
+    bot_profile_cache_ttl_seconds: int = 15 * 60
 
     # Database — Postgres everywhere
     database_url: str = "postgresql+asyncpg://bot:bot@localhost:5432/bot_dev"

@@ -6,6 +6,7 @@ from fastapi import Cookie, Depends, HTTPException, status
 from app.agents.base import AgentPort
 from app.agents.mock.agent import MockAgent
 from app.auth.errors import AuthError
+from app.auth.mentee_profile_client import MenteeProfileClient
 from app.auth.oauth_client import MenteeOAuthClient
 from app.auth.service import AuthService
 from app.auth.session_store import SessionStore
@@ -60,11 +61,13 @@ async def init_auth() -> None:
     await _oauth_client.load_metadata()
     _session_store = SessionStore()
     _state_store = StateStore()
+    profile_client = MenteeProfileClient(settings, _http)
     _auth_service = AuthService(
         oauth=_oauth_client,
         sessions=_session_store,
         state=_state_store,
         settings=settings,
+        profile_client=profile_client,
     )
 
 
