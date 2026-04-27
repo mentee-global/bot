@@ -1,3 +1,4 @@
+import type { PersonaPayload } from "#/features/admin/data/persona.types";
 import type {
 	SendMessageResponse,
 	Thread,
@@ -27,9 +28,10 @@ export const chatService = {
 	 * callers that don't know a thread id yet. */
 	getThread: (signal?: AbortSignal) =>
 		api.get<Thread>("/api/chat/thread", signal),
-	sendMessage: (body: string, threadId?: string) =>
-		api.post<SendMessageResponse>(
-			"/api/chat/messages",
-			threadId ? { body, thread_id: threadId } : { body },
-		),
+	sendMessage: (body: string, threadId?: string, persona?: PersonaPayload) => {
+		const payload: Record<string, unknown> = { body };
+		if (threadId) payload.thread_id = threadId;
+		if (persona) payload.persona = persona;
+		return api.post<SendMessageResponse>("/api/chat/messages", payload);
+	},
 };

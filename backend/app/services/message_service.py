@@ -50,7 +50,11 @@ class MessageService:
         *,
         user: User,
         thread_id: str | None = None,
+        agent_user: User | None = None,
     ) -> tuple[Thread, Message, Message]:
+        # `user` drives auth + budget; `agent_user`, when set, replaces the
+        # context the model sees (admin "test persona" flow). Falls back to
+        # `user` so non-persona requests behave identically.
         snap = await self.budget.check_can_chat(user)
         thread = await self._resolve_thread(user_id, thread_id)
         is_first_message = not thread.messages
@@ -64,7 +68,7 @@ class MessageService:
         reply_body = await self.agent.reply(
             user_message,
             thread.messages,
-            user=user,
+            user=agent_user or user,
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
         )
@@ -89,6 +93,7 @@ class MessageService:
         *,
         user: User,
         thread_id: str | None = None,
+        agent_user: User | None = None,
     ) -> AsyncIterator[tuple[str, dict | str]]:
         """Yield (event_name, payload) tuples for the SSE response.
 
@@ -123,7 +128,7 @@ class MessageService:
         async for event in self.agent.stream_reply(
             user_message,
             thread.messages,
-            user=user,
+            user=agent_user or user,
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
         ):

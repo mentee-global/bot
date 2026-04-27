@@ -1,7 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Menu } from "lucide-react";
+import { Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { PersonaActiveBanner } from "#/features/admin/components/PersonaActiveBanner";
+import { PersonaSheet } from "#/features/admin/components/PersonaSheet";
 import { sessionQueryOptions } from "#/features/auth/data/auth.service";
 import {
 	useLogoutMutation,
@@ -123,6 +125,7 @@ function ChatView({
 	const [renameTarget, setRenameTarget] = useState<ThreadSummary | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<ThreadSummary | null>(null);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
+	const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
 
 	const activeThreadId = useMemo(() => {
 		if (search.threadId) return search.threadId;
@@ -220,12 +223,22 @@ function ChatView({
 						<CreditsPill />
 					</div>
 					{isAdmin ? (
-						<Link
-							to="/admin"
-							className="shrink-0 text-sm font-medium text-[var(--theme-muted)] underline-offset-4 transition hover:text-[var(--theme-primary)] hover:underline"
-						>
-							{m.chat_admin_panel_link()}
-						</Link>
+						<>
+							<button
+								type="button"
+								onClick={() => setPersonaSheetOpen(true)}
+								className="hidden shrink-0 items-center gap-1.5 rounded-md border border-[var(--theme-border)] px-2.5 py-1.5 text-sm font-medium text-[var(--theme-muted)] transition hover:border-[var(--theme-accent)] hover:text-[var(--theme-primary)] sm:inline-flex"
+							>
+								<Sparkles className="size-3.5" />
+								Test persona
+							</button>
+							<Link
+								to="/admin"
+								className="shrink-0 text-sm font-medium text-[var(--theme-muted)] underline-offset-4 transition hover:text-[var(--theme-primary)] hover:underline"
+							>
+								{m.chat_admin_panel_link()}
+							</Link>
+						</>
 					) : null}
 					<button
 						type="button"
@@ -236,6 +249,9 @@ function ChatView({
 					</button>
 				</header>
 				<div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
+					{isAdmin ? (
+						<PersonaActiveBanner onEdit={() => setPersonaSheetOpen(true)} />
+					) : null}
 					{threadLoading ? (
 						<MessageListSkeleton />
 					) : isEmptyThread ? (
@@ -267,6 +283,12 @@ function ChatView({
 				onConfirm={handleConfirmDelete}
 				isDeleting={deleteThread.isPending}
 			/>
+			{isAdmin ? (
+				<PersonaSheet
+					open={personaSheetOpen}
+					onOpenChange={setPersonaSheetOpen}
+				/>
+			) : null}
 		</>
 	);
 }

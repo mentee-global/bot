@@ -4,6 +4,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
+import { useActivePersona } from "#/features/admin/hooks/usePersonaStore";
 import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import type {
@@ -94,9 +95,11 @@ export function useDeleteThreadMutation() {
 
 export function useSendMessageMutation(threadId: string | null | undefined) {
 	const queryClient = useQueryClient();
+	const persona = useActivePersona();
 
 	return useMutation<SendMessageResponse, Error, string>({
-		mutationFn: (body) => chatService.sendMessage(body, threadId ?? undefined),
+		mutationFn: (body) =>
+			chatService.sendMessage(body, threadId ?? undefined, persona),
 		onSuccess: (response) => {
 			queryClient.setQueryData<Thread>(
 				chatKeys.thread(response.thread_id),

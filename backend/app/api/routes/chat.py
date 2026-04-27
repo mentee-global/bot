@@ -15,7 +15,7 @@ from app.budget.service import (
     GlobalBudgetExhaustedError,
     QuotaExhaustedError,
 )
-from app.domain.models import Message, User
+from app.domain.models import MenteeProfile, Message, User
 from app.services.message_service import MessageService
 from app.services.thread_store import ThreadNotFoundError
 
@@ -24,9 +24,51 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+class ChatPersona(BaseModel):
+    """Admin-only override of the user context the agent sees on a turn.
+
+    Mirrors the overridable fields of `User` (name, role, language, timezone)
+    plus the full `MenteeProfile` object pulled from Mentee's
+    `GET /oauth/profile`. Reusing `MenteeProfile` directly means any field
+    added to the profile DTO surfaces in the persona form automatically.
+    """
+
+    name: str | None = None
+    role: str | None = None
+    preferred_language: str | None = None
+    timezone: str | None = None
+    mentee_profile: MenteeProfile | None = None
+
+
 class SendMessageRequest(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = None
+    persona: ChatPersona | None = None
+
+
+def _maybe_apply_persona(user: User, persona: ChatPersona | None) -> User | None:
+    """Build the agent-facing user when an admin attaches a persona override.
+
+    Non-admins are ignored silently — the field is harmless if it leaks
+    through a stale client. Returns `None` when there is nothing to override
+    so callers can pass `agent_user=None` and the service falls back to `user`.
+    """
+    if persona is None or user.role != "admin":
+        return None
+    updates: dict[str, object] = {}
+    if persona.name is not None:
+        updates["name"] = persona.name
+    if persona.role is not None:
+        updates["role"] = persona.role
+    if persona.preferred_language is not None:
+        updates["preferred_language"] = persona.preferred_language
+    if persona.timezone is not None:
+        updates["timezone"] = persona.timezone
+    if persona.mentee_profile is not None:
+        updates["mentee_profile"] = persona.mentee_profile
+    if not updates:
+        return None
+    return user.model_copy(update=updates)
 
 
 class SendMessageResponse(BaseModel):
@@ -78,6 +120,7 @@ async def send_message(
                 body=payload.body,
                 user=user,
                 thread_id=payload.thread_id,
+                agent_user=_maybe_apply_persona(user, payload.persona),
             )
         except QuotaExhaustedError as err:
             raise HTTPException(
@@ -136,6 +179,7 @@ async def stream_message(
                     body=payload.body,
                     user=user,
                     thread_id=payload.thread_id,
+                    agent_user=_maybe_apply_persona(user, payload.persona),
                 ):
                     yield _sse(event, data)
             except QuotaExhaustedError as err:

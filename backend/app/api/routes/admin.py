@@ -133,6 +133,20 @@ class AdminForceLogoutResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+@router.get("/persona/schema")
+async def get_persona_schema() -> dict[str, object]:
+    """JSON Schema of the chat persona override payload.
+
+    Used by the admin "Test persona" form to render itself: the form is
+    pinned to whatever fields `ChatPersona` (and the embedded `MenteeProfile`)
+    expose, so adding a field to either model surfaces in the form on next
+    page load — no frontend change required.
+    """
+    from app.api.routes.chat import ChatPersona
+
+    return ChatPersona.model_json_schema()
+
+
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_stats() -> AdminStatsResponse:
     """Four platform-wide counts. Issued concurrently for latency."""

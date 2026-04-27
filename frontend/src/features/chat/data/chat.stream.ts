@@ -1,3 +1,4 @@
+import type { PersonaPayload } from "#/features/admin/data/persona.types";
 import { API_URL } from "#/lib/api/client";
 import { ApiError } from "#/lib/api/errors";
 
@@ -24,7 +25,11 @@ export async function* streamChatMessage(
 	body: string,
 	threadId?: string,
 	signal?: AbortSignal,
+	persona?: PersonaPayload,
 ): AsyncGenerator<StreamEvent, void, unknown> {
+	const payload: Record<string, unknown> = { body };
+	if (threadId) payload.thread_id = threadId;
+	if (persona) payload.persona = persona;
 	const response = await fetch(`${API_URL}/api/chat/messages/stream`, {
 		method: "POST",
 		credentials: "include",
@@ -32,7 +37,7 @@ export async function* streamChatMessage(
 			"Content-Type": "application/json",
 			Accept: "text/event-stream",
 		},
-		body: JSON.stringify(threadId ? { body, thread_id: threadId } : { body }),
+		body: JSON.stringify(payload),
 		signal,
 	});
 

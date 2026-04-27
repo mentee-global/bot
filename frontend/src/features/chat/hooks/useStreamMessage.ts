@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
+import { useActivePersona } from "#/features/admin/hooks/usePersonaStore";
 import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import { streamChatMessage } from "#/features/chat/data/chat.stream";
@@ -41,6 +42,7 @@ function patchThreadByKey(
 export function useStreamMessage(threadId: string | null | undefined) {
 	const queryClient = useQueryClient();
 	const abortRef = useRef<AbortController | null>(null);
+	const persona = useActivePersona();
 
 	const mutation = useMutation<void, Error, string>({
 		mutationFn: async (body: string) => {
@@ -89,6 +91,7 @@ export function useStreamMessage(threadId: string | null | undefined) {
 					body,
 					activeThreadId,
 					controller.signal,
+					persona,
 				)) {
 					if (evt.event === "meta") {
 						meta = JSON.parse(evt.data) as StreamMeta;
@@ -218,7 +221,11 @@ export function useStreamMessage(threadId: string | null | undefined) {
 					messages: t.messages.filter((m) => !cleanupIds.has(m.id)),
 				}));
 
-				const fallback = await chatService.sendMessage(body, activeThreadId);
+				const fallback = await chatService.sendMessage(
+					body,
+					activeThreadId,
+					persona,
+				);
 				const fallbackKey = chatKeys.thread(fallback.thread_id);
 				patchThreadByKey(
 					queryClient,

@@ -182,13 +182,40 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
                     f"Context they flagged at intake: {', '.join(p.immigrant_status)}."
                 )
             if p.interests:
-                parts.append(f"Interests: {', '.join(p.interests)}.")
+                parts.append(f"Current focus areas: {', '.join(p.interests)}.")
+            # `topics` is the *intake-time* mentor-matching intent. Surface it
+            # only when it differs from the current focus — otherwise the two
+            # lines say the same thing and waste prompt tokens.
+            if p.topics and set(p.topics) != set(p.interests):
+                parts.append(
+                    f"Topics they originally signed up to discuss: {', '.join(p.topics)}."
+                )
             if p.languages:
                 parts.append(f"Languages they speak: {', '.join(p.languages)}.")
+            if p.identify:
+                parts.append(f"How they self-identify: {p.identify}.")
             if p.organization is not None:
-                parts.append(f"Organization: {p.organization.name}.")
+                org_bits = [p.organization.name]
+                if p.organization.topics:
+                    org_bits.append(f"focus: {p.organization.topics}")
+                parts.append(f"Organization: {' — '.join(org_bits)}.")
             if p.mentor is not None:
-                parts.append(f"Their assigned mentor on Mentee is {p.mentor.name}.")
+                mentor_bits = [p.mentor.name]
+                if p.mentor.professional_title:
+                    mentor_bits.append(p.mentor.professional_title)
+                mentor_line = (
+                    f"Their assigned mentor on Mentee is {', '.join(mentor_bits)}."
+                )
+                if p.mentor.specializations:
+                    mentor_line += (
+                        " Mentor specializes in "
+                        f"{', '.join(p.mentor.specializations)}."
+                    )
+                if p.mentor.languages:
+                    mentor_line += (
+                        f" Mentor speaks {', '.join(p.mentor.languages)}."
+                    )
+                parts.append(mentor_line)
             if p.biography:
                 parts.append(f"Short bio they wrote: {p.biography}")
             if p.application_notes:

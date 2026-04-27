@@ -99,12 +99,13 @@ def _parse_dto(data: dict[str, Any]) -> MenteeProfile:
         "biography",
         "application_notes",
         "education_level",
+        "identify",
     ):
         v = data.get(key)
         if isinstance(v, str) and v:
             kwargs[key] = v
 
-    for key in ("languages", "interests", "work_state", "immigrant_status"):
+    for key in ("languages", "interests", "topics", "work_state", "immigrant_status"):
         v = data.get(key)
         if isinstance(v, list):
             kwargs[key] = [str(x) for x in v if isinstance(x, str | int | float)]
