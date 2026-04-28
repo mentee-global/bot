@@ -91,6 +91,10 @@ export function useShortcut(
 	}, [combo, handler, when, allowInInput, preventDefault]);
 }
 
+// Word labels read clearly on every keyboard. Windows/Linux machines have
+// no Command key, so we show "Ctrl" there; Mac users see "Cmd" (matching
+// what's printed on the physical key) instead of the ⌘ glyph that newcomers
+// don't always recognize.
 export function isModKeyLabel(): string {
-	return isMac ? "⌘" : "Ctrl";
+	return isMac ? "Cmd" : "Ctrl";
 }
