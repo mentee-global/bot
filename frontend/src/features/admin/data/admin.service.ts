@@ -1,6 +1,7 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import type {
 	AdminForceLogoutResponse,
+	AdminMetricsResponse,
 	AdminStatsResponse,
 	AdminThreadListResponse,
 	AdminThreadResponse,
@@ -18,6 +19,12 @@ export interface UserListParams {
 export interface ThreadListParams {
 	query?: string;
 	page?: number;
+}
+
+export interface MetricsParams {
+	days?: number;
+	from?: string;
+	to?: string;
 }
 
 function buildQuery(params: Record<string, string | number | undefined>) {
@@ -78,6 +85,15 @@ export const adminService = {
 		),
 	getStats: (signal?: AbortSignal) =>
 		api.get<AdminStatsResponse>("/api/admin/stats", signal),
+	getMetrics: (params: MetricsParams = {}, signal?: AbortSignal) =>
+		api.get<AdminMetricsResponse>(
+			`/api/admin/metrics${buildQuery({
+				days: params.days,
+				from: params.from,
+				to: params.to,
+			})}`,
+			signal,
+		),
 	getUserSessions: (userId: string, signal?: AbortSignal) =>
 		api.get<AdminUserSessionsResponse>(
 			`/api/admin/users/${encodeURIComponent(userId)}/sessions`,
@@ -104,6 +120,8 @@ export const adminKeys = {
 	allThreads: (params: ThreadListParams = {}) =>
 		[...adminKeys.all, "allThreads", params] as const,
 	stats: () => [...adminKeys.all, "stats"] as const,
+	metrics: (params: MetricsParams = {}) =>
+		[...adminKeys.all, "metrics", params] as const,
 };
 
 export const adminUsersQueryOptions = (params: UserListParams = {}) =>
@@ -165,3 +183,11 @@ export const adminStatsQueryOptions = queryOptions({
 	queryFn: ({ signal }) => adminService.getStats(signal),
 	staleTime: 15 * 1000,
 });
+
+export const adminMetricsQueryOptions = (params: MetricsParams = {}) =>
+	queryOptions({
+		queryKey: adminKeys.metrics(params),
+		queryFn: ({ signal }) => adminService.getMetrics(params, signal),
+		staleTime: 30 * 1000,
+		placeholderData: keepPreviousData,
+	});

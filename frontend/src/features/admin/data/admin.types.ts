@@ -67,6 +67,73 @@ export interface AdminStatsResponse {
 	messages_24h: number;
 }
 
+export interface AdminMetricsPoint {
+	date: string;
+	users: number;
+	threads: number;
+	messages: number;
+}
+
+export interface AdminMetricsCostPoint {
+	date: string;
+	cost_usd_micros: number;
+	input_tokens: number;
+	output_tokens: number;
+	requests: number;
+}
+
+export interface AdminMetricsHourPoint {
+	hour: number;
+	messages: number;
+}
+
+export interface AdminMetricsRoleSlice {
+	role: string;
+	messages: number;
+}
+
+export interface AdminMetricsModelSlice {
+	model: string;
+	requests: number;
+	input_tokens: number;
+	output_tokens: number;
+	cost_usd_micros: number;
+}
+
+export interface AdminMetricsTopUser {
+	user_id: string;
+	name: string;
+	email: string;
+	role: string;
+	messages: number;
+}
+
+export interface AdminMetricsThreadLengthBucket {
+	label: string;
+	threads: number;
+}
+
+export interface AdminMetricsResponse {
+	range_days: number;
+	series: AdminMetricsPoint[];
+	cost_series: AdminMetricsCostPoint[];
+	hour_of_day: AdminMetricsHourPoint[];
+	role_breakdown: AdminMetricsRoleSlice[];
+	model_breakdown: AdminMetricsModelSlice[];
+	top_users: AdminMetricsTopUser[];
+	thread_length_distribution: AdminMetricsThreadLengthBucket[];
+	totals: AdminStatsResponse;
+	new_users_period: number;
+	new_threads_period: number;
+	new_messages_period: number;
+	active_users_period: number;
+	avg_messages_per_thread: number;
+	cost_period_usd_micros: number;
+	input_tokens_period: number;
+	output_tokens_period: number;
+	requests_period: number;
+}
+
 export interface AdminSessionRow {
 	session_id_prefix: string;
 	created_at: string;

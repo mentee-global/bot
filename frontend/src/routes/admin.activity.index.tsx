@@ -286,13 +286,13 @@ function StatsTiles() {
 						<p className="m-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
 							{tile.label}
 						</p>
-						<p className="m-0 mt-1 text-2xl font-semibold">
+						<div className="mt-1 text-2xl font-semibold">
 							{stats.isPending ? (
 								<Skeleton className="h-6 w-12" />
 							) : (
 								(tile.value ?? 0).toLocaleString()
 							)}
-						</p>
+						</div>
 					</CardContent>
 				</Card>
 			))}

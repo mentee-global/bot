@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	adminAllThreadsQueryOptions,
 	adminKeys,
+	adminMetricsQueryOptions,
 	adminService,
 	adminStatsQueryOptions,
 	adminThreadQueryOptions,
 	adminUserSessionsQueryOptions,
 	adminUsersQueryOptions,
 	adminUserThreadsQueryOptions,
+	type MetricsParams,
 	type ThreadListParams,
 	type UserListParams,
 } from "#/features/admin/data/admin.service";
@@ -40,6 +42,10 @@ export function useAdminAllThreadsQuery(params: ThreadListParams = {}) {
 
 export function useAdminStatsQuery() {
 	return useQuery(adminStatsQueryOptions);
+}
+
+export function useAdminMetricsQuery(params: MetricsParams = {}) {
+	return useQuery(adminMetricsQueryOptions(params));
 }
 
 export function useDeleteThreadMutation() {

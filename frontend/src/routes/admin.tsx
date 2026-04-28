@@ -7,6 +7,7 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import {
+	BarChart3,
 	ChevronRight,
 	ChevronsUpDown,
 	Globe,
@@ -153,6 +154,7 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 	const activityActive = pathname.startsWith("/admin/activity");
 	const usersActive = pathname.startsWith("/admin/users");
 	const budgetActive = pathname.startsWith("/admin/budget");
+	const metricsActive = pathname.startsWith("/admin/metrics");
 
 	return (
 		<Sidebar collapsible="icon" side={side}>
@@ -206,6 +208,19 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 								<Link to="/admin/users">
 									<UsersIcon />
 									<span>{m.admin_tab_users()}</span>
+								</Link>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								asChild
+								tooltip={m.admin_tab_metrics()}
+								isActive={metricsActive}
+							>
+								<Link to="/admin/metrics">
+									<BarChart3 />
+									<span>{m.admin_tab_metrics()}</span>
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
@@ -539,6 +554,10 @@ function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 		return [root, { label: m.admin_tab_users() }];
 	}
 
+	if (pathname.startsWith("/admin/metrics")) {
+		return [root, { label: m.admin_tab_metrics() }];
+	}
+
 	if (pathname.startsWith("/admin/budget")) {
 		return [
 			root,
@@ -563,6 +582,12 @@ function getPageMeta(
 	}
 	if (pathname.startsWith("/admin/users")) {
 		return { title: m.admin_page_title_users() };
+	}
+	if (pathname.startsWith("/admin/metrics")) {
+		return {
+			title: m.admin_page_title_metrics(),
+			description: m.admin_metrics_subtitle(),
+		};
 	}
 	if (pathname.startsWith("/admin/budget")) {
 		return {
