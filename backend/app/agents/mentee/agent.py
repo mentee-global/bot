@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterator
 
 import logfire
 from openai import AsyncOpenAI
@@ -24,7 +24,10 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    PartDeltaEvent,
+    PartStartEvent,
     TextPart,
+    TextPartDelta,
     UserPromptPart,
 )
 from pydantic_ai.models.openai import OpenAIResponsesModel
@@ -226,6 +229,40 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
     return agent
 
 
+def _dedup_response_text(messages: list[ModelMessage]) -> str | None:
+    """Pick text from the last ModelResponse, collapsing consecutive duplicate
+    TextParts.
+
+    The OpenAI Responses model occasionally emits two near-identical
+    `output_message` items in one turn (especially when our scope-gate prompt
+    fires) — a "draft" and a "deliver" rendition. The default `result.output`
+    concatenates them, producing the robotic doubled reply users complained
+    about. This helper keeps only the first TextPart of any consecutive run
+    of TextParts (i.e. parts not separated by a tool call), so post-tool
+    summaries remain intact while the spurious dupe is dropped.
+    """
+    last_response: ModelResponse | None = None
+    for msg in reversed(messages):
+        if isinstance(msg, ModelResponse):
+            last_response = msg
+            break
+    if last_response is None:
+        return None
+
+    chunks: list[str] = []
+    last_was_text = False
+    for part in last_response.parts:
+        if isinstance(part, TextPart):
+            if last_was_text:
+                continue
+            last_was_text = True
+            if part.content:
+                chunks.append(part.content)
+        else:
+            last_was_text = False
+    return "\n\n".join(chunks) if chunks else None
+
+
 def _convert_tool_event(event: AgentStreamEvent) -> StreamEvent | None:
     if isinstance(event, FunctionToolCallEvent):
         return ToolStart(
@@ -381,7 +418,8 @@ class MenteeAgent(AgentPort):
                 )
                 _fill_openai_usage(collector, result.usage())
                 _count_builtin_tool_calls(collector, result.all_messages())
-                return _strip_citations(result.output)
+                deduped = _dedup_response_text(result.all_messages())
+                return _strip_citations(deduped if deduped is not None else result.output)
             except Exception as exc:  # noqa: BLE001 — fallback path
                 await self._handle_openai_error(exc)
                 logger.exception("mentee agent failed, using fallback: %s", exc)
@@ -405,46 +443,78 @@ class MenteeAgent(AgentPort):
         ):
             queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
 
-            async def tool_event_handler(
-                _ctx: RunContext[MenteeDeps],
-                events: AsyncIterable[AgentStreamEvent],
-            ) -> None:
-                async for event in events:
-                    if isinstance(event, BuiltinToolCallEvent):
-                        tool_name = getattr(event.part, "tool_name", "")
-                        if tool_name == "web_search":
-                            collector.inc_web_search()
-                    converted = _convert_tool_event(event)
-                    if converted is not None:
-                        await queue.put(converted)
-
             async def drive() -> None:
                 stripper = _CitationStripper()
+                # The OpenAI Responses model sometimes emits two consecutive
+                # TextParts with near-identical content in one turn. Track which
+                # text part index we accepted; reject any subsequent text part
+                # that wasn't separated from it by a tool call.
+                accepted_text_index: int | None = None
+                tool_seen_since_text = False
                 try:
-                    async with self._agent.run_stream(
+                    async with self._agent.iter(
                         user_message.body,
                         deps=self._deps(user, collector, perplexity_enabled),
                         message_history=_history_to_messages(history, exclude_last=True)
                         or None,
                         usage_limits=self._usage_limits,
-                        event_stream_handler=tool_event_handler,
-                    ) as stream:
-                        # debounce_by=None disables pydantic-ai's 100ms delta
-                        # grouping so tokens reach the client as they arrive.
-                        async for delta in stream.stream_text(
-                            delta=True, debounce_by=None
-                        ):
-                            if delta:
-                                cleaned = stripper.feed(delta)
-                                if cleaned:
-                                    await queue.put(TextDelta(text=cleaned))
+                    ) as run:
+                        async for node in run:
+                            if not Agent.is_model_request_node(node):
+                                continue
+                            async with node.stream(run.ctx) as handle:
+                                async for event in handle:
+                                    if isinstance(event, BuiltinToolCallEvent):
+                                        tool_name = getattr(event.part, "tool_name", "")
+                                        if tool_name == "web_search":
+                                            collector.inc_web_search()
+                                        tool_seen_since_text = True
+                                        converted = _convert_tool_event(event)
+                                        if converted is not None:
+                                            await queue.put(converted)
+                                    elif isinstance(
+                                        event,
+                                        (
+                                            BuiltinToolResultEvent,
+                                            FunctionToolCallEvent,
+                                            FunctionToolResultEvent,
+                                        ),
+                                    ):
+                                        if isinstance(event, FunctionToolCallEvent):
+                                            tool_seen_since_text = True
+                                        converted = _convert_tool_event(event)
+                                        if converted is not None:
+                                            await queue.put(converted)
+                                    elif isinstance(event, PartStartEvent) and isinstance(
+                                        event.part, TextPart
+                                    ):
+                                        first_text = accepted_text_index is None
+                                        if first_text or tool_seen_since_text:
+                                            accepted_text_index = event.index
+                                            tool_seen_since_text = False
+                                            if event.part.content:
+                                                cleaned = stripper.feed(event.part.content)
+                                                if cleaned:
+                                                    await queue.put(TextDelta(text=cleaned))
+                                        # else: silently drop the duplicate text part
+                                    elif isinstance(event, PartDeltaEvent) and isinstance(
+                                        event.delta, TextPartDelta
+                                    ):
+                                        if (
+                                            event.index == accepted_text_index
+                                            and event.delta.content_delta
+                                        ):
+                                            cleaned = stripper.feed(event.delta.content_delta)
+                                            if cleaned:
+                                                await queue.put(TextDelta(text=cleaned))
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
-                        try:
-                            _fill_openai_usage(collector, stream.usage())
-                        except Exception:  # noqa: BLE001 — usage is best-effort
-                            pass
+                        if run.result is not None:
+                            try:
+                                _fill_openai_usage(collector, run.result.usage())
+                            except Exception:  # noqa: BLE001 — usage is best-effort
+                                pass
                 finally:
                     queue.put_nowait(None)
 

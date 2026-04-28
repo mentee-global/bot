@@ -8,11 +8,12 @@ Not imported by the FastAPI app.
 from __future__ import annotations
 
 from openai import AsyncOpenAI
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from app.agents.mentee.agent import _dedup_response_text
 from app.agents.mentee.prompts import SYSTEM_PROMPT
 from app.agents.mentee.tools.career import analyze_career_path
 from app.agents.mentee.tools.perplexity import call_perplexity
@@ -102,3 +103,13 @@ agent: Agent[None, str] = Agent(
     else [],
     retries=2,
 )
+
+
+@agent.output_validator
+async def _drop_duplicate_text_parts(ctx: RunContext[None], output: str) -> str:
+    # The OpenAI Responses model occasionally emits two near-identical
+    # `output_message` items in one turn — see `agent._dedup_response_text`.
+    # Mirror that fix here so `pai --agent ...:agent` shows the same clean
+    # output as the production wrapper.
+    deduped = _dedup_response_text(list(ctx.messages))
+    return deduped if deduped is not None else output
