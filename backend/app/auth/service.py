@@ -218,7 +218,12 @@ class AuthService:
         # Mentee since last fetch; let the next current_user() repopulate.
         self._profile_cache.pop(row.session_id, None)
         refreshed = await self._sessions.get_and_touch_with_user(row.session_id)
-        assert refreshed is not None
+        if refreshed is None:
+            # Concurrent request deleted the session row (e.g. parallel
+            # /me call hit RefreshUnsupportedError and ran the except
+            # branch above) between our update and re-read. Treat as
+            # expired so deps maps it to 401 instead of crashing.
+            raise AuthError("Session disappeared during refresh")
         return refreshed
 
 
