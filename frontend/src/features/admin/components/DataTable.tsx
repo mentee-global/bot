@@ -3,12 +3,15 @@ import {
 	flexRender,
 	getCoreRowModel,
 	getSortedRowModel,
+	type RowData,
 	type SortingState,
 	useReactTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { Card } from "#/components/ui/card";
+import { InfoTooltip } from "#/components/ui/info-tooltip";
 import {
 	Table,
 	TableBody,
@@ -18,6 +21,16 @@ import {
 	TableRow,
 } from "#/components/ui/table";
 import { cn } from "#/lib/utils";
+
+// Module augmentation: allow column definitions to attach an inline tooltip
+// that the header renders next to the label. Used to explain columns whose
+// meaning isn't obvious to non-technical admins (e.g. "Credits", "Calls").
+declare module "@tanstack/table-core" {
+	interface ColumnMeta<TData extends RowData, TValue> {
+		tooltip?: ReactNode;
+		tooltipTitle?: string;
+	}
+}
 
 export interface DataTableProps<TData> {
 	data: TData[];
@@ -58,10 +71,9 @@ export function DataTable<TData>({
 	return (
 		<Card
 			className={cn(
-				"overflow-hidden p-0 transition-opacity",
+				"overflow-hidden p-0",
 				fillHeight &&
 					"flex min-h-0 flex-1 flex-col [&>[data-slot=table-container]]:min-h-0 [&>[data-slot=table-container]]:flex-1 [&>[data-slot=table-container]]:overflow-auto",
-				isFetching && "opacity-60",
 			)}
 			aria-busy={isFetching || undefined}
 		>
@@ -79,24 +91,33 @@ export function DataTable<TData>({
 											width: header.getSize() || undefined,
 										}}
 									>
-										{canSort ? (
-											<button
-												type="button"
-												onClick={header.column.getToggleSortingHandler()}
-												className="inline-flex cursor-pointer items-center gap-1.5 text-left font-medium hover:text-foreground"
-											>
-												{flexRender(
+										<span className="inline-flex items-center gap-1.5">
+											{canSort ? (
+												<button
+													type="button"
+													onClick={header.column.getToggleSortingHandler()}
+													className="inline-flex cursor-pointer items-center gap-1.5 text-left font-medium hover:text-foreground"
+												>
+													{flexRender(
+														header.column.columnDef.header,
+														header.getContext(),
+													)}
+													<SortIcon state={sortState} />
+												</button>
+											) : (
+												flexRender(
 													header.column.columnDef.header,
 													header.getContext(),
-												)}
-												<SortIcon state={sortState} />
-											</button>
-										) : (
-											flexRender(
-												header.column.columnDef.header,
-												header.getContext(),
-											)
-										)}
+												)
+											)}
+											{header.column.columnDef.meta?.tooltip ? (
+												<InfoTooltip
+													title={header.column.columnDef.meta.tooltipTitle}
+												>
+													{header.column.columnDef.meta.tooltip}
+												</InfoTooltip>
+											) : null}
+										</span>
 									</TableHead>
 								);
 							})}

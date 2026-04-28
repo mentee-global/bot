@@ -82,6 +82,32 @@ class ThreadStore(ABC):
         """
 
     @abstractmethod
+    async def get_any_thread_summary(self, thread_id: str) -> Thread:
+        """Admin metadata read: thread fields with an empty `messages` list.
+
+        Used by the per-thread admin view that paginates messages separately
+        so a 1000-message thread doesn't ship as one payload. Raises
+        ThreadNotFoundError only when the thread does not exist.
+        """
+
+    @abstractmethod
+    async def get_any_thread_messages_page(
+        self,
+        thread_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Message], int, dict[str, int]]:
+        """Admin paginated read of one thread's messages.
+
+        Returns `(messages_in_chronological_slice, total_messages,
+        role_counts)` where `role_counts` maps the role string ("user",
+        "assistant", …) to its count for the WHOLE thread. Callers use the
+        role counts to render thread-wide stats without re-loading every
+        message. Raises ThreadNotFoundError if the thread does not exist.
+        """
+
+    @abstractmethod
     async def get_or_create_latest(self, user_id: str) -> Thread:
         """Return the most recent thread for the user, creating one if none
         exist. Used to keep the legacy single-thread API working."""
@@ -180,6 +206,36 @@ class InMemoryThreadStore(ThreadStore):
         if thread is None:
             raise ThreadNotFoundError(thread_id)
         return thread
+
+    async def get_any_thread_summary(self, thread_id: str) -> Thread:
+        thread = self._threads_by_id.get(thread_id)
+        if thread is None:
+            raise ThreadNotFoundError(thread_id)
+        return Thread(
+            id=thread.id,
+            user_id=thread.user_id,
+            title=thread.title,
+            messages=[],
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+        )
+
+    async def get_any_thread_messages_page(
+        self,
+        thread_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Message], int, dict[str, int]]:
+        thread = self._threads_by_id.get(thread_id)
+        if thread is None:
+            raise ThreadNotFoundError(thread_id)
+        role_counts: dict[str, int] = {}
+        for m in thread.messages:
+            key = m.role.value if hasattr(m.role, "value") else str(m.role)
+            role_counts[key] = role_counts.get(key, 0) + 1
+        page = thread.messages[offset : offset + limit]
+        return list(page), len(thread.messages), role_counts
 
     async def get_or_create_latest(self, user_id: str) -> Thread:
         threads = [

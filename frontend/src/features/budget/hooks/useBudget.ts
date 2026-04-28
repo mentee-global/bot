@@ -7,6 +7,7 @@ import {
 	budgetProvidersQueryOptions,
 	budgetService,
 	budgetStateQueryOptions,
+	budgetUserUsagePageQueryOptions,
 	budgetUserUsageQueryOptions,
 	meQueryOptions,
 } from "#/features/budget/data/budget.service";
@@ -51,6 +52,13 @@ export function useRefreshProvidersMutation() {
 
 export function useBudgetUserUsageQuery(userId: string | null) {
 	return useQuery(budgetUserUsageQueryOptions(userId ?? ""));
+}
+
+export function useBudgetUserUsagePageQuery(
+	userId: string | null,
+	params: { page?: number } = {},
+) {
+	return useQuery(budgetUserUsagePageQueryOptions(userId ?? "", params));
 }
 
 function invalidateAll(queryClient: ReturnType<typeof useQueryClient>) {

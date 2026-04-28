@@ -1,16 +1,8 @@
-// Allowed role filter values. Mirrors ROLE_NAMES on Mentee
-// (mentee/backend/api/views/oauth.py) so the dropdown stays in sync with the
-// roles that can actually show up in the `role` claim.
-export const ROLE_OPTIONS = [
-	"admin",
-	"mentor",
-	"mentee",
-	"partner",
-	"guest",
-	"support",
-	"hub",
-	"moderator",
-] as const;
+// Roles that can interact with the bot today: admins (manage the platform)
+// and mentees (chat with the mentor). Other Mentee roles exist but the bot
+// doesn't surface them, so we don't expose them as filters either. Re-add
+// entries here when those audiences come online.
+export const ROLE_OPTIONS = ["admin", "mentee"] as const;
 
 export const ROLE_ALL = "__all__";
 

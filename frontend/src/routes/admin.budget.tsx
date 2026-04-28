@@ -1179,12 +1179,58 @@ function ChangeHistoryCard({
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead>When</TableHead>
-								<TableHead>Setting</TableHead>
-								<TableHead>From</TableHead>
-								<TableHead>To</TableHead>
-								<TableHead>Reason</TableHead>
-								<TableHead>Changed by</TableHead>
+								<TableHead>
+									<span className="inline-flex items-center gap-1.5">
+										When
+										<InfoTooltip title="When">
+											The exact time this change was saved.
+										</InfoTooltip>
+									</span>
+								</TableHead>
+								<TableHead>
+									<span className="inline-flex items-center gap-1.5">
+										Setting
+										<InfoTooltip title="Setting">
+											Which configuration field was edited (e.g. monthly credits
+											per user, or a specific provider rate).
+										</InfoTooltip>
+									</span>
+								</TableHead>
+								<TableHead>
+									<span className="inline-flex items-center gap-1.5">
+										From
+										<InfoTooltip title="Previous value">
+											What the setting was before this change. Empty for the
+											first time a value was ever set.
+										</InfoTooltip>
+									</span>
+								</TableHead>
+								<TableHead>
+									<span className="inline-flex items-center gap-1.5">
+										To
+										<InfoTooltip title="New value">
+											What the setting was changed to. This is the value that
+											applied immediately after this row.
+										</InfoTooltip>
+									</span>
+								</TableHead>
+								<TableHead>
+									<span className="inline-flex items-center gap-1.5">
+										Reason
+										<InfoTooltip title="Reason">
+											The note the admin wrote when saving. Helps future admins
+											audit why a number moved.
+										</InfoTooltip>
+									</span>
+								</TableHead>
+								<TableHead>
+									<span className="inline-flex items-center gap-1.5">
+										Changed by
+										<InfoTooltip title="Changed by">
+											The admin email that saved this change.
+										</InfoTooltip>
+									</span>
+								</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>

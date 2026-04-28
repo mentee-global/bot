@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import type {
 	BudgetConfig,
 	BudgetConfigHistory,
@@ -7,6 +7,7 @@ import type {
 	MeResponse,
 	ProvidersResponse,
 	UserQuota,
+	UserUsagePageResponse,
 	UserUsageResponse,
 } from "#/features/budget/data/budget.types";
 
@@ -40,6 +41,19 @@ export const budgetService = {
 			`/api/admin/budget/users/${encodeURIComponent(userId)}`,
 			signal,
 		),
+	getUserUsagePage: (
+		userId: string,
+		params: { page?: number } = {},
+		signal?: AbortSignal,
+	) => {
+		const qs = new URLSearchParams();
+		if (params.page && params.page > 1) qs.set("page", String(params.page));
+		const suffix = qs.toString() ? `?${qs.toString()}` : "";
+		return api.get<UserUsagePageResponse>(
+			`/api/admin/budget/users/${encodeURIComponent(userId)}/usage${suffix}`,
+			signal,
+		);
+	},
 	grantCredits: (userId: string, amount: number, reason = "") =>
 		api.post<UserQuota>(
 			`/api/admin/budget/users/${encodeURIComponent(userId)}/grant`,
@@ -80,6 +94,8 @@ export const budgetKeys = {
 	providers: () => [...budgetKeys.all, "providers"] as const,
 	userUsage: (userId: string) =>
 		[...budgetKeys.all, "userUsage", userId] as const,
+	userUsagePage: (userId: string, params: { page?: number } = {}) =>
+		[...budgetKeys.all, "userUsagePage", userId, params] as const,
 };
 
 export const meQueryOptions = queryOptions({
@@ -122,4 +138,19 @@ export const budgetUserUsageQueryOptions = (userId: string) =>
 		queryFn: ({ signal }) => budgetService.getUserUsage(userId, signal),
 		enabled: Boolean(userId),
 		staleTime: 15 * 1000,
+	});
+
+export const budgetUserUsagePageQueryOptions = (
+	userId: string,
+	params: { page?: number } = {},
+) =>
+	queryOptions({
+		queryKey: budgetKeys.userUsagePage(userId, params),
+		queryFn: ({ signal }) =>
+			budgetService.getUserUsagePage(userId, params, signal),
+		enabled: Boolean(userId),
+		staleTime: 15 * 1000,
+		// Keep showing the previous page while a new page loads — flipping
+		// pagination shouldn't blank the table between server round-trips.
+		placeholderData: keepPreviousData,
 	});

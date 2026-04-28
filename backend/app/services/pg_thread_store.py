@@ -138,6 +138,80 @@ class PostgresThreadStore(ThreadStore):
         async with self._factory() as session:
             return await self._load_thread(session, _as_uuid(thread_id), None)
 
+    async def get_any_thread_summary(self, thread_id: str) -> Thread:
+        tid = _as_uuid(thread_id)
+        async with self._factory() as session:
+            row = (
+                await session.execute(
+                    select(ThreadRecord).where(ThreadRecord.id == tid)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                raise ThreadNotFoundError(thread_id)
+            return _thread_from_record(row, [])
+
+    async def get_any_thread_messages_page(
+        self,
+        thread_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Message], int, dict[str, int]]:
+        tid = _as_uuid(thread_id)
+        async with self._factory() as session:
+            # AsyncSession isn't safe for concurrent execute() calls, so the
+            # three queries run sequentially on the same session/transaction.
+            exists = (
+                await session.execute(
+                    select(ThreadRecord.id).where(ThreadRecord.id == tid)
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                raise ThreadNotFoundError(thread_id)
+
+            page_rows = (
+                (
+                    await session.execute(
+                        select(MessageRecord)
+                        .where(MessageRecord.thread_id == tid)
+                        .order_by(MessageRecord.created_at)
+                        .limit(limit)
+                        .offset(offset)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            total = int(
+                (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(MessageRecord)
+                        .where(MessageRecord.thread_id == tid)
+                    )
+                ).scalar_one()
+                or 0
+            )
+            role_rows = (
+                await session.execute(
+                    select(MessageRecord.role, func.count())
+                    .where(MessageRecord.thread_id == tid)
+                    .group_by(MessageRecord.role)
+                )
+            ).all()
+            role_counts = {str(r[0]): int(r[1]) for r in role_rows}
+            messages = [
+                Message(
+                    id=str(m.id),
+                    thread_id=str(m.thread_id),
+                    role=MessageRole(m.role),
+                    body=m.body,
+                    created_at=m.created_at,
+                )
+                for m in page_rows
+            ]
+            return messages, total, role_counts
+
     async def _load_thread(
         self,
         session: AsyncSession,

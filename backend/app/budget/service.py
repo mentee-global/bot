@@ -708,6 +708,46 @@ class BudgetService:
             ).scalars().all()
             return list(rows)
 
+    async def paginated_usage_for_user(
+        self,
+        user_id: str | UUID,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[MessageUsage], int]:
+        """Return a slice of message-usage rows + the total row count for the user.
+        Used by the admin "Usage" tab so admins can scroll past the most recent
+        50 turns without us shipping an unbounded list.
+
+        AsyncSession.execute is not safe for concurrent calls on the same
+        session, so the slice and count queries run sequentially here. If
+        latency ever matters, split into two sessions and asyncio.gather them.
+        """
+        uid = _as_uuid(user_id)
+        async with self._factory() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(MessageUsage)
+                        .where(MessageUsage.user_id == uid)
+                        .order_by(desc(MessageUsage.created_at))
+                        .limit(limit)
+                        .offset(offset)
+                    )
+                ).scalars().all()
+            )
+            total = int(
+                (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(MessageUsage)
+                        .where(MessageUsage.user_id == uid)
+                    )
+                ).scalar_one()
+                or 0
+            )
+            return rows, total
+
     async def user_period_cost_micros(self, user_id: str | UUID) -> int:
         """Sum of message-usage costs since the user's current period anchor.
         Reads `period_start` from the user's quota row; callers that need a

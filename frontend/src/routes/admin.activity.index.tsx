@@ -89,6 +89,11 @@ function ActivityIndexRoute() {
 					);
 				},
 				sortingFn: "alphanumeric",
+				meta: {
+					tooltipTitle: "Title",
+					tooltip:
+						"Auto-generated from the first user message, or whatever the user renamed it to.",
+				},
 			},
 			{
 				id: "owner",
@@ -96,6 +101,11 @@ function ActivityIndexRoute() {
 				accessorFn: (r) => r.owner_name || r.owner_email || r.user_id,
 				cell: ({ row }) => <OwnerCell thread={row.original} />,
 				sortingFn: "alphanumeric",
+				meta: {
+					tooltipTitle: "Owner",
+					tooltip:
+						"The Mentee account that started this conversation. Click the row to open the thread; open the user from the Users tab to manage credits.",
+				},
 			},
 			{
 				id: "messages",
@@ -105,6 +115,11 @@ function ActivityIndexRoute() {
 					<span className="tabular-nums">{row.original.message_count}</span>
 				),
 				size: 100,
+				meta: {
+					tooltipTitle: "Messages",
+					tooltip:
+						"Total turns in this conversation, counting both the user and the mentor.",
+				},
 			},
 			{
 				id: "updated",
@@ -112,6 +127,11 @@ function ActivityIndexRoute() {
 				accessorFn: (r) => new Date(r.updated_at).getTime(),
 				cell: ({ row }) => <CompactDate iso={row.original.updated_at} />,
 				size: 160,
+				meta: {
+					tooltipTitle: "Updated",
+					tooltip:
+						"When the most recent message was added — either by the user or by the mentor.",
+				},
 			},
 		],
 		[],

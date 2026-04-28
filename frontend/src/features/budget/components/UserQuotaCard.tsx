@@ -10,6 +10,7 @@ import {
 } from "#/components/ui/Dialog";
 import { Input } from "#/components/ui/input";
 import { StatItem } from "#/features/admin/components/shared";
+import { UserPicker } from "#/features/admin/components/UserPicker";
 import { Field } from "#/features/budget/components/Field";
 import type { UserUsageResponse } from "#/features/budget/data/budget.types";
 import {
@@ -244,21 +245,23 @@ function TransferDialog({
 	onClose: () => void;
 }) {
 	const transfer = useTransferCreditsMutation();
-	const [target, setTarget] = useState("");
+	const [targetId, setTargetId] = useState<string | null>(null);
 	const [amount, setAmount] = useState(1);
 	const [reason, setReason] = useState("");
 	const [error, setError] = useState<string | null>(null);
 
 	const submit = async () => {
 		setError(null);
-		if (!target.trim()) return setError("Target user_id is required.");
+		if (!targetId) return setError("Pick a destination user.");
+		if (targetId === fromUserId)
+			return setError("Source and destination must be different users.");
 		if (amount < 1) return setError("Amount must be at least 1.");
 		if (amount > maxAmount)
 			return setError(`Source has only ${maxAmount} credits.`);
 		try {
 			await transfer.mutateAsync({
 				fromUserId,
-				toUserId: target.trim(),
+				toUserId: targetId,
 				amount,
 				reason,
 			});
@@ -277,12 +280,15 @@ function TransferDialog({
 					remaining.
 				</DialogDescription>
 				<div className="flex flex-col gap-3">
-					<Field label="Destination user_id">
-						<Input
-							type="text"
-							value={target}
-							onChange={(e) => setTarget(e.target.value)}
-							placeholder="paste destination user_id (UUID)"
+					<Field
+						label="Destination user"
+						hint="Search by name or email — no need to know the user ID."
+					>
+						<UserPicker
+							value={targetId}
+							onChange={(id) => setTargetId(id)}
+							excludeUserId={fromUserId}
+							placeholder="Search by name or email…"
 						/>
 					</Field>
 					<Field label={`Amount (source has ${maxAmount})`}>

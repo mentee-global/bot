@@ -108,3 +108,11 @@ export interface UserUsageResponse {
 	quota: UserQuota;
 	recent_usage: MessageUsage[];
 }
+
+export interface UserUsagePageResponse {
+	user_id: string;
+	rows: MessageUsage[];
+	total: number;
+	page: number;
+	page_size: number;
+}

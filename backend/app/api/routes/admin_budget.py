@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_budget_service, get_session_store, require_admin
@@ -171,6 +171,14 @@ class UserUsageResponse(BaseModel):
     user_id: str
     quota: UserQuotaResponse
     recent_usage: list[MessageUsageResponse]
+
+
+class UserUsagePageResponse(BaseModel):
+    user_id: str
+    rows: list[MessageUsageResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +367,41 @@ async def get_user_usage(
         user_id=str(user_id),
         quota=quota_resp,
         recent_usage=[_usage_to_response(r) for r in recent],
+    )
+
+
+_USAGE_PAGE_SIZE = 25
+
+
+@router.get(
+    "/users/{user_id}/usage",
+    response_model=UserUsagePageResponse,
+)
+async def list_user_usage(
+    user_id: UUID,
+    budget: Annotated[BudgetService, Depends(get_budget_service)],
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
+    page: Annotated[int | None, Query(ge=1)] = None,
+) -> UserUsagePageResponse:
+    """Paginated message-usage history for one user. Separate from
+    `/users/{user_id}` (which returns quota + the most-recent 50 turns) so the
+    Admin → Users → Usage tab can scroll through unbounded history without
+    re-shipping the quota snapshot on every page flip."""
+    if await sessions.get_user_by_id(user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    page = max(1, page or 1)
+    offset = (page - 1) * _USAGE_PAGE_SIZE
+    rows, total = await budget.paginated_usage_for_user(
+        user_id, limit=_USAGE_PAGE_SIZE, offset=offset
+    )
+    return UserUsagePageResponse(
+        user_id=str(user_id),
+        rows=[_usage_to_response(r) for r in rows],
+        total=total,
+        page=page,
+        page_size=_USAGE_PAGE_SIZE,
     )
 
 

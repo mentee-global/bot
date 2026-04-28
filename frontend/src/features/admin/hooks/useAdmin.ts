@@ -27,8 +27,11 @@ export function useAdminUserSessionsQuery(userId: string | null) {
 	return useQuery(adminUserSessionsQueryOptions(userId ?? ""));
 }
 
-export function useAdminThreadQuery(threadId: string | null) {
-	return useQuery(adminThreadQueryOptions(threadId ?? ""));
+export function useAdminThreadQuery(
+	threadId: string | null,
+	params: { page?: number } = {},
+) {
+	return useQuery(adminThreadQueryOptions(threadId ?? "", params));
 }
 
 export function useAdminAllThreadsQuery(params: ThreadListParams = {}) {

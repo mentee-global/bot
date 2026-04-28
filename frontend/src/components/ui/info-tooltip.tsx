@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import { HoverCard as HoverCardPrimitive } from "radix-ui";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { cn } from "#/lib/utils";
@@ -7,16 +8,17 @@ interface InfoTooltipProps {
 	title?: string;
 	children: ReactNode;
 	className?: string;
-	side?: "top" | "bottom" | "right";
+	side?: "top" | "bottom" | "right" | "left";
 }
 
 /**
- * A small info-icon that opens a labelled popover on hover, focus, or click.
+ * Info-icon that opens a labelled popover on hover, focus, or click. Built on
+ * Radix HoverCard so the popup is rendered in a portal — that lets it escape
+ * ancestors with `overflow: hidden` (e.g. table-card scroll containers, sticky
+ * headers) which the previous absolute-positioned implementation could not.
  *
- * Deliberately dependency-free: kept off @radix-ui/react-tooltip so this
- * page can render without the extra install. Hover + focus both open it,
- * click toggles stickily, Escape-on-blur closes. Good enough for admin
- * surfaces that don't need multi-layer positioning.
+ * Hover/focus open via HoverCard's defaults; click toggles a sticky-open mode
+ * so the popover stays visible while the admin reads the longer explanations.
  */
 export function InfoTooltip({
 	title,
@@ -24,39 +26,44 @@ export function InfoTooltip({
 	className,
 	side = "top",
 }: InfoTooltipProps) {
-	const [open, setOpen] = useState(false);
-	const positionClasses =
-		side === "bottom"
-			? "top-full left-1/2 -translate-x-1/2 mt-2"
-			: side === "right"
-				? "left-full top-0 ml-2"
-				: "bottom-full left-1/2 -translate-x-1/2 mb-2";
+	const [stickyOpen, setStickyOpen] = useState(false);
+	const [hoverOpen, setHoverOpen] = useState(false);
+	const open = stickyOpen || hoverOpen;
 
 	return (
-		<span className={cn("relative inline-flex", className)}>
-			<button
-				type="button"
-				aria-label={title ?? "More info"}
-				aria-expanded={open}
-				onMouseEnter={() => setOpen(true)}
-				onMouseLeave={() => setOpen(false)}
-				onFocus={() => setOpen(true)}
-				onBlur={() => setOpen(false)}
-				onClick={(e) => {
-					e.preventDefault();
-					setOpen((v) => !v);
-				}}
-				className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent-ring)]"
-			>
-				<Info size={14} aria-hidden="true" />
-			</button>
-			{open ? (
-				<div
-					role="tooltip"
+		<HoverCardPrimitive.Root
+			open={open}
+			onOpenChange={(next) => {
+				setHoverOpen(next);
+				if (!next) setStickyOpen(false);
+			}}
+			openDelay={80}
+			closeDelay={120}
+		>
+			<HoverCardPrimitive.Trigger asChild>
+				<button
+					type="button"
+					aria-label={title ?? "More info"}
+					aria-expanded={open}
+					onClick={(e) => {
+						e.preventDefault();
+						setStickyOpen((v) => !v);
+					}}
 					className={cn(
-						"pointer-events-none absolute z-50 w-64 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-surface-elevated)] p-3 text-left shadow-lg",
-						positionClasses,
+						"inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent-ring)]",
+						className,
 					)}
+				>
+					<Info size={14} aria-hidden="true" />
+				</button>
+			</HoverCardPrimitive.Trigger>
+			<HoverCardPrimitive.Portal>
+				<HoverCardPrimitive.Content
+					side={side}
+					align="start"
+					sideOffset={6}
+					collisionPadding={8}
+					className="z-50 w-64 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-surface-elevated)] p-3 text-left shadow-lg outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0"
 				>
 					{title ? (
 						<p className="m-0 mb-1 text-xs font-semibold text-foreground">
@@ -66,8 +73,8 @@ export function InfoTooltip({
 					<div className="m-0 text-xs leading-relaxed text-muted-foreground">
 						{children}
 					</div>
-				</div>
-			) : null}
-		</span>
+				</HoverCardPrimitive.Content>
+			</HoverCardPrimitive.Portal>
+		</HoverCardPrimitive.Root>
 	);
 }

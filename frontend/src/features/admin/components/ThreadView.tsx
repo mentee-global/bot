@@ -10,6 +10,7 @@ import {
 	DialogTitle,
 } from "#/components/ui/Dialog";
 import { Skeleton } from "#/components/ui/Skeleton";
+import { adminService } from "#/features/admin/data/admin.service";
 import type { AdminThreadResponse } from "#/features/admin/data/admin.types";
 import {
 	useAdminThreadQuery,
@@ -19,10 +20,12 @@ import type { Message } from "#/features/chat/data/chat.types";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import {
+	AdminPagination,
 	BackLink,
 	CompactDate,
 	EmptyState,
 	ErrorState,
+	ResultsCount,
 	StatItem,
 } from "./shared";
 
@@ -37,11 +40,14 @@ export function ThreadView({
 	onBack: () => void;
 	onDeleted: () => void;
 }) {
-	const thread = useAdminThreadQuery(threadId);
+	const [page, setPage] = useState(1);
+	const thread = useAdminThreadQuery(threadId, { page });
 	const deleteMutation = useDeleteThreadMutation();
 	const [confirmOpen, setConfirmOpen] = useState(false);
+	const [exporting, setExporting] = useState(false);
+	const [exportError, setExportError] = useState<string | null>(null);
 
-	if (thread.isPending)
+	if (thread.isPending && !thread.data)
 		return <ThreadViewSkeleton backLabel={backLabel} onBack={onBack} />;
 	if (thread.isError) return <ErrorState message={thread.error.message} />;
 
@@ -59,6 +65,22 @@ export function ThreadView({
 		});
 	};
 
+	const handleExport = async () => {
+		setExportError(null);
+		setExporting(true);
+		try {
+			const full = await adminService.exportThread(threadId);
+			downloadThread(full, title);
+		} catch (e) {
+			setExportError(e instanceof Error ? e.message : "Export failed");
+		} finally {
+			setExporting(false);
+		}
+	};
+
+	const pageSize = data.page_size ?? data.messages.length;
+	const total = data.total_messages;
+
 	return (
 		<section className="flex h-full min-h-0 flex-col">
 			<div className="shrink-0">
@@ -72,10 +94,12 @@ export function ThreadView({
 						<Button
 							variant="outline"
 							size="sm"
-							onClick={() => downloadThread(data, title)}
+							onClick={handleExport}
+							disabled={exporting}
 							className="gap-1.5"
 						>
-							<Download className="size-3.5" /> {m.admin_export_json()}
+							<Download className="size-3.5" />
+							{exporting ? "Exporting…" : m.admin_export_json()}
 						</Button>
 						<Button
 							variant="destructive"
@@ -87,19 +111,44 @@ export function ThreadView({
 						</Button>
 					</div>
 				</div>
+				{exportError ? (
+					<p className="m-0 mt-2 text-xs text-destructive">{exportError}</p>
+				) : null}
 
 				<ThreadInsights data={data} />
 			</div>
 
-			<div className="mt-4 flex min-h-0 flex-1 flex-col">
-				{data.messages.length === 0 ? (
+			<div className="mt-4 flex min-h-0 flex-1 flex-col gap-2">
+				{total === 0 ? (
 					<EmptyState message={m.admin_thread_empty()} />
 				) : (
-					<Card className="min-h-0 flex-1 gap-3 overflow-y-auto p-3 sm:p-6">
-						{data.messages.map((message) => (
-							<AdminMessage key={message.id} message={message} />
-						))}
-					</Card>
+					<>
+						<div className="flex flex-wrap items-center justify-between gap-2">
+							<ResultsCount
+								total={total}
+								pageSize={pageSize}
+								page={page}
+								shown={data.messages.length}
+							/>
+							{thread.isFetching && page !== (data.page ?? page) ? (
+								<span className="text-xs text-muted-foreground">Loading…</span>
+							) : null}
+						</div>
+						<Card
+							className="min-h-0 flex-1 gap-3 overflow-y-auto p-3 sm:p-6"
+							aria-busy={thread.isFetching || undefined}
+						>
+							{data.messages.map((message) => (
+								<AdminMessage key={message.id} message={message} />
+							))}
+						</Card>
+						<AdminPagination
+							page={page}
+							total={total}
+							pageSize={pageSize}
+							onChange={setPage}
+						/>
+					</>
 				)}
 			</div>
 
@@ -184,18 +233,24 @@ function OwnerLine({ data }: { data: AdminThreadResponse }) {
 }
 
 function ThreadInsights({ data }: { data: AdminThreadResponse }) {
-	const stats = useMemo(() => computeInsights(data), [data]);
+	const duration = useMemo(
+		() => formatDuration(data.created_at, data.updated_at),
+		[data.created_at, data.updated_at],
+	);
 	return (
 		<Card className="mt-4 gap-3 p-4 sm:p-5">
 			<dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-				<StatItem label={m.admin_thread_stat_messages()} value={stats.total} />
+				<StatItem
+					label={m.admin_thread_stat_messages()}
+					value={data.total_messages}
+				/>
 				<StatItem
 					label={m.admin_thread_stat_user_messages()}
-					value={stats.userCount}
+					value={data.user_message_count}
 				/>
 				<StatItem
 					label={m.admin_thread_stat_assistant_messages()}
-					value={stats.assistantCount}
+					value={data.assistant_message_count}
 				/>
 				<StatItem
 					label={m.admin_thread_stat_created()}
@@ -205,36 +260,10 @@ function ThreadInsights({ data }: { data: AdminThreadResponse }) {
 					label={m.admin_thread_stat_updated()}
 					value={<CompactDate iso={data.updated_at} />}
 				/>
-				<StatItem
-					label={m.admin_thread_stat_duration()}
-					value={stats.duration}
-				/>
+				<StatItem label={m.admin_thread_stat_duration()} value={duration} />
 			</dl>
 		</Card>
 	);
-}
-
-interface ThreadStats {
-	total: number;
-	userCount: number;
-	assistantCount: number;
-	duration: string;
-}
-
-function computeInsights(data: AdminThreadResponse): ThreadStats {
-	const total = data.messages.length;
-	let userCount = 0;
-	let assistantCount = 0;
-	for (const msg of data.messages) {
-		if (msg.role === "user") userCount += 1;
-		else if (msg.role === "assistant") assistantCount += 1;
-	}
-	return {
-		total,
-		userCount,
-		assistantCount,
-		duration: formatDuration(data.created_at, data.updated_at),
-	};
 }
 
 function formatDuration(startIso: string, endIso: string): string {

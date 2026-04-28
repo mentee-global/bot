@@ -60,9 +60,20 @@ export const adminService = {
 			})}`,
 			signal,
 		),
-	readThread: (threadId: string, signal?: AbortSignal) =>
+	readThread: (
+		threadId: string,
+		params: { page?: number } = {},
+		signal?: AbortSignal,
+	) =>
 		api.get<AdminThreadResponse>(
-			`/api/admin/threads/${encodeURIComponent(threadId)}`,
+			`/api/admin/threads/${encodeURIComponent(threadId)}${buildQuery({
+				page: params.page,
+			})}`,
+			signal,
+		),
+	exportThread: (threadId: string, signal?: AbortSignal) =>
+		api.get<AdminThreadResponse>(
+			`/api/admin/threads/${encodeURIComponent(threadId)}/export`,
 			signal,
 		),
 	getStats: (signal?: AbortSignal) =>
@@ -88,7 +99,8 @@ export const adminKeys = {
 		[...adminKeys.all, "userThreads", userId, params] as const,
 	userSessions: (userId: string) =>
 		[...adminKeys.all, "userSessions", userId] as const,
-	thread: (threadId: string) => [...adminKeys.all, "thread", threadId] as const,
+	thread: (threadId: string, params: { page?: number } = {}) =>
+		[...adminKeys.all, "thread", threadId, params] as const,
 	allThreads: (params: ThreadListParams = {}) =>
 		[...adminKeys.all, "allThreads", params] as const,
 	stats: () => [...adminKeys.all, "stats"] as const,
@@ -123,12 +135,18 @@ export const adminUserSessionsQueryOptions = (userId: string) =>
 		staleTime: 30 * 1000,
 	});
 
-export const adminThreadQueryOptions = (threadId: string) =>
+export const adminThreadQueryOptions = (
+	threadId: string,
+	params: { page?: number } = {},
+) =>
 	queryOptions({
-		queryKey: adminKeys.thread(threadId),
-		queryFn: ({ signal }) => adminService.readThread(threadId, signal),
+		queryKey: adminKeys.thread(threadId, params),
+		queryFn: ({ signal }) => adminService.readThread(threadId, params, signal),
 		enabled: Boolean(threadId),
 		staleTime: 30 * 1000,
+		// Keep showing the previous page while the next one streams in so the
+		// transcript view doesn't blank between page flips.
+		placeholderData: keepPreviousData,
 	});
 
 export const adminAllThreadsQueryOptions = (params: ThreadListParams = {}) =>

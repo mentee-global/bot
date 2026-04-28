@@ -51,6 +51,13 @@ export interface AdminThreadResponse {
 	created_at: string;
 	updated_at: string;
 	messages: Message[];
+	total_messages: number;
+	user_message_count: number;
+	assistant_message_count: number;
+	// `page`/`page_size` are non-null on the paginated read endpoint and null
+	// on `/export` (which returns the full transcript).
+	page: number | null;
+	page_size: number | null;
 }
 
 export interface AdminStatsResponse {

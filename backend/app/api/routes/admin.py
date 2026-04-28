@@ -100,6 +100,15 @@ class AdminThreadResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     messages: list[Message]
+    # Counts span the whole thread, not just the current page — the per-thread
+    # admin view paginates messages so the client can't compute these locally.
+    total_messages: int
+    user_message_count: int
+    assistant_message_count: int
+    # `page`/`page_size` are null on the export endpoint (returns all
+    # messages); set on the paginated view endpoint.
+    page: int | None = None
+    page_size: int | None = None
 
 
 class AdminStatsResponse(BaseModel):
@@ -293,14 +302,29 @@ async def list_all_threads(
     )
 
 
+_THREAD_MESSAGE_PAGE_SIZE = 50
+
+
 @router.get("/threads/{thread_id}", response_model=AdminThreadResponse)
 async def read_thread(
     thread_id: str,
     service: Annotated[MessageService, Depends(get_message_service)],
     sessions: Annotated[SessionStore, Depends(get_session_store)],
+    page: Annotated[int | None, Query(ge=1)] = None,
 ) -> AdminThreadResponse:
+    """Per-thread admin read with paginated messages. A thread can grow into
+    the thousands of turns, so pagination is mandatory here — `/export` below
+    is the escape hatch for an admin who genuinely needs the whole transcript.
+    """
+    page_num = max(1, page or 1)
+    offset = (page_num - 1) * _THREAD_MESSAGE_PAGE_SIZE
     try:
-        thread = await service.store.get_any_thread(thread_id)
+        thread = await service.store.get_any_thread_summary(thread_id)
+        messages, total, role_counts = (
+            await service.store.get_any_thread_messages_page(
+                thread_id, limit=_THREAD_MESSAGE_PAGE_SIZE, offset=offset
+            )
+        )
     except ThreadNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
@@ -315,7 +339,51 @@ async def read_thread(
         owner_name=owner[1] if owner else None,
         created_at=thread.created_at,
         updated_at=thread.updated_at,
+        messages=messages,
+        total_messages=total,
+        user_message_count=role_counts.get("user", 0),
+        assistant_message_count=role_counts.get("assistant", 0),
+        page=page_num,
+        page_size=_THREAD_MESSAGE_PAGE_SIZE,
+    )
+
+
+@router.get(
+    "/threads/{thread_id}/export", response_model=AdminThreadResponse
+)
+async def export_thread(
+    thread_id: str,
+    service: Annotated[MessageService, Depends(get_message_service)],
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
+) -> AdminThreadResponse:
+    """Full transcript dump used by the JSON export button. Bypasses
+    pagination on purpose — admin opt-in via an explicit click."""
+    try:
+        thread = await service.store.get_any_thread(thread_id)
+    except ThreadNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
+        ) from err
+    owners = await _resolve_owners(sessions, [thread.user_id])
+    owner = owners.get(thread.user_id)
+    role_counts: dict[str, int] = {}
+    for msg in thread.messages:
+        key = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+        role_counts[key] = role_counts.get(key, 0) + 1
+    return AdminThreadResponse(
+        thread_id=thread.id,
+        title=thread.title,
+        user_id=thread.user_id,
+        owner_email=owner[0] if owner else None,
+        owner_name=owner[1] if owner else None,
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
         messages=thread.messages,
+        total_messages=len(thread.messages),
+        user_message_count=role_counts.get("user", 0),
+        assistant_message_count=role_counts.get("assistant", 0),
+        page=None,
+        page_size=None,
     )
 
 
