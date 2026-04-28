@@ -82,13 +82,14 @@ function ChatPage() {
 }
 
 function PageShell({ children }: { children: React.ReactNode }) {
-	// Cap the chat card to the viewport so the page never scrolls. 10rem covers
-	// the sticky header (4rem), the footer (~5rem), and some slack for the
-	// main's own padding. `dvh` keeps it honest on mobile Safari where `vh`
-	// overcounts against the URL bar.
+	// Cap the chat card to the viewport so the page never scrolls. The
+	// subtracted total covers header (4rem) + footer (~4rem) + this main's
+	// own padding, which differs by breakpoint (2rem mobile, 3.5rem desktop).
+	// `dvh` keeps it honest on mobile Safari where `vh` overcounts against
+	// the URL bar.
 	return (
 		<main className="page-wrap px-3 pb-4 pt-4 sm:px-4 sm:pb-8 sm:pt-6">
-			<section className="surface-card relative flex h-[calc(100dvh-10rem)] overflow-hidden">
+			<section className="surface-card relative flex h-[calc(100dvh-10rem)] overflow-hidden sm:h-[calc(100dvh-11.5rem)]">
 				{children}
 			</section>
 		</main>
