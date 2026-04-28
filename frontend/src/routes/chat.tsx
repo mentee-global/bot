@@ -1,7 +1,21 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, Menu, PauseCircle, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+	AlertTriangle,
+	Keyboard,
+	Menu,
+	PauseCircle,
+	Sparkles,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogTitle,
+} from "#/components/ui/Dialog";
 import { PersonaActiveBanner } from "#/features/admin/components/PersonaActiveBanner";
 import { PersonaSheet } from "#/features/admin/components/PersonaSheet";
 import { sessionQueryOptions } from "#/features/auth/data/auth.service";
@@ -12,14 +26,24 @@ import {
 import { CreditsPill } from "#/features/budget/components/CreditsPill";
 import type { MeResponse } from "#/features/budget/data/budget.types";
 import { useMeQuery } from "#/features/budget/hooks/useBudget";
-import { ChatInput } from "#/features/chat/components/ChatInput";
+import {
+	ChatInput,
+	type ChatInputHandle,
+} from "#/features/chat/components/ChatInput";
 import { MessageListSkeleton } from "#/features/chat/components/ChatSkeletons";
 import { ChatWelcome } from "#/features/chat/components/ChatWelcome";
 import { ConfirmDeleteThreadDialog } from "#/features/chat/components/ConfirmDeleteThreadDialog";
+import { stripChatBody } from "#/features/chat/components/MessageBody";
 import { MessageList } from "#/features/chat/components/MessageList";
 import { RenameThreadDialog } from "#/features/chat/components/RenameThreadDialog";
+import { ShortcutsDialog } from "#/features/chat/components/ShortcutsDialog";
 import { ThreadSidebar } from "#/features/chat/components/ThreadSidebar";
-import type { ThreadSummary } from "#/features/chat/data/chat.types";
+import type {
+	Message,
+	Thread,
+	ThreadSummary,
+} from "#/features/chat/data/chat.types";
+import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import {
 	useCreateThreadMutation,
 	useDeleteThreadMutation,
@@ -29,7 +53,13 @@ import {
 	useThreadQuery,
 	useThreadsQuery,
 } from "#/features/chat/hooks/useChat";
+import { clearAllDrafts } from "#/features/chat/hooks/useDraftsStore";
+import { usePinnedThreads } from "#/features/chat/hooks/usePinnedThreads";
+import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
+import { track } from "#/lib/analytics";
+import { formatFullTimestamp } from "#/lib/datetime";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
+import { useShortcut } from "#/lib/useShortcut";
 import { m } from "#/paraglide/messages";
 
 const STREAMING_ENABLED = import.meta.env.VITE_AGENT_STREAM !== "false";
@@ -115,6 +145,7 @@ function ChatView({
 }) {
 	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
+	const queryClient = useQueryClient();
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const debouncedQuery = useDebouncedValue(searchQuery.trim(), 200);
@@ -129,6 +160,17 @@ function ChatView({
 	const [deleteTarget, setDeleteTarget] = useState<ThreadSummary | null>(null);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
+	const [shortcutsOpen, setShortcutsOpen] = useState(false);
+	const [editConfirm, setEditConfirm] = useState<{
+		messageId: string;
+		body: string;
+	} | null>(null);
+	const [findOpen, setFindOpen] = useState(false);
+	const [findQuery, setFindQuery] = useState("");
+	const [findActiveIndex, setFindActiveIndex] = useState(0);
+
+	const inputRef = useRef<ChatInputHandle>(null);
+	const { pinnedIds, togglePin, removePin } = usePinnedThreads();
 
 	const activeThreadId = useMemo(() => {
 		if (search.threadId) return search.threadId;
@@ -168,6 +210,7 @@ function ChatView({
 		deleteThread.mutate(threadId, {
 			onSuccess: () => {
 				setDeleteTarget(null);
+				removePin(threadId);
 				if (threadId !== activeThreadId) return;
 				const next = threads.data?.threads.find(
 					(t) => t.thread_id !== threadId,
@@ -189,6 +232,182 @@ function ChatView({
 		);
 	};
 
+	const handleInlineRename = (threadId: string, title: string) => {
+		renameThread.mutate({ threadId, title });
+	};
+
+	const handleLogout = useCallback(() => {
+		clearAllDrafts();
+		logout.mutate();
+	}, [logout]);
+
+	const trimLastExchange = useCallback(() => {
+		if (!activeThreadId) return null;
+		const key = chatKeys.thread(activeThreadId);
+		const before = queryClient.getQueryData<Thread>(key);
+		if (!before) return null;
+		const msgs = before.messages;
+		let lastUserIdx = -1;
+		for (let i = msgs.length - 1; i >= 0; i--) {
+			if (msgs[i].role === "user") {
+				lastUserIdx = i;
+				break;
+			}
+		}
+		if (lastUserIdx === -1) return null;
+		const userMsg = msgs[lastUserIdx];
+		const trailingAssistantIds = msgs
+			.slice(lastUserIdx + 1)
+			.filter((mm) => mm.role === "assistant")
+			.map((mm) => mm.id);
+		queryClient.setQueryData<Thread>(key, {
+			...before,
+			messages: msgs.slice(0, lastUserIdx),
+		});
+		for (const id of trailingAssistantIds) {
+			toolActivityStore.clearMessage(id);
+		}
+		return userMsg;
+	}, [activeThreadId, queryClient]);
+
+	const handleRetry = useCallback(() => {
+		const userMsg = trimLastExchange();
+		if (!userMsg) return;
+		track("chat.message_retried");
+		send.mutate(userMsg.body);
+	}, [send, trimLastExchange]);
+
+	const trimFromMessage = useCallback(
+		(messageId: string) => {
+			if (!activeThreadId) return;
+			const key = chatKeys.thread(activeThreadId);
+			const before = queryClient.getQueryData<Thread>(key);
+			if (!before) return;
+			const idx = before.messages.findIndex((mm) => mm.id === messageId);
+			if (idx === -1) return;
+			const dropped = before.messages.slice(idx);
+			queryClient.setQueryData<Thread>(key, {
+				...before,
+				messages: before.messages.slice(0, idx),
+			});
+			for (const dm of dropped) {
+				if (dm.role === "assistant") toolActivityStore.clearMessage(dm.id);
+			}
+		},
+		[activeThreadId, queryClient],
+	);
+
+	const handleEditMessage = useCallback(
+		(messageId: string, newBody: string) => {
+			const trimmed = newBody.trim();
+			if (!trimmed) return;
+			const lastUser = [...messages].reverse().find((mm) => mm.role === "user");
+			if (lastUser?.id === messageId) {
+				trimFromMessage(messageId);
+				track("chat.message_edited", { position: "last" });
+				send.mutate(trimmed);
+				return;
+			}
+			setEditConfirm({ messageId, body: trimmed });
+		},
+		[messages, trimFromMessage, send],
+	);
+
+	const confirmEdit = useCallback(() => {
+		if (!editConfirm) return;
+		trimFromMessage(editConfirm.messageId);
+		track("chat.message_edited", { position: "older" });
+		send.mutate(editConfirm.body);
+		setEditConfirm(null);
+	}, [editConfirm, trimFromMessage, send]);
+
+	const handleRetryFailed = useCallback(
+		(message: Message) => {
+			if (!activeThreadId) return;
+			const key = chatKeys.thread(activeThreadId);
+			const before = queryClient.getQueryData<Thread>(key);
+			if (!before) return;
+			queryClient.setQueryData<Thread>(key, {
+				...before,
+				messages: before.messages.filter((mm) => mm.id !== message.id),
+			});
+			send.mutate(message.body);
+		},
+		[activeThreadId, queryClient, send],
+	);
+
+	const handlePickSuggestion = useCallback(
+		(text: string) => {
+			if (block) return;
+			track("chat.suggestion_picked");
+			send.mutate(text);
+		},
+		[block, send],
+	);
+
+	const handleExportThread = useCallback(() => {
+		if (!thread.data) return;
+		const md = renderThreadMarkdown(thread.data);
+		const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		const safeTitle =
+			(thread.data.title ?? "conversation")
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.replace(/^-+|-+$/g, "")
+				.slice(0, 60) || "conversation";
+		a.href = url;
+		a.download = `mentee-${safeTitle}.md`;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+		track("chat.thread_exported");
+		toast.success(m.chat_thread_exported_toast());
+	}, [thread.data]);
+
+	const handleCopyThread = useCallback(async () => {
+		if (!thread.data) return;
+		try {
+			await navigator.clipboard.writeText(renderThreadMarkdown(thread.data));
+			toast.success(m.chat_thread_copied_toast());
+			track("chat.thread_copied");
+		} catch {
+			toast.error(m.chat_copy_failed_toast());
+		}
+	}, [thread.data]);
+
+	useShortcut("mod+k", () => {
+		track("chat.shortcut_used", { shortcut: "new_chat" });
+		handleCreate();
+	});
+	useShortcut(
+		"mod+/",
+		() => {
+			track("chat.shortcut_used", { shortcut: "focus_input" });
+			inputRef.current?.focus();
+		},
+		{ allowInInput: true },
+	);
+	useShortcut("mod+shift+l", () => {
+		setSidebarOpen((o) => !o);
+	});
+	useShortcut("?", () => setShortcutsOpen(true));
+	useShortcut("mod+f", (e) => {
+		if (!activeThreadId) return;
+		e.preventDefault();
+		setFindOpen(true);
+	});
+	useShortcut(
+		"escape",
+		() => {
+			if (findOpen) setFindOpen(false);
+			else if (shortcutsOpen) setShortcutsOpen(false);
+		},
+		{ when: findOpen || shortcutsOpen, allowInInput: true },
+	);
+
 	const isEmptyThread = messages.length === 0 && !send.isPending;
 	const threadsLoading = threads.isPending;
 	const threadLoading = thread.isPending && activeThreadId !== null;
@@ -200,10 +419,13 @@ function ChatView({
 				activeThreadId={activeThreadId}
 				isLoading={threadsLoading}
 				query={searchQuery}
+				pinnedIds={pinnedIds}
+				onTogglePin={togglePin}
 				onQueryChange={setSearchQuery}
 				onSelect={handleSelect}
 				onCreate={handleCreate}
 				onRequestRename={setRenameTarget}
+				onInlineRename={handleInlineRename}
 				onRequestDelete={setDeleteTarget}
 				isCreating={createThread.isPending}
 				isOpenMobile={sidebarOpen}
@@ -248,12 +470,38 @@ function ChatView({
 					) : null}
 					<button
 						type="button"
-						onClick={() => logout.mutate()}
+						onClick={() => setShortcutsOpen(true)}
+						aria-label={m.chat_shortcuts_open_aria()}
+						className="hidden shrink-0 items-center justify-center rounded-md border border-[var(--theme-border)] p-1.5 text-[var(--theme-muted)] transition hover:border-[var(--theme-accent)] hover:text-[var(--theme-primary)] sm:inline-flex"
+					>
+						<Keyboard className="size-4" aria-hidden="true" />
+					</button>
+					<button
+						type="button"
+						onClick={handleLogout}
 						className="btn-secondary shrink-0"
 					>
 						{m.chat_sign_out()}
 					</button>
 				</header>
+				{activeThreadId && messages.length > 0 && findOpen ? (
+					<InThreadFind
+						messages={messages}
+						query={findQuery}
+						activeIndex={findActiveIndex}
+						onQueryChange={(q) => {
+							setFindQuery(q);
+							setFindActiveIndex(0);
+						}}
+						onClose={() => {
+							setFindOpen(false);
+							setFindQuery("");
+							setFindActiveIndex(0);
+						}}
+						onNext={() => setFindActiveIndex((i) => i + 1)}
+						onPrev={() => setFindActiveIndex((i) => i - 1)}
+					/>
+				) : null}
 				<div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
 					{isAdmin ? (
 						<PersonaActiveBanner onEdit={() => setPersonaSheetOpen(true)} />
@@ -263,18 +511,38 @@ function ChatView({
 					) : isEmptyThread ? (
 						<ChatWelcome
 							userName={userName}
+							recentThreads={threads.data?.threads ?? []}
 							onPickStarter={(prompt) => {
 								if (block) return;
+								track("chat.starter_picked", { kind: "starter" });
 								send.mutate(prompt);
+							}}
+							onContinue={(threadId) => {
+								track("chat.starter_picked", { kind: "continue" });
+								handleSelect(threadId);
 							}}
 							disabled={block !== null}
 						/>
 					) : (
-						<MessageList messages={messages} isReplying={send.isPending} />
+						<MessageList
+							messages={messages}
+							isReplying={send.isPending}
+							onRetryLast={handleRetry}
+							onEditMessage={handleEditMessage}
+							onRetryFailed={handleRetryFailed}
+							onPickSuggestion={handlePickSuggestion}
+							onExportThread={handleExportThread}
+							onCopyThread={handleCopyThread}
+							canSend={!send.isPending && !block}
+							findQuery={findOpen ? findQuery : ""}
+							findActiveIndex={findActiveIndex}
+						/>
 					)}
 				</div>
 				{block ? <ChatBlockedBanner block={block} /> : null}
 				<ChatInput
+					ref={inputRef}
+					threadId={activeThreadId}
 					onSend={(body) => send.mutate(body)}
 					onStop={STREAMING_ENABLED ? streamMessage.stop : undefined}
 					canStop={STREAMING_ENABLED}
@@ -295,6 +563,12 @@ function ChatView({
 				onConfirm={handleConfirmDelete}
 				isDeleting={deleteThread.isPending}
 			/>
+			<EditOlderConfirmDialog
+				open={editConfirm !== null}
+				onCancel={() => setEditConfirm(null)}
+				onConfirm={confirmEdit}
+			/>
+			<ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 			{isAdmin ? (
 				<PersonaSheet
 					open={personaSheetOpen}
@@ -303,6 +577,17 @@ function ChatView({
 			) : null}
 		</>
 	);
+}
+
+function renderThreadMarkdown(t: Thread): string {
+	const title = t.title ?? "Conversation";
+	const lines: string[] = [`# ${title}`, ""];
+	for (const msg of t.messages) {
+		const who = msg.role === "user" ? "You" : "Mentor";
+		const when = formatFullTimestamp(msg.created_at);
+		lines.push(`## ${who} — ${when}`, "", stripChatBody(msg.body), "");
+	}
+	return lines.join("\n");
 }
 
 type ChatBlock = {
@@ -359,4 +644,142 @@ function ChatBlockedBanner({ block }: { block: ChatBlock }) {
 			</div>
 		</output>
 	);
+}
+
+function EditOlderConfirmDialog({
+	open,
+	onCancel,
+	onConfirm,
+}: {
+	open: boolean;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(next: boolean) => {
+				if (!next) onCancel();
+			}}
+		>
+			<DialogContent>
+				<DialogTitle>{m.chat_edit_confirm_title()}</DialogTitle>
+				<DialogDescription>{m.chat_edit_confirm_body()}</DialogDescription>
+				<DialogFooter>
+					<button type="button" onClick={onCancel} className="btn-secondary">
+						{m.common_cancel()}
+					</button>
+					<button type="button" onClick={onConfirm} className="btn-primary">
+						{m.chat_edit_confirm_action()}
+					</button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function InThreadFind({
+	messages,
+	query,
+	activeIndex,
+	onQueryChange,
+	onClose,
+	onNext,
+	onPrev,
+}: {
+	messages: Message[];
+	query: string;
+	activeIndex: number;
+	onQueryChange: (q: string) => void;
+	onClose: () => void;
+	onNext: () => void;
+	onPrev: () => void;
+}) {
+	const totalMatches = useMemo(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return 0;
+		let n = 0;
+		for (const mm of messages) {
+			n += countOccurrences(mm.body.toLowerCase(), q);
+		}
+		return n;
+	}, [messages, query]);
+
+	const wrappedIndex =
+		totalMatches > 0
+			? ((activeIndex % totalMatches) + totalMatches) % totalMatches
+			: 0;
+
+	return (
+		<div className="flex items-center gap-2 border-b border-[var(--theme-border)] bg-[var(--theme-surface)] px-3 py-2 sm:px-5">
+			<input
+				ref={(el) => {
+					el?.focus();
+				}}
+				type="search"
+				value={query}
+				onChange={(e) => onQueryChange(e.target.value)}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						if (e.shiftKey) onPrev();
+						else onNext();
+					} else if (e.key === "Escape") {
+						e.preventDefault();
+						onClose();
+					}
+				}}
+				placeholder={m.chat_in_thread_search_placeholder()}
+				aria-label={m.chat_in_thread_search_aria()}
+				className="flex-1 rounded-md border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-1.5 text-sm text-[var(--theme-primary)] placeholder:text-[var(--theme-muted)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-accent-ring)]"
+			/>
+			<span className="shrink-0 text-xs tabular-nums text-[var(--theme-muted)]">
+				{query.trim()
+					? totalMatches > 0
+						? m.chat_in_thread_match_count({
+								current: String(wrappedIndex + 1),
+								total: String(totalMatches),
+							})
+						: m.chat_in_thread_no_matches()
+					: ""}
+			</span>
+			<button
+				type="button"
+				onClick={onPrev}
+				disabled={totalMatches === 0}
+				className="rounded p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)] disabled:opacity-50"
+				aria-label="Previous match"
+			>
+				↑
+			</button>
+			<button
+				type="button"
+				onClick={onNext}
+				disabled={totalMatches === 0}
+				className="rounded p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)] disabled:opacity-50"
+				aria-label="Next match"
+			>
+				↓
+			</button>
+			<button
+				type="button"
+				onClick={onClose}
+				className="rounded p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)]"
+				aria-label="Close search"
+			>
+				×
+			</button>
+		</div>
+	);
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+	if (!needle) return 0;
+	let count = 0;
+	let pos = haystack.indexOf(needle, 0);
+	while (pos !== -1) {
+		count++;
+		pos = haystack.indexOf(needle, pos + needle.length);
+	}
+	return count;
 }

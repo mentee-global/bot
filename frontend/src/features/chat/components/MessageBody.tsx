@@ -1,8 +1,11 @@
-import { ExternalLink } from "lucide-react";
-import { memo, useMemo } from "react";
-import ReactMarkdown from "react-markdown";
+import { Check, Copy, ExternalLink } from "lucide-react";
+import { memo, useMemo, useRef, useState } from "react";
 import type { Components } from "react-markdown";
+import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
+import { track } from "#/lib/analytics";
+import { m } from "#/paraglide/messages";
 
 // OpenAI Responses API wraps inline citations in PUA delimiters (e.g.
 // `\uE200cite\uE202turn0search0\uE201`); we don't yet have the annotation
@@ -34,6 +37,10 @@ function autolinkBareDomains(md: string): string {
 function sanitize(body: string): string {
 	const cleaned = body.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
 	return autolinkBareDomains(cleaned);
+}
+
+export function stripChatBody(body: string): string {
+	return body.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
 }
 
 interface Source {
@@ -70,7 +77,50 @@ const components: Components = {
 			{children}
 		</a>
 	),
+	pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
 };
+
+function CodeBlock({
+	children,
+	...rest
+}: React.HTMLAttributes<HTMLPreElement>) {
+	const ref = useRef<HTMLPreElement>(null);
+	const [copied, setCopied] = useState(false);
+
+	const onCopy = async () => {
+		const text = ref.current?.innerText ?? "";
+		if (!text) return;
+		try {
+			await navigator.clipboard.writeText(text);
+			setCopied(true);
+			toast.success(m.chat_copied_toast());
+			track("chat.code_copied");
+			window.setTimeout(() => setCopied(false), 1500);
+		} catch {
+			toast.error(m.chat_copy_failed_toast());
+		}
+	};
+
+	return (
+		<div className="group relative">
+			<pre {...rest} ref={ref}>
+				{children}
+			</pre>
+			<button
+				type="button"
+				onClick={onCopy}
+				aria-label={m.chat_copy_code_aria()}
+				className="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md border border-[var(--theme-border)] bg-[var(--theme-bg)] text-[var(--theme-muted)] opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 hover:text-[var(--theme-primary)]"
+			>
+				{copied ? (
+					<Check aria-hidden="true" className="size-3.5" />
+				) : (
+					<Copy aria-hidden="true" className="size-3.5" />
+				)}
+			</button>
+		</div>
+	);
+}
 
 interface MessageBodyProps {
 	body: string;

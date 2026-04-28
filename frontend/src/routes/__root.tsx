@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ArrowLeft } from "lucide-react";
+import { Toaster } from "sonner";
 import Footer from "#/components/Footer";
 import Header from "#/components/Header";
 import PostHogProvider from "#/integrations/posthog/provider";
@@ -109,6 +110,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			>
 				<PostHogProvider>
 					<RootChrome>{children}</RootChrome>
+					<Toaster richColors position="top-right" closeButton theme="system" />
 					<TanStackDevtools
 						config={{ position: "bottom-right" }}
 						plugins={[

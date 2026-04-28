@@ -8,6 +8,10 @@ export interface Message {
 	created_at: string;
 	/** Client-only flag set while tokens are streaming into `body`. */
 	streaming?: boolean;
+	/** Client-only flag set when a send failed and we want a retry affordance. */
+	error?: { message: string };
+	/** Optional follow-up suggestions emitted by the agent (assistant only). */
+	suggestions?: string[];
 }
 
 export interface StreamMeta {
@@ -20,6 +24,11 @@ export interface StreamMeta {
 export interface StreamDone {
 	assistant_message_id: string;
 	body: string;
+}
+
+export interface StreamSuggestions {
+	assistant_message_id: string;
+	suggestions: string[];
 }
 
 export type ToolEventStatus = "running" | "done";

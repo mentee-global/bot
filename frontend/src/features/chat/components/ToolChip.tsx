@@ -1,4 +1,4 @@
-import { Loader2, SearchCheck, Sparkles } from "lucide-react";
+import { BookOpen, Loader2, SearchCheck, Sparkles } from "lucide-react";
 import type { ToolActivity } from "#/features/chat/data/chat.types";
 import { cn } from "#/lib/utils";
 
@@ -9,28 +9,31 @@ import { cn } from "#/lib/utils";
  * names are intentionally hidden.
  */
 
-type BucketKey = "search" | "plan" | "other";
+type BucketKey = "search" | "browse" | "plan" | "other";
 
 const BUCKET_BY_TOOL: Record<string, BucketKey> = {
 	web_search: "search",
 	search_perplexity: "search",
+	web_browse: "browse",
+	fetch_url: "browse",
+	open_url: "browse",
 	analyze_career_path: "plan",
 };
 
 const BUCKET_LABELS: Record<BucketKey, string> = {
 	search: "Searching sources",
+	browse: "Reading a page",
 	plan: "Thinking through a plan",
 	other: "Working on it",
 };
 
 function pickBucket(activities: readonly ToolActivity[]): BucketKey {
-	for (const a of activities) {
-		const bucket = BUCKET_BY_TOOL[a.name] ?? "other";
-		if (bucket === "search") return "search";
-	}
-	for (const a of activities) {
-		const bucket = BUCKET_BY_TOOL[a.name] ?? "other";
-		if (bucket === "plan") return "plan";
+	const priority: BucketKey[] = ["search", "browse", "plan"];
+	for (const want of priority) {
+		for (const a of activities) {
+			const bucket = BUCKET_BY_TOOL[a.name] ?? "other";
+			if (bucket === want) return want;
+		}
 	}
 	return "other";
 }
@@ -48,7 +51,8 @@ export function ToolChipRow({ activities }: ToolChipRowProps) {
 	);
 	const bucket = pickBucket(activities);
 	const label = BUCKET_LABELS[bucket];
-	const Icon = bucket === "plan" ? Sparkles : SearchCheck;
+	const Icon =
+		bucket === "plan" ? Sparkles : bucket === "browse" ? BookOpen : SearchCheck;
 
 	return (
 		<div className="flex flex-wrap items-center gap-1.5">

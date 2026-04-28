@@ -1,5 +1,13 @@
-import { MessageSquarePlus, Pencil, Search, Trash2, X } from "lucide-react";
-import { useEffect } from "react";
+import {
+	MessageSquarePlus,
+	Pencil,
+	Pin,
+	PinOff,
+	Search,
+	Trash2,
+	X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { ThreadListSkeleton } from "#/features/chat/components/ChatSkeletons";
 import type { ThreadSummary } from "#/features/chat/data/chat.types";
 import { cn } from "#/lib/utils";
@@ -10,10 +18,13 @@ interface ThreadSidebarProps {
 	activeThreadId: string | null;
 	isLoading: boolean;
 	query: string;
+	pinnedIds: Set<string>;
+	onTogglePin: (threadId: string) => void;
 	onQueryChange: (value: string) => void;
 	onSelect: (threadId: string) => void;
 	onCreate: () => void;
 	onRequestRename: (thread: ThreadSummary) => void;
+	onInlineRename: (threadId: string, title: string) => void;
 	onRequestDelete: (thread: ThreadSummary) => void;
 	isCreating: boolean;
 	isOpenMobile: boolean;
@@ -25,10 +36,13 @@ export function ThreadSidebar({
 	activeThreadId,
 	isLoading,
 	query,
+	pinnedIds,
+	onTogglePin,
 	onQueryChange,
 	onSelect,
 	onCreate,
 	onRequestRename,
+	onInlineRename,
 	onRequestDelete,
 	isCreating,
 	isOpenMobile,
@@ -39,6 +53,11 @@ export function ThreadSidebar({
 		!isLoading && threads.length === 0 && trimmedQuery.length > 0;
 	const showEmpty =
 		!isLoading && threads.length === 0 && trimmedQuery.length === 0;
+
+	const [editingId, setEditingId] = useState<string | null>(null);
+
+	const pinnedThreads = threads.filter((t) => pinnedIds.has(t.thread_id));
+	const otherThreads = threads.filter((t) => !pinnedIds.has(t.thread_id));
 
 	// Prevent page scroll while the mobile drawer is open.
 	useEffect(() => {
@@ -142,57 +161,35 @@ export function ThreadSidebar({
 							{m.chat_thread_search_no_results({ query: trimmedQuery })}
 						</p>
 					) : (
-						<ul className="m-0 flex flex-col gap-1 p-0">
-							{threads.map((t) => {
-								const isActive = t.thread_id === activeThreadId;
-								return (
-									<li key={t.thread_id} className="group relative list-none">
-										<button
-											type="button"
-											onClick={() => onSelect(t.thread_id)}
-											className={cn(
-												"flex w-full items-center gap-2 rounded-md px-2.5 py-2 pr-14 text-left text-sm transition",
-												isActive
-													? "bg-[var(--theme-primary)] text-[var(--theme-bg)]"
-													: "text-[var(--theme-primary)] hover:bg-[var(--theme-bg)]",
-											)}
-										>
-											<span className="flex-1 truncate">
-												{t.title ?? m.chat_thread_untitled()}
-											</span>
-										</button>
-										{/* Actions: always visible on touch (no hover), revealed on hover/focus on desktop. */}
-										<div
-											className={cn(
-												"absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5",
-												"md:opacity-0 md:transition md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-											)}
-										>
-											<IconButton
-												label={m.chat_rename_thread_aria()}
-												onClick={(e) => {
-													e.stopPropagation();
-													onRequestRename(t);
-												}}
-												active={isActive}
-											>
-												<Pencil size={13} />
-											</IconButton>
-											<IconButton
-												label={m.chat_delete_thread_aria()}
-												onClick={(e) => {
-													e.stopPropagation();
-													onRequestDelete(t);
-												}}
-												active={isActive}
-											>
-												<Trash2 size={13} />
-											</IconButton>
-										</div>
-									</li>
-								);
-							})}
-						</ul>
+						<div className="flex flex-col gap-2">
+							{pinnedThreads.length > 0 ? (
+								<ThreadGroup
+									label={m.chat_pinned_heading()}
+									threads={pinnedThreads}
+									activeThreadId={activeThreadId}
+									pinnedIds={pinnedIds}
+									editingId={editingId}
+									onSelect={onSelect}
+									onSetEditing={setEditingId}
+									onInlineRename={onInlineRename}
+									onRequestRename={onRequestRename}
+									onRequestDelete={onRequestDelete}
+									onTogglePin={onTogglePin}
+								/>
+							) : null}
+							<ThreadGroup
+								threads={otherThreads}
+								activeThreadId={activeThreadId}
+								pinnedIds={pinnedIds}
+								editingId={editingId}
+								onSelect={onSelect}
+								onSetEditing={setEditingId}
+								onInlineRename={onInlineRename}
+								onRequestRename={onRequestRename}
+								onRequestDelete={onRequestDelete}
+								onTogglePin={onTogglePin}
+							/>
+						</div>
 					)}
 				</div>
 			</aside>
@@ -200,8 +197,211 @@ export function ThreadSidebar({
 	);
 }
 
-// Single-action icon button used for the rename/delete affordances so the
-// styling stays in sync between the two.
+interface ThreadGroupProps {
+	label?: string;
+	threads: ThreadSummary[];
+	activeThreadId: string | null;
+	pinnedIds: Set<string>;
+	editingId: string | null;
+	onSelect: (threadId: string) => void;
+	onSetEditing: (id: string | null) => void;
+	onInlineRename: (threadId: string, title: string) => void;
+	onRequestRename: (thread: ThreadSummary) => void;
+	onRequestDelete: (thread: ThreadSummary) => void;
+	onTogglePin: (threadId: string) => void;
+}
+
+function ThreadGroup({
+	label,
+	threads,
+	activeThreadId,
+	pinnedIds,
+	editingId,
+	onSelect,
+	onSetEditing,
+	onInlineRename,
+	onRequestRename,
+	onRequestDelete,
+	onTogglePin,
+}: ThreadGroupProps) {
+	if (threads.length === 0) return null;
+	return (
+		<div className="flex flex-col gap-1">
+			{label ? (
+				<p className="island-kicker m-0 px-2 pb-1 pt-1">{label}</p>
+			) : null}
+			<ul className="m-0 flex flex-col gap-1 p-0">
+				{threads.map((t) => (
+					<ThreadRow
+						key={t.thread_id}
+						thread={t}
+						isActive={t.thread_id === activeThreadId}
+						isPinned={pinnedIds.has(t.thread_id)}
+						isEditing={editingId === t.thread_id}
+						onSelect={() => onSelect(t.thread_id)}
+						onStartEdit={() => onSetEditing(t.thread_id)}
+						onCancelEdit={() => onSetEditing(null)}
+						onInlineRename={(title) => {
+							onSetEditing(null);
+							onInlineRename(t.thread_id, title);
+						}}
+						onRequestRename={() => onRequestRename(t)}
+						onRequestDelete={() => onRequestDelete(t)}
+						onTogglePin={() => onTogglePin(t.thread_id)}
+					/>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+interface ThreadRowProps {
+	thread: ThreadSummary;
+	isActive: boolean;
+	isPinned: boolean;
+	isEditing: boolean;
+	onSelect: () => void;
+	onStartEdit: () => void;
+	onCancelEdit: () => void;
+	onInlineRename: (title: string) => void;
+	onRequestRename: () => void;
+	onRequestDelete: () => void;
+	onTogglePin: () => void;
+}
+
+function ThreadRow({
+	thread: t,
+	isActive,
+	isPinned,
+	isEditing,
+	onSelect,
+	onStartEdit,
+	onCancelEdit,
+	onInlineRename,
+	onRequestRename,
+	onRequestDelete,
+	onTogglePin,
+}: ThreadRowProps) {
+	const inputRef = useRef<HTMLInputElement>(null);
+	const [draft, setDraft] = useState(t.title ?? "");
+
+	useEffect(() => {
+		if (isEditing) {
+			setDraft(t.title ?? "");
+			window.setTimeout(() => {
+				inputRef.current?.focus();
+				inputRef.current?.select();
+			}, 0);
+		}
+	}, [isEditing, t.title]);
+
+	const submit = () => {
+		const trimmed = draft.trim();
+		if (!trimmed || trimmed === (t.title ?? "")) {
+			onCancelEdit();
+			return;
+		}
+		onInlineRename(trimmed);
+	};
+
+	return (
+		<li className="group relative list-none">
+			{isEditing ? (
+				<div className="flex items-center gap-1 rounded-md border border-[var(--theme-accent)] bg-[var(--theme-bg)] px-2 py-1.5">
+					<input
+						ref={inputRef}
+						value={draft}
+						onChange={(e) => setDraft(e.target.value)}
+						onBlur={submit}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								e.preventDefault();
+								submit();
+							} else if (e.key === "Escape") {
+								e.preventDefault();
+								onCancelEdit();
+							}
+						}}
+						maxLength={200}
+						className="w-full bg-transparent text-sm text-[var(--theme-primary)] outline-none"
+					/>
+				</div>
+			) : (
+				<>
+					<button
+						type="button"
+						onClick={onSelect}
+						onDoubleClick={(e) => {
+							e.preventDefault();
+							onStartEdit();
+						}}
+						className={cn(
+							"flex w-full items-center gap-2 rounded-md px-2.5 py-2 pr-20 text-left text-sm transition",
+							isActive
+								? "bg-[var(--theme-primary)] text-[var(--theme-bg)]"
+								: "text-[var(--theme-primary)] hover:bg-[var(--theme-bg)]",
+						)}
+					>
+						{isPinned ? (
+							<Pin
+								aria-hidden="true"
+								className={cn(
+									"size-3 shrink-0",
+									isActive
+										? "text-[var(--theme-bg)]"
+										: "text-[var(--theme-muted)]",
+								)}
+							/>
+						) : null}
+						<span className="flex-1 truncate">
+							{t.title ?? m.chat_thread_untitled()}
+						</span>
+					</button>
+					<div
+						className={cn(
+							"absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5",
+							"md:opacity-0 md:transition md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+						)}
+					>
+						<IconButton
+							label={
+								isPinned ? m.chat_unpin_thread_aria() : m.chat_pin_thread_aria()
+							}
+							onClick={(e) => {
+								e.stopPropagation();
+								onTogglePin();
+							}}
+							active={isActive}
+						>
+							{isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+						</IconButton>
+						<IconButton
+							label={m.chat_rename_thread_aria()}
+							onClick={(e) => {
+								e.stopPropagation();
+								onRequestRename();
+							}}
+							active={isActive}
+						>
+							<Pencil size={13} />
+						</IconButton>
+						<IconButton
+							label={m.chat_delete_thread_aria()}
+							onClick={(e) => {
+								e.stopPropagation();
+								onRequestDelete();
+							}}
+							active={isActive}
+						>
+							<Trash2 size={13} />
+						</IconButton>
+					</div>
+				</>
+			)}
+		</li>
+	);
+}
+
 function IconButton({
 	label,
 	onClick,

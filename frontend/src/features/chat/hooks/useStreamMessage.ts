@@ -8,6 +8,7 @@ import type {
 	Message,
 	StreamDone,
 	StreamMeta,
+	StreamSuggestions,
 	Thread,
 	ToolEvent,
 } from "#/features/chat/data/chat.types";
@@ -169,6 +170,23 @@ export function useStreamMessage(threadId: string | null | undefined) {
 							),
 						}));
 						toolActivityStore.clearMessage(done.assistant_message_id);
+					} else if (evt.event === "suggestions") {
+						if (!meta) continue;
+						const payload = JSON.parse(evt.data) as StreamSuggestions;
+						const suggestionList = Array.isArray(payload.suggestions)
+							? payload.suggestions.filter((s) => typeof s === "string")
+							: [];
+						const targetId =
+							payload.assistant_message_id ?? meta.assistant_message_id;
+						patchThreadByKey(queryClient, resolvedCacheKey, (t) => ({
+							thread_id: t.thread_id,
+							title: t.title,
+							messages: t.messages.map((mm) =>
+								mm.id === targetId
+									? { ...mm, suggestions: suggestionList }
+									: mm,
+							),
+						}));
 					} else if (evt.event === "error") {
 						throw new Error(evt.data || "stream error");
 					}
@@ -221,27 +239,58 @@ export function useStreamMessage(threadId: string | null | undefined) {
 					messages: t.messages.filter((m) => !cleanupIds.has(m.id)),
 				}));
 
-				const fallback = await chatService.sendMessage(
-					body,
-					activeThreadId,
-					persona,
-				);
-				const fallbackKey = chatKeys.thread(fallback.thread_id);
-				patchThreadByKey(
-					queryClient,
-					fallbackKey,
-					(t) => ({
-						thread_id: fallback.thread_id,
-						title: t.title,
-						messages: [
-							...t.messages,
-							fallback.user_message,
-							fallback.assistant_message,
-						],
-					}),
-					fallback.thread_id,
-				);
-				console.warn("stream failed, used POST fallback:", err);
+				try {
+					const fallback = await chatService.sendMessage(
+						body,
+						activeThreadId,
+						persona,
+					);
+					const fallbackKey = chatKeys.thread(fallback.thread_id);
+					patchThreadByKey(
+						queryClient,
+						fallbackKey,
+						(t) => ({
+							thread_id: fallback.thread_id,
+							title: t.title,
+							messages: [
+								...t.messages,
+								fallback.user_message,
+								fallback.assistant_message,
+							],
+						}),
+						fallback.thread_id,
+					);
+					console.warn("stream failed, used POST fallback:", err);
+				} catch (fallbackErr) {
+					// Both stream and POST failed — surface a retry affordance on a
+					// synthetic user bubble so the user keeps their message.
+					const errorMessage =
+						fallbackErr instanceof Error ? fallbackErr.message : "send failed";
+					const failedKey = activeThreadId
+						? chatKeys.thread(activeThreadId)
+						: resolvedCacheKey;
+					const failedThreadId =
+						(meta?.thread_id ?? activeThreadId ?? "") || "";
+					const failedBubble: Message = {
+						id: `failed-${crypto.randomUUID()}`,
+						thread_id: failedThreadId,
+						role: "user",
+						body,
+						created_at: nowIso(),
+						error: { message: errorMessage },
+					};
+					patchThreadByKey(
+						queryClient,
+						failedKey,
+						(t) => ({
+							thread_id: t.thread_id || failedThreadId,
+							title: t.title,
+							messages: [...t.messages, failedBubble],
+						}),
+						failedThreadId,
+					);
+					throw fallbackErr;
+				}
 			} finally {
 				if (abortRef.current === controller) {
 					abortRef.current = null;

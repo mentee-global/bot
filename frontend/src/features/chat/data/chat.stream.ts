@@ -7,6 +7,7 @@ export type StreamEvent =
 	| { event: "token"; data: string }
 	| { event: "tool"; data: string }
 	| { event: "done"; data: string }
+	| { event: "suggestions"; data: string }
 	| { event: "error"; data: string };
 
 /**
@@ -101,6 +102,7 @@ function parseFrame(frame: string): StreamEvent | null {
 		event === "token" ||
 		event === "tool" ||
 		event === "done" ||
+		event === "suggestions" ||
 		event === "error"
 	) {
 		return { event, data };

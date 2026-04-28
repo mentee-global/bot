@@ -1,9 +1,10 @@
-import { Sparkles, X } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import {
 	personaStore,
 	usePersonaState,
 } from "#/features/admin/hooks/usePersonaStore";
+import { m } from "#/paraglide/messages";
 
 /**
  * Subtle banner shown above the message list when an admin has an active
@@ -35,9 +36,9 @@ export function PersonaActiveBanner({ onEdit }: { onEdit: () => void }) {
 				variant="ghost"
 				className="h-7 px-2"
 				onClick={() => personaStore.setActive(false)}
-				aria-label="Disable test persona"
+				aria-label={m.chat_persona_end_aria()}
 			>
-				<X className="size-4" />
+				{m.chat_persona_end_label()}
 			</Button>
 		</div>
 	);
