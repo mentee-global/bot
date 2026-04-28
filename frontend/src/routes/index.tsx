@@ -29,12 +29,31 @@ function Landing() {
 			desc: m.landing_feature_scholarships_desc(),
 		},
 		{
-			title: m.landing_feature_paths_title(),
-			desc: m.landing_feature_paths_desc(),
+			title: m.landing_feature_study_abroad_title(),
+			desc: m.landing_feature_study_abroad_desc(),
 		},
 		{
 			title: m.landing_feature_career_title(),
 			desc: m.landing_feature_career_desc(),
+		},
+		{
+			title: m.landing_feature_visa_title(),
+			desc: m.landing_feature_visa_desc(),
+		},
+	];
+
+	const expectations = [
+		{
+			title: m.landing_expect_sources_title(),
+			desc: m.landing_expect_sources_desc(),
+		},
+		{
+			title: m.landing_expect_scope_title(),
+			desc: m.landing_expect_scope_desc(),
+		},
+		{
+			title: m.landing_expect_access_title(),
+			desc: m.landing_expect_access_desc(),
 		},
 	];
 
@@ -76,21 +95,60 @@ function Landing() {
 				</div>
 			</section>
 
-			<section className="mt-20 grid gap-px overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-border)] sm:grid-cols-3">
-				{features.map(({ title, desc }) => (
-					<article
-						key={title}
-						className="flex flex-col gap-2 bg-[var(--theme-bg)] p-6"
-					>
-						<h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--theme-muted)]">
-							{title}
-						</h2>
-						<p className="m-0 text-sm leading-relaxed text-[var(--theme-secondary)]">
-							{desc}
-						</p>
-					</article>
-				))}
+			<section className="mt-20">
+				<h2 className="island-kicker mb-6">{m.landing_help_heading()}</h2>
+				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+					{features.map(({ title, desc }) => (
+						<article
+							key={title}
+							className="surface-card flex flex-col gap-2 p-5"
+						>
+							<h3 className="m-0 text-sm font-semibold text-[var(--theme-primary)]">
+								{title}
+							</h3>
+							<p className="m-0 text-sm leading-relaxed text-[var(--theme-secondary)]">
+								{desc}
+							</p>
+						</article>
+					))}
+				</div>
 			</section>
+
+			<section className="mt-16">
+				<h2 className="island-kicker mb-6">{m.landing_expect_heading()}</h2>
+				<div className="grid gap-6 sm:grid-cols-3">
+					{expectations.map(({ title, desc }) => (
+						<div
+							key={title}
+							className="flex flex-col gap-2 border-t border-[var(--theme-border)] pt-4"
+						>
+							<h3 className="m-0 text-sm font-semibold text-[var(--theme-primary)]">
+								{title}
+							</h3>
+							<p className="m-0 text-sm leading-relaxed text-[var(--theme-secondary)]">
+								{desc}
+							</p>
+						</div>
+					))}
+				</div>
+			</section>
+
+			<section className="mt-16 max-w-2xl">
+				<h2 className="island-kicker mb-4">{m.landing_about_heading()}</h2>
+				<p className="m-0 text-sm leading-relaxed text-[var(--theme-secondary)] sm:text-base">
+					{m.landing_about_body()}{" "}
+					<a
+						href="https://menteeglobal.org"
+						target="_blank"
+						rel="noreferrer"
+						className="text-[var(--theme-secondary)] underline underline-offset-4 hover:text-[var(--theme-primary)]"
+					>
+						{m.landing_about_link_text()}
+					</a>
+					.
+				</p>
+			</section>
+
 			{isRedirecting && <LoginRedirectOverlay />}
 		</main>
 	);
