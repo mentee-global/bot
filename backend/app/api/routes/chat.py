@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated
 
 import logfire
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ from app.budget.service import (
     GlobalBudgetExhaustedError,
     QuotaExhaustedError,
 )
+from app.core.rate_limit import limiter
 from app.domain.models import MenteeProfile, Message, User
 from app.services.message_service import MessageService
 from app.services.thread_store import ThreadNotFoundError
@@ -103,7 +104,9 @@ class RenameThreadRequest(BaseModel):
 
 
 @router.post("/messages", response_model=SendMessageResponse)
+@limiter.limit("30/minute")
 async def send_message(
+    request: Request,
     payload: SendMessageRequest,
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
@@ -161,7 +164,9 @@ def _sse(event: str, data: object) -> bytes:
 
 
 @router.post("/messages/stream")
+@limiter.limit("30/minute")
 async def stream_message(
+    request: Request,
     payload: SendMessageRequest,
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
@@ -231,7 +236,7 @@ async def list_threads(
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[MessageService, Depends(get_message_service)],
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
 ) -> ThreadListResponse:
     threads = await service.list_threads(user.id, query=q)
     return ThreadListResponse(

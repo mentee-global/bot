@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
@@ -181,8 +181,8 @@ def _normalize_page(page: int | None) -> int:
 async def list_users(
     sessions: Annotated[SessionStore, Depends(get_session_store)],
     budget: Annotated[BudgetService, Depends(get_budget_service)],
-    q: str | None = None,
-    role: str | None = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
+    role: Annotated[str | None, Query(max_length=64)] = None,
     page: int | None = None,
 ) -> AdminUserListResponse:
     page = _normalize_page(page)
@@ -214,7 +214,7 @@ async def list_user_threads(
     user_id: UUID,
     service: Annotated[MessageService, Depends(get_message_service)],
     sessions: Annotated[SessionStore, Depends(get_session_store)],
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
     page: int | None = None,
 ) -> AdminThreadListResponse:
     page = _normalize_page(page)
@@ -269,7 +269,7 @@ async def get_user_sessions(
 async def list_all_threads(
     service: Annotated[MessageService, Depends(get_message_service)],
     sessions: Annotated[SessionStore, Depends(get_session_store)],
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
     page: int | None = None,
 ) -> AdminThreadListResponse:
     page = _normalize_page(page)

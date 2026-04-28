@@ -1,7 +1,9 @@
 import logging
+import re
 from typing import Annotated
+from urllib.parse import unquote, urlsplit
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -15,6 +17,7 @@ from app.auth.errors import (
 )
 from app.auth.service import AuthService
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.domain.models import User
 
 logger = logging.getLogger(__name__)
@@ -32,7 +35,9 @@ class MeResponse(BaseModel):
 
 
 @router.get("/login")
+@limiter.limit("10/minute")
 async def login(
+    request: Request,  # required for slowapi key_func
     auth: Annotated[AuthService, Depends(get_auth_service)],
     redirect_to: str | None = None,
     role_hint: str | None = None,
@@ -43,16 +48,43 @@ async def login(
     return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
 
 
+# Same-origin relative paths only. Reject anything with a scheme, netloc,
+# backslash (Chrome/Safari normalise `\` → `/`), control char (raw or
+# percent-encoded — `/%09//evil.com` becomes `/\t//evil.com` after browser
+# decode → protocol-relative), or a leading `//`.
+_SAFE_PATH_RE = re.compile(r"^/[A-Za-z0-9_\-./?&=%~:@!$',;+*]*$")
+_CONTROL_OR_BACKSLASH_RE = re.compile(r"[\x00-\x1f\x7f\\]")
+
+
 def _safe_post_login_path(redirect_to: str | None) -> str:
-    # Only accept same-origin relative paths. `//evil.com/...` parses as a
-    # protocol-relative URL and must be rejected to avoid open redirects.
-    if redirect_to and redirect_to.startswith("/") and not redirect_to.startswith("//"):
-        return redirect_to
-    return "/chat"
+    if not redirect_to:
+        return "/chat"
+    candidate = redirect_to.strip()
+    if not candidate or not candidate.startswith("/"):
+        return "/chat"
+    # Reject obvious protocol-relative + raw control chars / backslash.
+    if candidate.startswith("//") or _CONTROL_OR_BACKSLASH_RE.search(candidate):
+        return "/chat"
+    # Re-check the percent-decoded form: browsers will decode before redirecting.
+    decoded = unquote(candidate)
+    if (
+        decoded.startswith("//")
+        or _CONTROL_OR_BACKSLASH_RE.search(decoded)
+        or not decoded.startswith("/")
+    ):
+        return "/chat"
+    parts = urlsplit(candidate)
+    if parts.scheme or parts.netloc:
+        return "/chat"
+    if not _SAFE_PATH_RE.match(candidate):
+        return "/chat"
+    return candidate
 
 
 @router.get("/callback")
+@limiter.limit("30/minute")
 async def callback(
+    request: Request,
     auth: Annotated[AuthService, Depends(get_auth_service)],
     code: str | None = None,
     state: str | None = None,

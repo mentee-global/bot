@@ -20,6 +20,7 @@ dependencies = [
   "pydantic-ai>=0.3",
   "openai>=1.50",
   "perplexityai>=0.32.0",
+  "slowapi>=0.1.9",
 ]
 
 [dependency-groups]
