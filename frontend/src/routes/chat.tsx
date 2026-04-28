@@ -59,6 +59,7 @@ import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
 import { track } from "#/lib/analytics";
 import { formatFullTimestamp } from "#/lib/datetime";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
+import { useIsDesktop } from "#/lib/useMediaQuery";
 import { useShortcut } from "#/lib/useShortcut";
 import { m } from "#/paraglide/messages";
 
@@ -171,6 +172,9 @@ function ChatView({
 
 	const inputRef = useRef<ChatInputHandle>(null);
 	const { pinnedIds, togglePin, removePin } = usePinnedThreads();
+	// Shortcuts only register on desktop — phones rarely have a hardware
+	// keyboard, and global keydown listeners on touch devices are pure cost.
+	const isDesktop = useIsDesktop();
 
 	const activeThreadId = useMemo(() => {
 		if (search.threadId) return search.threadId;
@@ -378,27 +382,41 @@ function ChatView({
 		}
 	}, [thread.data]);
 
-	useShortcut("mod+k", () => {
-		track("chat.shortcut_used", { shortcut: "new_chat" });
-		handleCreate();
-	});
+	useShortcut(
+		"mod+k",
+		() => {
+			track("chat.shortcut_used", { shortcut: "new_chat" });
+			handleCreate();
+		},
+		{ when: isDesktop },
+	);
 	useShortcut(
 		"mod+/",
 		() => {
 			track("chat.shortcut_used", { shortcut: "focus_input" });
 			inputRef.current?.focus();
 		},
-		{ allowInInput: true },
+		{ when: isDesktop, allowInInput: true },
 	);
-	useShortcut("mod+shift+l", () => {
-		setSidebarOpen((o) => !o);
-	});
-	useShortcut("?", () => setShortcutsOpen(true));
-	useShortcut("mod+f", (e) => {
-		if (!activeThreadId) return;
-		e.preventDefault();
-		setFindOpen(true);
-	});
+	useShortcut(
+		"mod+shift+l",
+		() => {
+			setSidebarOpen((o) => !o);
+		},
+		{ when: isDesktop },
+	);
+	useShortcut("?", () => setShortcutsOpen(true), { when: isDesktop });
+	useShortcut(
+		"mod+f",
+		(e) => {
+			if (!activeThreadId) return;
+			e.preventDefault();
+			setFindOpen(true);
+		},
+		{ when: isDesktop },
+	);
+	// Esc closes overlays — keep this on every device so the find bar /
+	// shortcuts dialog can be dismissed without a mouse on tablet too.
 	useShortcut(
 		"escape",
 		() => {
@@ -472,7 +490,7 @@ function ChatView({
 						type="button"
 						onClick={() => setShortcutsOpen(true)}
 						aria-label={m.chat_shortcuts_open_aria()}
-						className="hidden shrink-0 items-center justify-center rounded-md border border-[var(--theme-border)] p-1.5 text-[var(--theme-muted)] transition hover:border-[var(--theme-accent)] hover:text-[var(--theme-primary)] sm:inline-flex"
+						className="hidden shrink-0 items-center justify-center rounded-md border border-[var(--theme-border)] p-1.5 text-[var(--theme-muted)] transition hover:border-[var(--theme-accent)] hover:text-[var(--theme-primary)] md:inline-flex"
 					>
 						<Keyboard className="size-4" aria-hidden="true" />
 					</button>

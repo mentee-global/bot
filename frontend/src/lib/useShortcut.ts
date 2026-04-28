@@ -31,8 +31,20 @@ function parse(combo: string): ParsedShortcut {
 	return { key, mod, shift, alt };
 }
 
-const isMac =
-	typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+// `navigator.platform` is deprecated and reports "MacIntel" on iPads in
+// desktop-mode Safari. Prefer the modern `userAgentData.platform` and fall
+// back to userAgent — Cmd is the right key for any Apple-keyboard target,
+// including iPad with an external keyboard.
+function detectIsMac(): boolean {
+	if (typeof navigator === "undefined") return false;
+	const uad = (
+		navigator as Navigator & { userAgentData?: { platform?: string } }
+	).userAgentData;
+	if (uad?.platform) return /mac/i.test(uad.platform);
+	return /mac/i.test(navigator.userAgent);
+}
+
+const isMac = detectIsMac();
 
 function isEditable(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) return false;
