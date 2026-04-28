@@ -1,12 +1,18 @@
 import { Compass, GraduationCap, MapPin, Sparkles } from "lucide-react";
+import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
 interface ChatWelcomeProps {
 	userName: string;
 	onPickStarter: (prompt: string) => void;
+	disabled?: boolean;
 }
 
-export function ChatWelcome({ userName, onPickStarter }: ChatWelcomeProps) {
+export function ChatWelcome({
+	userName,
+	onPickStarter,
+	disabled = false,
+}: ChatWelcomeProps) {
 	const firstName = userName.split(" ")[0] ?? userName;
 	const starters = [
 		{
@@ -46,7 +52,14 @@ export function ChatWelcome({ userName, onPickStarter }: ChatWelcomeProps) {
 						key={label}
 						type="button"
 						onClick={() => onPickStarter(prompt)}
-						className="group flex items-center gap-3 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3 text-left text-sm text-[var(--theme-primary)] transition hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface)]"
+						disabled={disabled}
+						aria-disabled={disabled || undefined}
+						className={cn(
+							"group flex items-center gap-3 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-4 py-3 text-left text-sm text-[var(--theme-primary)] transition",
+							disabled
+								? "cursor-not-allowed opacity-50"
+								: "hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface)]",
+						)}
 					>
 						<span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--theme-accent-soft)] text-[var(--theme-accent-hover)]">
 							<Icon aria-hidden="true" className="size-4" />

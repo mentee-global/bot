@@ -19,6 +19,12 @@ interface ChatInputProps {
 	onStop?: () => void;
 	isSending: boolean;
 	canStop?: boolean;
+	/**
+	 * When set, the input is fully disabled and the placeholder is replaced
+	 * with this reason. Used when the user is out of credits or chat is
+	 * paused globally — sending is impossible until the next reset.
+	 */
+	disabledReason?: string | null;
 }
 
 export function ChatInput({
@@ -26,6 +32,7 @@ export function ChatInput({
 	onStop,
 	isSending,
 	canStop = false,
+	disabledReason = null,
 }: ChatInputProps) {
 	const [text, setText] = useState("");
 	const [isComposing, setIsComposing] = useState(false);
@@ -41,11 +48,14 @@ export function ChatInput({
 	}, [text]);
 
 	useEffect(() => {
-		if (!isSending) textareaRef.current?.focus();
-	}, [isSending]);
+		if (!isSending && !disabledReason) textareaRef.current?.focus();
+	}, [isSending, disabledReason]);
+
+	const isBlocked = disabledReason !== null && disabledReason !== "";
 
 	const handleSubmit = (e?: FormEvent) => {
 		e?.preventDefault();
+		if (isBlocked) return;
 		const trimmed = text.trim();
 		if (!trimmed || isSending) return;
 		onSend(trimmed);
@@ -61,11 +71,18 @@ export function ChatInput({
 		handleSubmit();
 	};
 
-	const isStopMode = isSending && canStop;
+	const isStopMode = isSending && canStop && !isBlocked;
 	const trimmedLen = text.trim().length;
-	const canSubmit = trimmedLen > 0 && !isSending && trimmedLen <= MAX_LEN;
+	const canSubmit =
+		trimmedLen > 0 && !isSending && !isBlocked && trimmedLen <= MAX_LEN;
 	const overLimit = text.length > MAX_LEN;
-	const showCounter = text.length >= Math.floor(MAX_LEN * COUNTER_THRESHOLD);
+	const showCounter =
+		!isBlocked && text.length >= Math.floor(MAX_LEN * COUNTER_THRESHOLD);
+	const placeholder = isBlocked
+		? (disabledReason ?? m.chat_input_placeholder_blocked())
+		: isSending
+			? m.chat_input_placeholder_waiting()
+			: m.chat_input_placeholder();
 
 	return (
 		<form
@@ -80,19 +97,18 @@ export function ChatInput({
 					onKeyDown={handleKeyDown}
 					onCompositionStart={() => setIsComposing(true)}
 					onCompositionEnd={() => setIsComposing(false)}
-					placeholder={
-						isSending
-							? m.chat_input_placeholder_waiting()
-							: m.chat_input_placeholder()
-					}
+					placeholder={placeholder}
 					rows={1}
 					maxLength={MAX_LEN + 200}
 					spellCheck
+					disabled={isBlocked}
+					aria-disabled={isBlocked || undefined}
 					data-gramm="false"
 					data-gramm_editor="false"
 					data-enable-grammarly="false"
 					className={cn(
 						"block w-full flex-1 resize-none rounded-lg border bg-[var(--theme-bg)] px-3.5 py-2 text-sm leading-6 text-[var(--theme-primary)] placeholder:text-[var(--theme-muted)] outline-none transition",
+						isBlocked && "cursor-not-allowed opacity-60",
 						overLimit
 							? "border-[var(--theme-danger)] focus:border-[var(--theme-danger)] focus:ring-2 focus:ring-[var(--theme-danger)]/25"
 							: "border-[var(--theme-border)] focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-accent-ring)]",

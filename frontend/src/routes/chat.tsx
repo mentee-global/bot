@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Menu, Sparkles } from "lucide-react";
+import { AlertTriangle, Menu, PauseCircle, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PersonaActiveBanner } from "#/features/admin/components/PersonaActiveBanner";
 import { PersonaSheet } from "#/features/admin/components/PersonaSheet";
@@ -10,6 +10,8 @@ import {
 	useSession,
 } from "#/features/auth/hooks/useSession";
 import { CreditsPill } from "#/features/budget/components/CreditsPill";
+import type { MeResponse } from "#/features/budget/data/budget.types";
+import { useMeQuery } from "#/features/budget/hooks/useBudget";
 import { ChatInput } from "#/features/chat/components/ChatInput";
 import { MessageListSkeleton } from "#/features/chat/components/ChatSkeletons";
 import { ChatWelcome } from "#/features/chat/components/ChatWelcome";
@@ -140,6 +142,9 @@ function ChatView({
 	const send = STREAMING_ENABLED ? streamMessage : sendMessage;
 	const messages = thread.data?.messages ?? [];
 
+	const me = useMeQuery();
+	const block = useChatBlockState(me.data);
+
 	const handleCreate = () => {
 		createThread.mutate(undefined, {
 			onSuccess: (created) => {
@@ -220,7 +225,7 @@ function ChatView({
 							{m.chat_signed_in_as({ name: userName })}
 						</p>
 					</div>
-					<div className="hidden sm:block">
+					<div className="shrink-0">
 						<CreditsPill />
 					</div>
 					{isAdmin ? (
@@ -258,17 +263,23 @@ function ChatView({
 					) : isEmptyThread ? (
 						<ChatWelcome
 							userName={userName}
-							onPickStarter={(prompt) => send.mutate(prompt)}
+							onPickStarter={(prompt) => {
+								if (block) return;
+								send.mutate(prompt);
+							}}
+							disabled={block !== null}
 						/>
 					) : (
 						<MessageList messages={messages} isReplying={send.isPending} />
 					)}
 				</div>
+				{block ? <ChatBlockedBanner block={block} /> : null}
 				<ChatInput
 					onSend={(body) => send.mutate(body)}
 					onStop={STREAMING_ENABLED ? streamMessage.stop : undefined}
 					canStop={STREAMING_ENABLED}
 					isSending={send.isPending}
+					disabledReason={block?.placeholder ?? null}
 				/>
 			</div>
 
@@ -291,5 +302,61 @@ function ChatView({
 				/>
 			) : null}
 		</>
+	);
+}
+
+type ChatBlock = {
+	kind: "out_of_credits" | "paused";
+	title: string;
+	body: string;
+	placeholder: string;
+};
+
+function useChatBlockState(me: MeResponse | undefined): ChatBlock | null {
+	if (!me) return null;
+	const resetDate = new Date(me.credits.resets_at);
+	const dateLabel = resetDate.toLocaleDateString(undefined, {
+		month: "long",
+		day: "numeric",
+		year: "numeric",
+	});
+	const shortDate = resetDate.toLocaleDateString(undefined, {
+		month: "short",
+		day: "numeric",
+	});
+	if (me.agent_state.hard_stopped) {
+		return {
+			kind: "paused",
+			title: m.chat_paused_title(),
+			body: m.chat_paused_body({ date: dateLabel }),
+			placeholder: `${m.chat_paused_title()} — ${shortDate}`,
+		};
+	}
+	if (!me.credits.unlimited && me.credits.remaining <= 0) {
+		return {
+			kind: "out_of_credits",
+			title: m.chat_out_of_credits_title(),
+			body: m.chat_out_of_credits_body({ date: dateLabel }),
+			placeholder: `${m.chat_out_of_credits_title()} — ${shortDate}`,
+		};
+	}
+	return null;
+}
+
+function ChatBlockedBanner({ block }: { block: ChatBlock }) {
+	const Icon = block.kind === "paused" ? PauseCircle : AlertTriangle;
+	return (
+		<output
+			aria-live="polite"
+			className="block border-t border-[var(--theme-danger)] bg-[var(--theme-danger)]/10 px-4 py-3 text-[var(--theme-danger)]"
+		>
+			<div className="flex items-start gap-2.5">
+				<Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+				<div className="min-w-0 text-sm">
+					<p className="m-0 font-semibold">{block.title}</p>
+					<p className="m-0 text-[var(--theme-danger)]/90">{block.body}</p>
+				</div>
+			</div>
+		</output>
 	);
 }
