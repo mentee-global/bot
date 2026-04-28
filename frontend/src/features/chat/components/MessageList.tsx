@@ -65,8 +65,18 @@ export function MessageList({
 
 	useEffect(() => {
 		const sentinel = sentinelRef.current;
-		const root = scrollRef.current;
-		if (!sentinel || !root) return;
+		if (!sentinel) return;
+		// The scroll container lives in the parent route, not in MessageList.
+		// Walk up to find the closest scrolling ancestor so the observer roots
+		// against the right element — using scrollRef.current (the inner content
+		// div) would always report intersecting and the jump pill would never
+		// appear.
+		let root: HTMLElement | null = sentinel.parentElement;
+		while (root) {
+			const style = getComputedStyle(root);
+			if (style.overflowY === "auto" || style.overflowY === "scroll") break;
+			root = root.parentElement;
+		}
 		const observer = new IntersectionObserver(
 			([entry]) => setIsPinnedToBottom(entry.isIntersecting),
 			{ root, threshold: 0, rootMargin: "0px 0px 80px 0px" },
