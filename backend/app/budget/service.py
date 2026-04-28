@@ -20,6 +20,7 @@ auditable via `MessageUsage` + WARNING-level logs on admin mutations.
 
 from __future__ import annotations
 
+import calendar
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -52,9 +53,33 @@ def _as_uuid(value: str | UUID) -> UUID:
 
 
 def _period_start(now: datetime | None = None) -> datetime:
-    """First day of the current month, UTC. Monthly quota resets anchor here."""
+    """First day of the current month, UTC. Used for `GlobalBudgetState`,
+    which still rolls on calendar months. Per-user quotas anchor to the row's
+    own creation/reset time — see `_load_quota`."""
     now = now or _now()
     return datetime(now.year, now.month, 1, tzinfo=UTC)
+
+
+def _add_one_month(dt: datetime) -> datetime:
+    """Add one calendar month, clamping the day to the last valid day of the
+    target month so Jan 31 → Feb 28 (or 29) instead of overflowing."""
+    year = dt.year
+    month = dt.month + 1
+    if month > 12:
+        month = 1
+        year += 1
+    last_day = calendar.monthrange(year, month)[1]
+    return dt.replace(year=year, month=month, day=min(dt.day, last_day))
+
+
+def _advance_user_period(period_start: datetime, now: datetime) -> datetime:
+    """Snap `period_start` forward in monthly steps until the next boundary is
+    in the future. Catches up multi-month dormancy in one rollover."""
+    while True:
+        nxt = _add_one_month(period_start)
+        if nxt > now:
+            return period_start
+        period_start = nxt
 
 
 class BudgetError(Exception):
@@ -105,12 +130,10 @@ class GlobalSpendSnapshot:
 
 
 def _next_period_start(period_start: datetime) -> datetime:
-    year = period_start.year
-    month = period_start.month + 1
-    if month > 12:
-        month = 1
-        year += 1
-    return datetime(year, month, 1, tzinfo=UTC)
+    """Next reset moment after `period_start`. Works for both calendar-aligned
+    global state (Feb 1 → Mar 1) and per-user anchors (Jan 31 14:30 → Feb 28
+    14:30)."""
+    return _add_one_month(period_start)
 
 
 class BudgetService:
@@ -345,13 +368,16 @@ class BudgetService:
         user_id: UUID,
         cfg: BudgetConfig,
     ) -> UserQuota:
+        """Read the user's quota, creating it on first touch and rolling it
+        forward when its monthly window has elapsed. Each user has their own
+        anchor (the row's `period_start`) so resets land 1 month from their
+        first interaction (or last reset), not on calendar boundaries."""
         row = (
             await session.execute(
                 select(UserQuota).where(UserQuota.user_id == user_id)
             )
         ).scalar_one_or_none()
         now = _now()
-        period = _period_start(now)
 
         if row is None:
             starting = cfg.default_monthly_credits
@@ -360,20 +386,21 @@ class BudgetService:
                 credits_remaining=starting,
                 credits_used_period=0,
                 credits_granted_period=starting,
-                period_start=period,
+                period_start=now,
                 updated_at=now,
             )
             session.add(row)
             await session.flush()
             return row
 
-        if row.period_start < period:
-            # Monthly reset — honour per-user override if set.
+        if now >= _add_one_month(row.period_start):
+            # Per-user monthly reset — honour override if set. `_advance_user_period`
+            # snaps forward by N months so a long-dormant user catches up in one go.
             monthly = row.override_monthly_credits or cfg.default_monthly_credits
             row.credits_remaining = monthly
             row.credits_used_period = 0
             row.credits_granted_period = monthly
-            row.period_start = period
+            row.period_start = _advance_user_period(row.period_start, now)
             row.updated_at = now
             session.add(row)
             await session.flush()
@@ -610,17 +637,20 @@ class BudgetService:
         return src, dst
 
     async def reset_quota(self, user_id: str | UUID) -> UserQuota:
-        """Reset the user's quota to the default for the current month."""
+        """Reset the user's quota to the monthly default and re-anchor their
+        billing window to now — they'll get their next reset 1 month from this
+        admin action, not from the original anchor."""
         uid = _as_uuid(user_id)
         async with self._factory() as session:
             cfg = await self._load_config(session)
             quota = await self._load_quota(session, uid, cfg)
+            now = _now()
             monthly = quota.override_monthly_credits or cfg.default_monthly_credits
             quota.credits_remaining = monthly
             quota.credits_used_period = 0
             quota.credits_granted_period = monthly
-            quota.period_start = _period_start()
-            quota.updated_at = _now()
+            quota.period_start = now
+            quota.updated_at = now
             session.add(quota)
             await session.commit()
             await session.refresh(quota)
@@ -679,14 +709,23 @@ class BudgetService:
             return list(rows)
 
     async def user_period_cost_micros(self, user_id: str | UUID) -> int:
+        """Sum of message-usage costs since the user's current period anchor.
+        Reads `period_start` from the user's quota row; callers that need a
+        fresh rollover should call `get_user_snapshot` first."""
         uid = _as_uuid(user_id)
-        period = _period_start()
         async with self._factory() as session:
+            quota = (
+                await session.execute(
+                    select(UserQuota).where(UserQuota.user_id == uid)
+                )
+            ).scalar_one_or_none()
+            if quota is None:
+                return 0
             result = (
                 await session.execute(
                     select(func.coalesce(func.sum(MessageUsage.cost_usd_micros), 0))
                     .where(MessageUsage.user_id == uid)
-                    .where(MessageUsage.created_at >= period)
+                    .where(MessageUsage.created_at >= quota.period_start)
                 )
             ).scalar_one()
             return int(result or 0)
