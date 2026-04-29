@@ -30,9 +30,15 @@ class MessageService:
         self.budget = budget
 
     async def _resolve_thread(
-        self, user_id: str, thread_id: str | None
+        self, user_id: str, thread_id: str | None, *, create_new: bool = False
     ) -> Thread:
+        # `create_new=True` means the caller is starting a fresh conversation
+        # (multi-thread chat UI's draft "new chat" flow) — never append to the
+        # user's most-recent thread. The default keeps the legacy single-thread
+        # GET endpoint working.
         if thread_id is None:
+            if create_new:
+                return await self.store.create_thread(user_id)
             return await self.store.get_or_create_latest(user_id)
         return await self.store.get_thread(thread_id, user_id)
 
@@ -56,7 +62,7 @@ class MessageService:
         # context the model sees (admin "test persona" flow). Falls back to
         # `user` so non-persona requests behave identically.
         snap = await self.budget.check_can_chat(user)
-        thread = await self._resolve_thread(user_id, thread_id)
+        thread = await self._resolve_thread(user_id, thread_id, create_new=True)
         is_first_message = not thread.messages
 
         user_message = Message(thread_id=thread.id, role=MessageRole.USER, body=body)
@@ -102,7 +108,7 @@ class MessageService:
         persisted with the accumulated body just before `done`.
         """
         snap = await self.budget.check_can_chat(user)
-        thread = await self._resolve_thread(user_id, thread_id)
+        thread = await self._resolve_thread(user_id, thread_id, create_new=True)
         is_first_message = not thread.messages
 
         user_message = Message(thread_id=thread.id, role=MessageRole.USER, body=body)

@@ -45,7 +45,6 @@ import type {
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import {
-	useCreateThreadMutation,
 	useDeleteThreadMutation,
 	useRenameThreadMutation,
 	useSendMessageMutation,
@@ -65,12 +64,13 @@ import { m } from "#/paraglide/messages";
 
 const STREAMING_ENABLED = import.meta.env.VITE_AGENT_STREAM !== "false";
 
-type ChatSearch = { threadId?: string };
+type ChatSearch = { threadId?: string; new?: "1" };
 
 export const Route = createFileRoute("/chat")({
 	component: ChatPage,
 	validateSearch: (search: Record<string, unknown>): ChatSearch => ({
 		threadId: typeof search.threadId === "string" ? search.threadId : undefined,
+		new: search.new === "1" ? "1" : undefined,
 	}),
 });
 
@@ -152,7 +152,6 @@ function ChatView({
 	const debouncedQuery = useDebouncedValue(searchQuery.trim(), 200);
 
 	const threads = useThreadsQuery(debouncedQuery || undefined);
-	const createThread = useCreateThreadMutation();
 	const deleteThread = useDeleteThreadMutation();
 	const renameThread = useRenameThreadMutation();
 	const logout = useLogoutMutation();
@@ -176,15 +175,35 @@ function ChatView({
 	// keyboard, and global keydown listeners on touch devices are pure cost.
 	const isDesktop = useIsDesktop();
 
+	const isDraftNewChat = search.new === "1" && !search.threadId;
+
 	const activeThreadId = useMemo(() => {
 		if (search.threadId) return search.threadId;
+		// Draft new-chat mode: don't fall back to the most-recent thread, we're
+		// intentionally starting empty. The thread is created on the backend
+		// only when the user actually sends a message.
+		if (isDraftNewChat) return null;
 		if (debouncedQuery) return null; // don't auto-pick a searched result
 		return threads.data?.threads[0]?.thread_id ?? null;
-	}, [search.threadId, threads.data, debouncedQuery]);
+	}, [search.threadId, isDraftNewChat, threads.data, debouncedQuery]);
+
+	const onThreadResolved = useCallback(
+		(newThreadId: string) => {
+			// The backend just minted a thread for our draft message — swap the
+			// URL from `?new=1` to `?threadId=…` so refresh works and the
+			// sidebar highlights the right entry.
+			if (isDraftNewChat) {
+				navigate({ search: { threadId: newThreadId }, replace: true });
+			}
+		},
+		[isDraftNewChat, navigate],
+	);
 
 	const thread = useThreadQuery(activeThreadId);
-	const streamMessage = useStreamMessage(activeThreadId);
-	const sendMessage = useSendMessageMutation(activeThreadId);
+	const streamMessage = useStreamMessage(activeThreadId, { onThreadResolved });
+	const sendMessage = useSendMessageMutation(activeThreadId, {
+		onThreadResolved,
+	});
 	const send = STREAMING_ENABLED ? streamMessage : sendMessage;
 	const messages = thread.data?.messages ?? [];
 
@@ -192,16 +211,11 @@ function ChatView({
 	const block = useChatBlockState(me.data);
 
 	const handleCreate = () => {
-		createThread.mutate(undefined, {
-			onSuccess: (created) => {
-				setSearchQuery("");
-				setSidebarOpen(false);
-				navigate({
-					search: { threadId: created.thread_id },
-					replace: false,
-				});
-			},
-		});
+		// Don't persist a thread until the user sends a message — otherwise
+		// abandoned "new chat" clicks litter the DB with empty threads.
+		setSearchQuery("");
+		setSidebarOpen(false);
+		navigate({ search: { new: "1" }, replace: false });
 	};
 
 	const handleSelect = (threadId: string) => {
@@ -445,7 +459,7 @@ function ChatView({
 				onRequestRename={setRenameTarget}
 				onInlineRename={handleInlineRename}
 				onRequestDelete={setDeleteTarget}
-				isCreating={createThread.isPending}
+				isCreating={false}
 				isOpenMobile={sidebarOpen}
 				onCloseMobile={() => setSidebarOpen(false)}
 			/>

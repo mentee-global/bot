@@ -40,7 +40,10 @@ function patchThreadByKey(
 // On error, we roll back the optimistic bubbles and fall back to the
 // non-streaming POST so the user still sees an answer. `stop()` aborts the
 // in-flight stream and keeps whatever tokens have accumulated so far.
-export function useStreamMessage(threadId: string | null | undefined) {
+export function useStreamMessage(
+	threadId: string | null | undefined,
+	options?: { onThreadResolved?: (threadId: string) => void },
+) {
 	const queryClient = useQueryClient();
 	const abortRef = useRef<AbortController | null>(null);
 	const persona = useActivePersona();
@@ -98,6 +101,7 @@ export function useStreamMessage(threadId: string | null | undefined) {
 						meta = JSON.parse(evt.data) as StreamMeta;
 						titleFromMeta = meta.title;
 						const metaSnapshot = meta;
+						if (!threadId) options?.onThreadResolved?.(meta.thread_id);
 						if (
 							cacheKey.join("/") !== chatKeys.thread(meta.thread_id).join("/")
 						) {
@@ -245,6 +249,7 @@ export function useStreamMessage(threadId: string | null | undefined) {
 						activeThreadId,
 						persona,
 					);
+					if (!threadId) options?.onThreadResolved?.(fallback.thread_id);
 					const fallbackKey = chatKeys.thread(fallback.thread_id);
 					patchThreadByKey(
 						queryClient,

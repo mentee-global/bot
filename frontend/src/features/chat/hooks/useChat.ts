@@ -93,7 +93,10 @@ export function useDeleteThreadMutation() {
 	});
 }
 
-export function useSendMessageMutation(threadId: string | null | undefined) {
+export function useSendMessageMutation(
+	threadId: string | null | undefined,
+	options?: { onThreadResolved?: (threadId: string) => void },
+) {
 	const queryClient = useQueryClient();
 	const persona = useActivePersona();
 
@@ -117,6 +120,7 @@ export function useSendMessageMutation(threadId: string | null | undefined) {
 				},
 			);
 			queryClient.invalidateQueries({ queryKey: chatKeys.threadsRoot() });
+			if (!threadId) options?.onThreadResolved?.(response.thread_id);
 		},
 	});
 }
