@@ -601,7 +601,7 @@ function getPageMeta(
 	if (pathname.startsWith("/admin/bug-reports")) {
 		return {
 			title: "Bug reports",
-			description: "User-submitted bug reports. New reports email juan@ and letitia@.",
+			description: "User-submitted bug reports.",
 		};
 	}
 	if (pathname.startsWith("/admin/credit-requests")) {
