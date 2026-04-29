@@ -92,13 +92,17 @@ export const Route = createFileRoute("/admin")({
 function AdminLayout() {
 	const session = useSession();
 	const navigate = useNavigate();
+	const location = useLocation();
 
 	useEffect(() => {
 		if (session.isPending) return;
 		if (!session.data) {
-			// Kick off an admin-hinted login; Mentee shows its /admin login form,
-			// backend stashes redirect_to=/admin and lands us back here after auth.
-			authService.startLogin({ redirectTo: "/admin", roleHint: "admin" });
+			// Round-trip the user through OAuth and land them back on the deep
+			// route they were on (e.g. /admin/users/<id>?page=2), not just /admin.
+			authService.startLogin({
+				redirectTo: location.href || "/admin",
+				roleHint: "admin",
+			});
 			return;
 		}
 		if (session.data.role !== "admin") {
@@ -106,7 +110,7 @@ function AdminLayout() {
 			// than rendering an error — mirrors the backend 404 policy.
 			navigate({ to: "/" });
 		}
-	}, [session.isPending, session.data, navigate]);
+	}, [session.isPending, session.data, location.href, navigate]);
 
 	if (session.isPending || !session.data) {
 		return <AdminShellSkeleton />;

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from app.auth.errors import (
     AuthError,
     ProfileFetchAuthError,
     RefreshFailedError,
+    RefreshInvalidGrantError,
     RefreshUnsupportedError,
     RevokeFailedError,
     StateMismatchError,
@@ -39,8 +41,8 @@ class AuthService:
     """Orchestrates the Bot-side OAuth flow.
 
     Keeps routes thin: every interesting decision (PKCE gen, state single-use,
-    transparent refresh, refresh-gap handling, best-effort revoke) lives here
-    so it can be unit-tested without a FastAPI app spun up.
+    transparent refresh, best-effort revoke) lives here so it can be
+    unit-tested without a FastAPI app spun up.
     """
 
     def __init__(
@@ -58,6 +60,13 @@ class AuthService:
         self._settings = settings
         self._profile_client = profile_client
         self._profile_cache: dict[str, _CachedProfile] = {}
+        # Per-session lock guarding the refresh-token-rotation race. The
+        # provider revokes the entire rotation family if it sees a replayed
+        # refresh token, so concurrent admin requests must funnel through
+        # one upstream call. Entries are never popped — each Lock is small
+        # and process restart reclaims; cleanup-on-logout would add four
+        # mutation points for negligible savings.
+        self._refresh_locks: dict[str, asyncio.Lock] = {}
 
     async def start_login(
         self,
@@ -154,7 +163,10 @@ class AuthService:
             # Access token rejected. Try to refresh once, then retry.
             try:
                 refreshed_session, _ = await self._refresh(session_row)
-            except (RefreshFailedError, RefreshUnsupportedError):
+            except RefreshFailedError:
+                # Catches RefreshInvalidGrantError / RefreshUnsupportedError /
+                # plain RefreshFailedError — any of them means the session
+                # is gone; degrade gracefully to identity-only prompt.
                 return None
             try:
                 profile = await self._profile_client.fetch(
@@ -176,55 +188,90 @@ class AuthService:
     async def _refresh(
         self, row: SessionRecord
     ) -> tuple[SessionRecord, UserRecord]:
-        if row.refresh_token_enc is None:
-            await self._sessions.delete(row.session_id)
-            raise RefreshFailedError("No refresh token stored")
-        try:
-            bundle = await self._oauth.refresh(decrypt(row.refresh_token_enc))
-        except RefreshUnsupportedError:
-            # Expected while Mentee's MenteeRefreshTokenGrant is un-wired
-            # (docs/oauth/00-oauth-overview.md §2.5). Classified as INFO, not
-            # WARNING — this is a normal outcome today, not a bug.
-            await self._sessions.delete(row.session_id)
-            logger.info(
-                "refresh grant unsupported by provider; session %s expired",
-                row.session_id[:8],
-            )
-            raise
-        except RefreshFailedError as e:
-            await self._sessions.delete(row.session_id)
-            logger.warning(
-                "refresh failed for session %s: %s", row.session_id[:8], e
-            )
-            raise
+        # Get-or-create lock without an outer mutex. Safe because a single
+        # event loop runs no other coroutine between the lookup and the
+        # insert (no await in between).
+        lock = self._refresh_locks.get(row.session_id)
+        if lock is None:
+            lock = self._refresh_locks[row.session_id] = asyncio.Lock()
 
-        profile: dict[str, Any] | None
-        try:
-            profile = await self._oauth.userinfo(bundle.access_token)
-        except UserinfoFetchError as e:
-            logger.warning(
-                "userinfo fetch failed after refresh; keeping cached profile: %s", e
-            )
-            profile = None
+        async with lock:
+            # Double-check: another waiter may have already refreshed while
+            # we queued. Compare encrypted access-token bytes (not the
+            # clock) so this also covers the 401-driven retry path from
+            # _resolve_profile, where the clock would still say "valid".
+            current = await self._sessions.get_and_touch_with_user(row.session_id)
+            if current is None:
+                raise AuthError("Session disappeared during refresh wait")
+            current_session, current_user_row = current
+            if current_session.access_token_enc != row.access_token_enc:
+                return current_session, current_user_row
 
-        await self._sessions.update_tokens_and_profile(
-            row.session_id,
-            access_token=bundle.access_token,
-            access_token_expires_at=bundle.expires_at,
-            refresh_token=bundle.refresh_token,
-            profile=profile,
-        )
-        # Invalidate cached profile on refresh — data may have changed in
-        # Mentee since last fetch; let the next current_user() repopulate.
-        self._profile_cache.pop(row.session_id, None)
-        refreshed = await self._sessions.get_and_touch_with_user(row.session_id)
-        if refreshed is None:
-            # Concurrent request deleted the session row (e.g. parallel
-            # /me call hit RefreshUnsupportedError and ran the except
-            # branch above) between our update and re-read. Treat as
-            # expired so deps maps it to 401 instead of crashing.
-            raise AuthError("Session disappeared during refresh")
-        return refreshed
+            # We are the winner. Operate on the freshly-read row from here
+            # on (its last_used_at and tokens are the canonical post-touch
+            # state).
+            row = current_session
+
+            if row.refresh_token_enc is None:
+                await self._sessions.delete(row.session_id)
+                raise RefreshFailedError("No refresh token stored")
+            try:
+                bundle = await self._oauth.refresh(decrypt(row.refresh_token_enc))
+            except RefreshInvalidGrantError:
+                # Refresh token no longer redeemable — rotated, revoked,
+                # or token_version bumped. Normal end-of-session event.
+                await self._sessions.delete(row.session_id)
+                logger.info(
+                    "refresh rejected (invalid_grant); session %s expired "
+                    "(rotation/revocation/version-bump)",
+                    row.session_id[:8],
+                )
+                raise
+            except RefreshUnsupportedError:
+                # Provider returned unsupported_grant_type. Should not happen
+                # now that MenteeRefreshTokenGrant is registered upstream;
+                # if it does, treat as a regression worth investigating.
+                await self._sessions.delete(row.session_id)
+                logger.warning(
+                    "refresh grant unsupported by provider (regression?); "
+                    "session %s expired",
+                    row.session_id[:8],
+                )
+                raise
+            except RefreshFailedError as e:
+                await self._sessions.delete(row.session_id)
+                logger.warning(
+                    "refresh failed for session %s: %s", row.session_id[:8], e
+                )
+                raise
+
+            profile: dict[str, Any] | None
+            try:
+                profile = await self._oauth.userinfo(bundle.access_token)
+            except UserinfoFetchError as e:
+                logger.warning(
+                    "userinfo fetch failed after refresh; keeping cached profile: %s",
+                    e,
+                )
+                profile = None
+
+            await self._sessions.update_tokens_and_profile(
+                row.session_id,
+                access_token=bundle.access_token,
+                access_token_expires_at=bundle.expires_at,
+                refresh_token=bundle.refresh_token,
+                profile=profile,
+            )
+            # Invalidate cached profile on refresh — data may have changed in
+            # Mentee since last fetch; let the next current_user() repopulate.
+            self._profile_cache.pop(row.session_id, None)
+            refreshed = await self._sessions.get_and_touch_with_user(row.session_id)
+            if refreshed is None:
+                # Session row vanished between our update and re-read (e.g.
+                # logout from another tab). Treat as expired so deps maps
+                # it to 401 instead of crashing.
+                raise AuthError("Session disappeared during refresh")
+            return refreshed
 
 
 def _user_from_row(user: UserRecord) -> User:

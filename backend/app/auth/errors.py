@@ -19,11 +19,22 @@ class RefreshFailedError(AuthError):
 
 
 class RefreshUnsupportedError(RefreshFailedError):
-    """Provider returned unsupported_grant_type or invalid_grant on refresh.
+    """Provider returned `unsupported_grant_type` on refresh.
 
-    Expected today because Mentee's MenteeRefreshTokenGrant is not yet
-    registered (see docs/oauth/00-oauth-overview.md §2.5). Must be classified
-    as INFO in logs, not WARNING/ERROR.
+    Should not happen in normal operation now that Mentee's
+    MenteeRefreshTokenGrant is registered. If it fires, treat as a provider
+    regression (log at WARNING, page if persistent).
+    """
+
+
+class RefreshInvalidGrantError(RefreshFailedError):
+    """Provider returned `invalid_grant` on refresh.
+
+    Means the refresh token is no longer redeemable: token rotation already
+    happened (replay-detected and family burned), token was revoked (admin
+    action, password reset, user-initiated revoke from Connected Apps), or
+    the user's `token_version` was bumped. Caller should delete the session
+    and force re-auth. Log at INFO — this is a normal end-of-session event.
     """
 
 

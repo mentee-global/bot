@@ -14,6 +14,7 @@ from app.auth.errors import (
     CodeExchangeError,
     InvalidIdTokenError,
     RefreshFailedError,
+    RefreshInvalidGrantError,
     RefreshUnsupportedError,
     RevokeFailedError,
     UserinfoFetchError,
@@ -40,7 +41,7 @@ class MenteeOAuthClient:
 
     Wires against the endpoints published in
     /.well-known/openid-configuration. See docs/oauth/01-oauth-backend-plan.md
-    §9 for the contract and §9.1 for the refresh-grant-gap handling.
+    §9 for the contract.
     """
 
     _METADATA_TTL_SECONDS = 24 * 60 * 60
@@ -170,8 +171,10 @@ class MenteeOAuthClient:
         )
         if resp.status_code != 200:
             err = _error_code(resp)
-            if err in ("unsupported_grant_type", "invalid_grant"):
+            if err == "unsupported_grant_type":
                 raise RefreshUnsupportedError(err)
+            if err == "invalid_grant":
+                raise RefreshInvalidGrantError(err)
             raise RefreshFailedError(err or f"HTTP {resp.status_code}")
         payload = resp.json()
         id_token = payload.get("id_token")
