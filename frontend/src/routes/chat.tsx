@@ -413,13 +413,6 @@ function ChatView({
 		},
 		{ when: isDesktop, allowInInput: true },
 	);
-	useShortcut(
-		"mod+shift+l",
-		() => {
-			setSidebarOpen((o) => !o);
-		},
-		{ when: isDesktop },
-	);
 	useShortcut("?", () => setShortcutsOpen(true), { when: isDesktop });
 	useShortcut(
 		"mod+f",

@@ -18,7 +18,6 @@ export function ShortcutsDialog({ open, onOpenChange }: ShortcutsDialogProps) {
 	const rows: Array<{ label: string; combo: string[] }> = [
 		{ label: m.chat_shortcut_new_chat(), combo: [mod, "K"] },
 		{ label: m.chat_shortcut_focus_input(), combo: [mod, "/"] },
-		{ label: m.chat_shortcut_toggle_sidebar(), combo: [mod, "Shift", "L"] },
 		{ label: m.chat_shortcut_search_thread(), combo: [mod, "F"] },
 		{ label: m.chat_shortcut_show_help(), combo: ["?"] },
 	];

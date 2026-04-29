@@ -56,10 +56,13 @@ function isEditable(target: EventTarget | null): boolean {
 function matches(e: KeyboardEvent, parsed: ParsedShortcut): boolean {
 	const modKey = isMac ? e.metaKey : e.ctrlKey;
 	if (parsed.mod !== modKey) return false;
-	if (parsed.shift !== e.shiftKey) return false;
 	if (parsed.alt !== e.altKey) return false;
 	const k = e.key.toLowerCase();
-	if (parsed.key === "?" && k === "/" && e.shiftKey) return true;
+	// `?` is Shift+/ on most layouts — treat the shift requirement as
+	// implicit so the dialog opens whether the user types `?` directly
+	// or hits Shift+/.
+	if (parsed.key === "?") return k === "?" || (k === "/" && e.shiftKey);
+	if (parsed.shift !== e.shiftKey) return false;
 	return k === parsed.key;
 }
 
