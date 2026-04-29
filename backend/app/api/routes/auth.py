@@ -3,6 +3,7 @@ import re
 from typing import Annotated
 from urllib.parse import unquote, urlsplit
 
+import logfire
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from app.auth.errors import (
 )
 from app.auth.service import AuthService
 from app.core.config import settings
+from app.core.observability import user_attrs
 from app.core.rate_limit import limiter
 from app.domain.models import User
 
@@ -42,10 +44,15 @@ async def login(
     redirect_to: str | None = None,
     role_hint: str | None = None,
 ) -> RedirectResponse:
-    authorize_url = await auth.start_login(
-        redirect_to=redirect_to, login_role_hint=role_hint
-    )
-    return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
+    with logfire.span(
+        "auth.login",
+        has_redirect_to=redirect_to is not None,
+        role_hint=role_hint,
+    ):
+        authorize_url = await auth.start_login(
+            redirect_to=redirect_to, login_role_hint=role_hint
+        )
+        return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
 
 
 # Same-origin relative paths only. Reject anything with a scheme, netloc,
@@ -92,48 +99,65 @@ async def callback(
 ) -> RedirectResponse:
     frontend = str(settings.frontend_url).rstrip("/")
 
-    if error:
-        reason = error if error in _PASSTHROUGH_ERRORS else "oauth"
-        return RedirectResponse(
-            f"{frontend}/auth/error?reason={reason}",
-            status_code=status.HTTP_302_FOUND,
-        )
-    if not code or not state:
-        return RedirectResponse(
-            f"{frontend}/auth/error?reason=missing_params",
-            status_code=status.HTTP_302_FOUND,
-        )
+    with logfire.span(
+        "auth.callback",
+        provider_error=error,
+        has_code=code is not None,
+        has_state=state is not None,
+    ) as span:
+        if error:
+            reason = error if error in _PASSTHROUGH_ERRORS else "oauth"
+            span.set_attribute("status", "provider_error")
+            span.set_attribute("error_reason", reason)
+            return RedirectResponse(
+                f"{frontend}/auth/error?reason={reason}",
+                status_code=status.HTTP_302_FOUND,
+            )
+        if not code or not state:
+            span.set_attribute("status", "missing_params")
+            return RedirectResponse(
+                f"{frontend}/auth/error?reason=missing_params",
+                status_code=status.HTTP_302_FOUND,
+            )
 
-    try:
-        _, session_id, redirect_to = await auth.complete_login(
-            code=code, state=state
-        )
-    except StateMismatchError:
-        return RedirectResponse(
-            f"{frontend}/auth/error?reason=oauth",
-            status_code=status.HTTP_302_FOUND,
-        )
-    except (CodeExchangeError, InvalidIdTokenError, UserinfoFetchError) as exc:
-        logger.warning("OAuth callback failed: %s", exc)
-        return RedirectResponse(
-            f"{frontend}/auth/error?reason=oauth",
-            status_code=status.HTTP_302_FOUND,
-        )
+        try:
+            user, session_id, redirect_to = await auth.complete_login(
+                code=code, state=state
+            )
+        except StateMismatchError as exc:
+            span.set_attribute("status", "state_mismatch")
+            span.set_attribute("error_type", type(exc).__name__)
+            return RedirectResponse(
+                f"{frontend}/auth/error?reason=oauth",
+                status_code=status.HTTP_302_FOUND,
+            )
+        except (CodeExchangeError, InvalidIdTokenError, UserinfoFetchError) as exc:
+            span.set_attribute("status", "oauth_failure")
+            span.set_attribute("error_type", type(exc).__name__)
+            logger.warning("OAuth callback failed: %s", exc)
+            return RedirectResponse(
+                f"{frontend}/auth/error?reason=oauth",
+                status_code=status.HTTP_302_FOUND,
+            )
 
-    response = RedirectResponse(
-        f"{frontend}{_safe_post_login_path(redirect_to)}",
-        status_code=status.HTTP_302_FOUND,
-    )
-    response.set_cookie(
-        key=SESSION_COOKIE,
-        value=session_id,
-        httponly=True,
-        samesite=settings.session_cookie_samesite,
-        secure=settings.session_cookie_secure,
-        max_age=settings.session_max_age_seconds,
-        path="/",
-    )
-    return response
+        for k, v in user_attrs(user).items():
+            span.set_attribute(k, v)
+        span.set_attribute("status", "ok")
+
+        response = RedirectResponse(
+            f"{frontend}{_safe_post_login_path(redirect_to)}",
+            status_code=status.HTTP_302_FOUND,
+        )
+        response.set_cookie(
+            key=SESSION_COOKIE,
+            value=session_id,
+            httponly=True,
+            samesite=settings.session_cookie_samesite,
+            secure=settings.session_cookie_secure,
+            max_age=settings.session_max_age_seconds,
+            path="/",
+        )
+        return response
 
 
 @router.get("/me", response_model=MeResponse)
@@ -160,7 +184,11 @@ async def logout(
     auth: Annotated[AuthService, Depends(get_auth_service)],
     session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> dict[str, bool]:
-    if session_id:
-        await auth.logout(session_id)
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    return {"ok": True}
+    with logfire.span(
+        "auth.logout",
+        had_session=session_id is not None,
+    ):
+        if session_id:
+            await auth.logout(session_id)
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return {"ok": True}

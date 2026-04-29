@@ -41,23 +41,21 @@ logger = logging.getLogger(__name__)
 def _configure_logfire() -> None:
     """Wire Logfire tracing + third-party instrumentations.
 
-    Safe to call when no LOGFIRE_TOKEN is set: logfire.configure(send_to_logfire=False)
-    gives us a local-only noop sink so spans are still created (and emitted to
-    stdout in verbose mode) but nothing leaves the process.
+    Cloud send is gated only on token presence: with a token, traces ship to
+    Logfire; without one, spans still exist locally but nothing leaves the
+    process. Pydantic AI is configured to include prompt + completion content
+    so message bodies are queryable in the UI.
     """
+    has_token = settings.logfire_token is not None
     logfire.configure(
         service_name=settings.logfire_service_name,
         environment=settings.environment,
-        send_to_logfire=(
-            settings.logfire_send_to_cloud and settings.logfire_token is not None
-        ),
+        send_to_logfire=has_token,
         token=(
-            settings.logfire_token.get_secret_value()
-            if settings.logfire_token is not None
-            else None
+            settings.logfire_token.get_secret_value() if has_token else None
         ),
     )
-    logfire.instrument_pydantic_ai()
+    logfire.instrument_pydantic_ai(include_content=True)
     logfire.instrument_openai()
     logfire.instrument_httpx()
 

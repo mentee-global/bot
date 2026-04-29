@@ -85,11 +85,10 @@ class Settings(BaseSettings):
     agent_total_tokens_limit: int = 32_000
     agent_enable_web_search: bool = True
 
-    # Observability
+    # Observability — Logfire ships traces to the cloud only when a token is
+    # present. No additional gate: token unset = local-only sink.
     logfire_token: SecretStr | None = None
     logfire_service_name: str = "mentee-bot"
-    logfire_send_to_cloud: bool = False
-    logfire_capture_message_body: bool = False
 
     # Outbound email — used to alert juan/letitia about new bug reports and
     # credit requests. Optional: when sendgrid_api_key is unset, the create

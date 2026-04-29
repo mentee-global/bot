@@ -15,6 +15,7 @@ from app.budget.service import (
     GlobalBudgetExhaustedError,
     QuotaExhaustedError,
 )
+from app.core.observability import user_attrs
 from app.core.rate_limit import limiter
 from app.domain.models import MenteeProfile, Message, User
 from app.services.message_service import MessageService
@@ -115,9 +116,13 @@ async def send_message(
 ) -> SendMessageResponse:
     with logfire.span(
         "chat.send_message",
-        user_id=user.id,
+        **user_attrs(user),
+        thread_id=payload.thread_id,
         stream=False,
-    ):
+        message_length=len(payload.body),
+        ui_locale=ui_locale,
+        persona_override=payload.persona is not None,
+    ) as span:
         try:
             thread, user_msg, assistant_msg = await service.handle_user_message(
                 user_id=user.id,
@@ -128,6 +133,8 @@ async def send_message(
                 ui_locale=ui_locale,
             )
         except QuotaExhaustedError as err:
+            span.set_attribute("status", "quota_exhausted")
+            span.set_attribute("error_type", type(err).__name__)
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail={
@@ -137,6 +144,8 @@ async def send_message(
                 },
             ) from err
         except GlobalBudgetExhaustedError as err:
+            span.set_attribute("status", "budget_exhausted")
+            span.set_attribute("error_type", type(err).__name__)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
@@ -145,9 +154,16 @@ async def send_message(
                 },
             ) from err
         except ThreadNotFoundError as err:
+            span.set_attribute("status", "thread_not_found")
+            span.set_attribute("error_type", type(err).__name__)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
             ) from err
+        span.set_attribute("status", "ok")
+        span.set_attribute("resolved_thread_id", thread.id)
+        span.set_attribute("response_length", len(assistant_msg.body))
+        span.set_attribute("user_message_id", user_msg.id)
+        span.set_attribute("assistant_message_id", assistant_msg.id)
         return SendMessageResponse(
             thread_id=thread.id,
             user_message=user_msg,
@@ -178,9 +194,14 @@ async def stream_message(
     async def event_stream() -> AsyncIterator[bytes]:
         with logfire.span(
             "chat.stream_message",
-            user_id=user.id,
+            **user_attrs(user),
+            thread_id=payload.thread_id,
             stream=True,
-        ):
+            message_length=len(payload.body),
+            ui_locale=ui_locale,
+            persona_override=payload.persona is not None,
+        ) as span:
+            response_length = 0
             try:
                 async for event, data in service.stream_user_message(
                     user_id=user.id,
@@ -190,8 +211,16 @@ async def stream_message(
                     agent_user=_maybe_apply_persona(user, payload.persona),
                     ui_locale=ui_locale,
                 ):
+                    if event == "token" and isinstance(data, str):
+                        response_length += len(data)
+                    elif event == "meta" and isinstance(data, dict):
+                        rt = data.get("thread_id")
+                        if isinstance(rt, str):
+                            span.set_attribute("resolved_thread_id", rt)
                     yield _sse(event, data)
             except QuotaExhaustedError as err:
+                span.set_attribute("status", "quota_exhausted")
+                span.set_attribute("error_type", type(err).__name__)
                 yield _sse(
                     "error",
                     {
@@ -201,6 +230,8 @@ async def stream_message(
                     },
                 )
             except GlobalBudgetExhaustedError as err:
+                span.set_attribute("status", "budget_exhausted")
+                span.set_attribute("error_type", type(err).__name__)
                 yield _sse(
                     "error",
                     {
@@ -208,22 +239,32 @@ async def stream_message(
                         "resets_at": err.resets_at.isoformat(),
                     },
                 )
-            except BudgetError:
+            except BudgetError as err:
+                span.set_attribute("status", "budget_error")
+                span.set_attribute("error_type", type(err).__name__)
                 yield _sse(
                     "error",
                     {"code": "budget_error", "message": "Chat is paused."},
                 )
-            except ThreadNotFoundError:
+            except ThreadNotFoundError as err:
+                span.set_attribute("status", "thread_not_found")
+                span.set_attribute("error_type", type(err).__name__)
                 yield _sse(
                     "error",
                     {"code": "thread_not_found", "message": "Thread not found"},
                 )
             except Exception as exc:  # noqa: BLE001 — surface to client as an error event
+                span.set_attribute("status", "agent_failure")
+                span.set_attribute("error_type", type(exc).__name__)
                 logger.exception("stream_message failed: %s", exc)
                 yield _sse(
                     "error",
                     {"code": "agent_failure", "message": "Agent run failed"},
                 )
+            else:
+                span.set_attribute("status", "ok")
+            finally:
+                span.set_attribute("response_length", response_length)
 
     return StreamingResponse(
         event_stream(),

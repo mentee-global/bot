@@ -69,7 +69,7 @@ async def _run_one(p: EvalPrompt, sem: asyncio.Semaphore) -> dict:
                     "attempts": attempt,
                     "ok": True,
                 }
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return {
                     "id": p.id,
                     "category": p.category,

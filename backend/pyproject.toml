@@ -40,3 +40,9 @@ select = ["E", "F", "I", "B", "UP", "N"]
 [tool.ruff.lint.per-file-ignores]
 # System prompts are prose; long prose lines are more readable than wrapped.
 "app/agents/mentee/prompts.py" = ["E501"]
+# Eval corpora are data: each entry is a one-line EvalPrompt(...) row whose
+# natural-language `prompt` string is inherently long. Wrapping hurts diff
+# readability and these scripts are offline tooling — not on the request path.
+"scripts/eval_prompts*.py" = ["E501"]
+"scripts/eval_run*.py" = ["E501"]
+"scripts/eval_score*.py" = ["E501"]

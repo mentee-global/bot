@@ -46,6 +46,7 @@ from app.budget.provider_errors import build_reason, is_insufficient_funds
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
 from app.core.config import Settings
+from app.core.observability import user_attrs
 from app.domain.enums import MessageRole
 from app.domain.models import Message, User
 
@@ -475,10 +476,15 @@ class MenteeAgent(AgentPort):
         collector = usage_out if usage_out is not None else UsageSummary()
         with logfire.span(
             "agent.mentee.run",
+            **user_attrs(user),
+            thread_id=user_message.thread_id,
+            user_message_id=user_message.id,
             agent_id=self.agent_id,
             model=self._settings.agent_model,
             history_length=len(history),
-        ):
+            perplexity_enabled=perplexity_enabled,
+            ui_locale=ui_locale,
+        ) as span:
             try:
                 result = await self._agent.run(
                     user_message.body,
@@ -494,8 +500,32 @@ class MenteeAgent(AgentPort):
                 )
                 _count_builtin_tool_calls(collector, result.all_messages())
                 deduped = _dedup_response_text(result.all_messages())
-                return _strip_citations(deduped if deduped is not None else result.output)
+                output = _strip_citations(
+                    deduped if deduped is not None else result.output
+                )
+                span.set_attribute("status", "ok")
+                span.set_attribute(
+                    "openai_input_tokens", collector.openai_input_tokens
+                )
+                span.set_attribute(
+                    "openai_output_tokens", collector.openai_output_tokens
+                )
+                span.set_attribute(
+                    "openai_total_tokens",
+                    collector.openai_input_tokens + collector.openai_output_tokens,
+                )
+                span.set_attribute(
+                    "web_search_calls", collector.web_search_calls
+                )
+                span.set_attribute(
+                    "perplexity_calls", len(collector.perplexity_calls)
+                )
+                span.set_attribute("response_length", len(output))
+                return output
             except Exception as exc:  # noqa: BLE001 — fallback path
+                span.set_attribute("status", "fallback")
+                span.set_attribute("error_type", type(exc).__name__)
+                span.set_attribute("error_message", str(exc)[:500])
                 await self._handle_openai_error(exc)
                 logger.exception("mentee agent failed, using fallback: %s", exc)
                 return await fallback_response(history, user, self._settings)
@@ -513,11 +543,17 @@ class MenteeAgent(AgentPort):
         collector = usage_out if usage_out is not None else UsageSummary()
         with logfire.span(
             "agent.mentee.stream",
+            **user_attrs(user),
+            thread_id=user_message.thread_id,
+            user_message_id=user_message.id,
             agent_id=self.agent_id,
             model=self._settings.agent_model,
             history_length=len(history),
-        ):
+            perplexity_enabled=perplexity_enabled,
+            ui_locale=ui_locale,
+        ) as span:
             queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
+            response_length = 0
 
             async def drive() -> None:
                 stripper = _CitationStripper()
@@ -604,16 +640,41 @@ class MenteeAgent(AgentPort):
                     event = await queue.get()
                     if event is None:
                         break
+                    if isinstance(event, TextDelta):
+                        response_length += len(event.text)
                     yield event
                 await task  # surface exceptions from drive()
+                span.set_attribute("status", "ok")
             except Exception as exc:  # noqa: BLE001 — fallback path
+                span.set_attribute("status", "fallback")
+                span.set_attribute("error_type", type(exc).__name__)
+                span.set_attribute("error_message", str(exc)[:500])
                 await self._handle_openai_error(exc)
                 logger.exception("mentee agent stream failed, using fallback: %s", exc)
                 if not task.done():
                     task.cancel()
                 text = await fallback_response(history, user, self._settings)
                 if text:
+                    response_length += len(text)
                     yield TextDelta(text=text)
+            finally:
+                span.set_attribute(
+                    "openai_input_tokens", collector.openai_input_tokens
+                )
+                span.set_attribute(
+                    "openai_output_tokens", collector.openai_output_tokens
+                )
+                span.set_attribute(
+                    "openai_total_tokens",
+                    collector.openai_input_tokens + collector.openai_output_tokens,
+                )
+                span.set_attribute(
+                    "web_search_calls", collector.web_search_calls
+                )
+                span.set_attribute(
+                    "perplexity_calls", len(collector.perplexity_calls)
+                )
+                span.set_attribute("response_length", response_length)
 
 
 def build_mentee_agent(
