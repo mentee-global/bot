@@ -14,6 +14,8 @@ import type {
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
+import { track } from "#/lib/analytics";
+import { ApiError } from "#/lib/api/errors";
 
 function nowIso(): string {
 	return new Date().toISOString();
@@ -54,6 +56,16 @@ export function useStreamMessage(
 			const pendingAssistantId = `pending-assistant-${crypto.randomUUID()}`;
 			const activeThreadId = threadId ?? undefined;
 			const cacheKey = chatKeys.thread(activeThreadId);
+			const startedAt = Date.now();
+
+			track("chat.message_sent", {
+				thread_id: activeThreadId ?? null,
+				body_length: body.length,
+				has_persona: persona != null,
+				is_first_message:
+					(queryClient.getQueryData<Thread>(cacheKey)?.messages.length ?? 0) ===
+					0,
+			});
 
 			const controller = new AbortController();
 			abortRef.current = controller;
@@ -183,6 +195,13 @@ export function useStreamMessage(
 							),
 						}));
 						toolActivityStore.clearMessage(done.assistant_message_id);
+						track("chat.response_received", {
+							thread_id: meta?.thread_id ?? null,
+							assistant_message_id: done.assistant_message_id,
+							response_length: done.body.length,
+							duration_ms: Date.now() - startedAt,
+							source: "stream",
+						});
 					} else if (evt.event === "suggestions") {
 						if (!meta) continue;
 						const payload = JSON.parse(evt.data) as StreamSuggestions;
@@ -237,6 +256,11 @@ export function useStreamMessage(
 							queryKey: chatKeys.threadsRoot(),
 						});
 					}
+					track("chat.response_aborted", {
+						thread_id: meta?.thread_id ?? activeThreadId ?? null,
+						duration_ms: Date.now() - startedAt,
+						tokens_received: accumulated.length,
+					});
 					return;
 				}
 
@@ -275,6 +299,14 @@ export function useStreamMessage(
 						fallback.thread_id,
 					);
 					console.warn("stream failed, used POST fallback:", err);
+					track("chat.response_received", {
+						thread_id: fallback.thread_id,
+						assistant_message_id: fallback.assistant_message.id,
+						response_length: fallback.assistant_message.body.length,
+						duration_ms: Date.now() - startedAt,
+						source: "fallback",
+						stream_error_type: err instanceof Error ? err.name : "unknown",
+					});
 				} catch (fallbackErr) {
 					// Both stream and POST failed — surface a retry affordance on a
 					// synthetic user bubble so the user keeps their message.
@@ -303,6 +335,25 @@ export function useStreamMessage(
 						}),
 						failedThreadId,
 					);
+					const fallbackApiErr =
+						fallbackErr instanceof ApiError ? fallbackErr : null;
+					track("chat.response_failed", {
+						thread_id: failedThreadId || null,
+						duration_ms: Date.now() - startedAt,
+						error_type:
+							fallbackApiErr?.exceptionType ??
+							(fallbackErr instanceof Error ? fallbackErr.name : "unknown"),
+						error_message:
+							fallbackErr instanceof Error
+								? fallbackErr.message
+								: String(fallbackErr),
+						http_status: fallbackApiErr?.status ?? null,
+						stream_error_type: err instanceof Error ? err.name : "unknown",
+					});
+					// Mark as already-tracked so the global mutationCache.onError
+					// doesn't double-capture this with posthog.captureException.
+					(fallbackErr as { __posthogTracked?: boolean }).__posthogTracked =
+						true;
 					throw fallbackErr;
 				}
 			} finally {

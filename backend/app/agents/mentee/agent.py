@@ -45,6 +45,7 @@ from app.agents.mentee.tools.search import search_perplexity
 from app.budget.provider_errors import build_reason, is_insufficient_funds
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
+from app.core import posthog_client
 from app.core.config import Settings
 from app.core.observability import user_attrs
 from app.domain.enums import MessageRole
@@ -521,11 +522,43 @@ class MenteeAgent(AgentPort):
                     "perplexity_calls", len(collector.perplexity_calls)
                 )
                 span.set_attribute("response_length", len(output))
+                posthog_client.capture(
+                    user,
+                    "server.agent.run_completed",
+                    {
+                        "agent_id": self.agent_id,
+                        "model": self._settings.agent_model,
+                        "thread_id": user_message.thread_id,
+                        "user_message_id": user_message.id,
+                        "input_tokens": collector.openai_input_tokens,
+                        "output_tokens": collector.openai_output_tokens,
+                        "total_tokens": collector.openai_input_tokens
+                        + collector.openai_output_tokens,
+                        "web_search_calls": collector.web_search_calls,
+                        "perplexity_calls": len(collector.perplexity_calls),
+                        "response_length": len(output),
+                        "history_length": len(history),
+                        "stream": False,
+                    },
+                )
                 return output
             except Exception as exc:  # noqa: BLE001 — fallback path
                 span.set_attribute("status", "fallback")
                 span.set_attribute("error_type", type(exc).__name__)
                 span.set_attribute("error_message", str(exc)[:500])
+                posthog_client.capture(
+                    user,
+                    "server.agent.run_failed",
+                    {
+                        "agent_id": self.agent_id,
+                        "model": self._settings.agent_model,
+                        "thread_id": user_message.thread_id,
+                        "user_message_id": user_message.id,
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc)[:500],
+                        "stream": False,
+                    },
+                )
                 await self._handle_openai_error(exc)
                 logger.exception("mentee agent failed, using fallback: %s", exc)
                 return await fallback_response(history, user, self._settings)
@@ -645,10 +678,42 @@ class MenteeAgent(AgentPort):
                     yield event
                 await task  # surface exceptions from drive()
                 span.set_attribute("status", "ok")
+                posthog_client.capture(
+                    user,
+                    "server.agent.run_completed",
+                    {
+                        "agent_id": self.agent_id,
+                        "model": self._settings.agent_model,
+                        "thread_id": user_message.thread_id,
+                        "user_message_id": user_message.id,
+                        "input_tokens": collector.openai_input_tokens,
+                        "output_tokens": collector.openai_output_tokens,
+                        "total_tokens": collector.openai_input_tokens
+                        + collector.openai_output_tokens,
+                        "web_search_calls": collector.web_search_calls,
+                        "perplexity_calls": len(collector.perplexity_calls),
+                        "response_length": response_length,
+                        "history_length": len(history),
+                        "stream": True,
+                    },
+                )
             except Exception as exc:  # noqa: BLE001 — fallback path
                 span.set_attribute("status", "fallback")
                 span.set_attribute("error_type", type(exc).__name__)
                 span.set_attribute("error_message", str(exc)[:500])
+                posthog_client.capture(
+                    user,
+                    "server.agent.run_failed",
+                    {
+                        "agent_id": self.agent_id,
+                        "model": self._settings.agent_model,
+                        "thread_id": user_message.thread_id,
+                        "user_message_id": user_message.id,
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc)[:500],
+                        "stream": True,
+                    },
+                )
                 await self._handle_openai_error(exc)
                 logger.exception("mentee agent stream failed, using fallback: %s", exc)
                 if not task.done():

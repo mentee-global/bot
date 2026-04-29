@@ -21,6 +21,10 @@ class ThreadNotFoundError(Exception):
     """Raised when a thread lookup by id returns nothing the caller can own."""
 
 
+class MessageNotFoundError(Exception):
+    """Raised when a message-scoped operation can't find/own the target message."""
+
+
 class ThreadStore(ABC):
     @abstractmethod
     async def list_threads(
@@ -135,6 +139,17 @@ class ThreadStore(ABC):
         """Return a `thread_id -> message_count` map for the given threads.
         Missing ids are omitted (not defaulted to 0)."""
 
+    @abstractmethod
+    async def set_message_rating(
+        self, message_id: str, user_id: str, rating: int
+    ) -> None:
+        """Upsert (or clear) the thumbs rating for one user on one assistant
+        message. `rating` is -1, 0, or 1; 0 deletes the row.
+
+        Raises MessageNotFoundError when the message doesn't exist, isn't an
+        assistant message, or belongs to a thread the user doesn't own.
+        """
+
 
 class InMemoryThreadStore(ThreadStore):
     """Process-local store. Used in tests and for dev loops where we
@@ -143,6 +158,8 @@ class InMemoryThreadStore(ThreadStore):
 
     def __init__(self) -> None:
         self._threads_by_id: dict[str, Thread] = {}
+        # (message_id, user_id) -> rating (-1 or 1). Cleared rows are deleted.
+        self._ratings: dict[tuple[str, str], int] = {}
 
     async def list_threads(
         self,
@@ -282,6 +299,33 @@ class InMemoryThreadStore(ThreadStore):
             for tid in thread_ids
             if tid in self._threads_by_id
         }
+
+    async def set_message_rating(
+        self, message_id: str, user_id: str, rating: int
+    ) -> None:
+        # Find the message and verify ownership + role.
+        target: Message | None = None
+        for thread in self._threads_by_id.values():
+            if thread.user_id != user_id:
+                continue
+            for msg in thread.messages:
+                if msg.id == message_id:
+                    target = msg
+                    break
+            if target is not None:
+                break
+        if target is None:
+            raise MessageNotFoundError(message_id)
+        if target.role.value != "assistant":
+            raise MessageNotFoundError(message_id)
+
+        key = (message_id, user_id)
+        if rating == 0:
+            self._ratings.pop(key, None)
+            target.rating = None
+        else:
+            self._ratings[key] = rating
+            target.rating = rating
 
 
 def _filter_sort_strip(

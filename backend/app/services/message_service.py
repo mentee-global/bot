@@ -210,3 +210,14 @@ class MessageService:
 
     async def delete_thread(self, user_id: str, thread_id: str) -> None:
         await self.store.delete_thread(thread_id, user_id)
+
+    async def rate_message(
+        self, user_id: str, message_id: str, rating: int
+    ) -> None:
+        """Set/clear the user's thumbs rating for an assistant message.
+
+        `rating` is -1, 0, or 1. 0 clears the row. The store enforces ownership
+        (thread belongs to user) and role (assistant only) and raises
+        MessageNotFoundError otherwise.
+        """
+        await self.store.set_message_rating(message_id, user_id, rating)

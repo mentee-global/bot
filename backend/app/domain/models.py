@@ -20,6 +20,11 @@ class Message(BaseModel):
     role: MessageRole
     body: str
     created_at: datetime = Field(default_factory=_now)
+    # Per-user thumbs rating: -1 (down), 1 (up), or None (unrated). Loaded by
+    # ThreadStore via LEFT JOIN against `message_ratings` filtered to the
+    # requesting user — never global, never aggregated, so each user only
+    # sees their own rating.
+    rating: int | None = None
 
 
 class Thread(BaseModel):

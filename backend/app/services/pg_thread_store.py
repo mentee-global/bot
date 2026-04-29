@@ -18,8 +18,12 @@ from app.auth.db_models import UserRecord
 from app.db.engine import async_session_factory
 from app.domain.enums import MessageRole
 from app.domain.models import Message, Thread
-from app.services.db_models import MessageRecord, ThreadRecord
-from app.services.thread_store import ThreadNotFoundError, ThreadStore
+from app.services.db_models import MessageRatingRecord, MessageRecord, ThreadRecord
+from app.services.thread_store import (
+    MessageNotFoundError,
+    ThreadNotFoundError,
+    ThreadStore,
+)
 
 
 def _now() -> datetime:
@@ -226,17 +230,27 @@ class PostgresThreadStore(ThreadStore):
         if row is None or (user_id is not None and row.user_id != user_id):
             raise ThreadNotFoundError(str(thread_id))
 
-        message_rows = (
-            (
-                await session.execute(
-                    select(MessageRecord)
-                    .where(MessageRecord.thread_id == row.id)
-                    .order_by(MessageRecord.created_at)
-                )
+        # LEFT JOIN ratings filtered to the requesting user so each user only
+        # sees their own thumbs state. Admin reads (user_id is None) get no
+        # ratings — admin views are aggregate, not per-user.
+        if user_id is None:
+            stmt = (
+                select(MessageRecord, None)
+                .where(MessageRecord.thread_id == row.id)
+                .order_by(MessageRecord.created_at)
             )
-            .scalars()
-            .all()
-        )
+        else:
+            stmt = (
+                select(MessageRecord, MessageRatingRecord.rating)
+                .outerjoin(
+                    MessageRatingRecord,
+                    (MessageRatingRecord.message_id == MessageRecord.id)
+                    & (MessageRatingRecord.user_id == user_id),
+                )
+                .where(MessageRecord.thread_id == row.id)
+                .order_by(MessageRecord.created_at)
+            )
+        result = (await session.execute(stmt)).all()
         messages = [
             Message(
                 id=str(m.id),
@@ -244,8 +258,9 @@ class PostgresThreadStore(ThreadStore):
                 role=MessageRole(m.role),
                 body=m.body,
                 created_at=m.created_at,
+                rating=int(rating) if rating is not None else None,
             )
-            for m in message_rows
+            for m, rating in result
         ]
         return _thread_from_record(row, messages)
 
@@ -325,6 +340,65 @@ class PostgresThreadStore(ThreadStore):
             await session.execute(
                 delete(ThreadRecord).where(ThreadRecord.id == tid)
             )
+            await session.commit()
+
+    async def set_message_rating(
+        self, message_id: str, user_id: str, rating: int
+    ) -> None:
+        mid = _as_uuid(message_id)
+        uid = _as_uuid(user_id)
+        async with self._factory() as session:
+            # Validate ownership + role in one query: join message → thread,
+            # require thread.user_id matches AND message.role is assistant.
+            row = (
+                await session.execute(
+                    select(MessageRecord, ThreadRecord.user_id)
+                    .join(
+                        ThreadRecord, ThreadRecord.id == MessageRecord.thread_id
+                    )
+                    .where(MessageRecord.id == mid)
+                )
+            ).first()
+            if row is None:
+                raise MessageNotFoundError(message_id)
+            msg, owner_id = row
+            if owner_id != uid or msg.role != "assistant":
+                raise MessageNotFoundError(message_id)
+
+            existing = (
+                await session.execute(
+                    select(MessageRatingRecord).where(
+                        (MessageRatingRecord.message_id == mid)
+                        & (MessageRatingRecord.user_id == uid)
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if rating == 0:
+                if existing is not None:
+                    await session.execute(
+                        delete(MessageRatingRecord).where(
+                            MessageRatingRecord.id == existing.id
+                        )
+                    )
+                    await session.commit()
+                return
+
+            now = _now()
+            if existing is None:
+                session.add(
+                    MessageRatingRecord(
+                        message_id=mid,
+                        user_id=uid,
+                        rating=rating,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            else:
+                existing.rating = rating
+                existing.updated_at = now
+                session.add(existing)
             await session.commit()
 
     async def count_messages_for_threads(

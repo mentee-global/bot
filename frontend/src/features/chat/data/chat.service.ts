@@ -40,4 +40,10 @@ export const chatService = {
 			{ "X-UI-Locale": getLocale() },
 		);
 	},
+	/** Submit a thumbs rating on an assistant message. Pass 0 to clear. */
+	rateMessage: (messageId: string, rating: -1 | 0 | 1) =>
+		api.post<{ ok: true }>(
+			`/api/chat/messages/${encodeURIComponent(messageId)}/rating`,
+			{ rating },
+		),
 };

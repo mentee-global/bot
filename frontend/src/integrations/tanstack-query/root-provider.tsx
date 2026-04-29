@@ -1,4 +1,5 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js";
 import { sessionQueryOptions } from "#/features/auth/data/auth.service";
 import { ApiError } from "#/lib/api/errors";
 
@@ -13,13 +14,38 @@ function clearSessionOnUnauthorized(client: QueryClient, err: unknown) {
 	}
 }
 
+// Anything that already emitted a PostHog event for itself (e.g. the chat
+// stream's chat.response_failed) sets this so we don't double-capture it as
+// a generic exception. 401s also don't need exception capture — they're an
+// expected signal that maps to the session-cleared path.
+function captureUnexpectedError(err: unknown) {
+	if (!import.meta.env.VITE_POSTHOG_KEY) return;
+	if (err instanceof ApiError && err.status === 401) return;
+	if (err && typeof err === "object" && "__posthogTracked" in err) return;
+	const exc =
+		err instanceof Error
+			? err
+			: new Error(typeof err === "string" ? err : "Unknown error");
+	try {
+		posthog.captureException(exc);
+	} catch {
+		// swallow — analytics must never break the UI
+	}
+}
+
 export function getContext() {
 	const queryClient: QueryClient = new QueryClient({
 		queryCache: new QueryCache({
-			onError: (err) => clearSessionOnUnauthorized(queryClient, err),
+			onError: (err) => {
+				clearSessionOnUnauthorized(queryClient, err);
+				captureUnexpectedError(err);
+			},
 		}),
 		mutationCache: new MutationCache({
-			onError: (err) => clearSessionOnUnauthorized(queryClient, err),
+			onError: (err) => {
+				clearSessionOnUnauthorized(queryClient, err);
+				captureUnexpectedError(err);
+			},
 		}),
 	});
 

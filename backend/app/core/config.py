@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     logfire_token: SecretStr | None = None
     logfire_service_name: str = "mentee-bot"
 
+    # Product analytics — PostHog ships events only when an api key is present.
+    # Token unset = posthog.disabled, all capture/identify calls become no-ops.
+    posthog_api_key: SecretStr | None = None
+    posthog_host: str = "https://us.i.posthog.com"
+
     # Outbound email — used to alert juan/letitia about new bug reports and
     # credit requests. Optional: when sendgrid_api_key is unset, the create
     # endpoints still persist to DB but flag the row with email_error.

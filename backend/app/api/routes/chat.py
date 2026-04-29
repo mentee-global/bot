@@ -2,7 +2,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 import logfire
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -15,11 +15,12 @@ from app.budget.service import (
     GlobalBudgetExhaustedError,
     QuotaExhaustedError,
 )
+from app.core import posthog_client
 from app.core.observability import user_attrs
 from app.core.rate_limit import limiter
 from app.domain.models import MenteeProfile, Message, User
 from app.services.message_service import MessageService
-from app.services.thread_store import ThreadNotFoundError
+from app.services.thread_store import MessageNotFoundError, ThreadNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,16 @@ class RenameThreadRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class RateMessageRequest(BaseModel):
+    """Wire format for thumbs feedback. 1 = up, -1 = down, 0 = clear.
+
+    Backend persists ±1 only; 0 deletes the underlying `message_ratings` row
+    (see `app/services/pg_thread_store.py::set_message_rating`).
+    """
+
+    rating: Literal[-1, 0, 1]
+
+
 @router.post("/messages", response_model=SendMessageResponse)
 @limiter.limit("30/minute")
 async def send_message(
@@ -135,6 +146,16 @@ async def send_message(
         except QuotaExhaustedError as err:
             span.set_attribute("status", "quota_exhausted")
             span.set_attribute("error_type", type(err).__name__)
+            posthog_client.capture(
+                user,
+                "server.chat.failed",
+                {
+                    "thread_id": payload.thread_id,
+                    "stream": False,
+                    "error_type": type(err).__name__,
+                    "status_code": 402,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail={
@@ -146,6 +167,16 @@ async def send_message(
         except GlobalBudgetExhaustedError as err:
             span.set_attribute("status", "budget_exhausted")
             span.set_attribute("error_type", type(err).__name__)
+            posthog_client.capture(
+                user,
+                "server.chat.failed",
+                {
+                    "thread_id": payload.thread_id,
+                    "stream": False,
+                    "error_type": type(err).__name__,
+                    "status_code": 503,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
@@ -156,6 +187,16 @@ async def send_message(
         except ThreadNotFoundError as err:
             span.set_attribute("status", "thread_not_found")
             span.set_attribute("error_type", type(err).__name__)
+            posthog_client.capture(
+                user,
+                "server.chat.failed",
+                {
+                    "thread_id": payload.thread_id,
+                    "stream": False,
+                    "error_type": type(err).__name__,
+                    "status_code": 404,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
             ) from err
@@ -164,6 +205,19 @@ async def send_message(
         span.set_attribute("response_length", len(assistant_msg.body))
         span.set_attribute("user_message_id", user_msg.id)
         span.set_attribute("assistant_message_id", assistant_msg.id)
+        posthog_client.capture(
+            user,
+            "server.chat.completed",
+            {
+                "thread_id": thread.id,
+                "user_message_id": user_msg.id,
+                "assistant_message_id": assistant_msg.id,
+                "response_length": len(assistant_msg.body),
+                "stream": False,
+                "persona_override": payload.persona is not None,
+                "ui_locale": ui_locale,
+            },
+        )
         return SendMessageResponse(
             thread_id=thread.id,
             user_message=user_msg,
@@ -202,6 +256,9 @@ async def stream_message(
             persona_override=payload.persona is not None,
         ) as span:
             response_length = 0
+            resolved_thread_id: str | None = None
+            assistant_message_id: str | None = None
+            failure: tuple[str, int] | None = None  # (error_type, status_code)
             try:
                 async for event, data in service.stream_user_message(
                     user_id=user.id,
@@ -216,11 +273,16 @@ async def stream_message(
                     elif event == "meta" and isinstance(data, dict):
                         rt = data.get("thread_id")
                         if isinstance(rt, str):
+                            resolved_thread_id = rt
                             span.set_attribute("resolved_thread_id", rt)
+                        amid = data.get("assistant_message_id")
+                        if isinstance(amid, str):
+                            assistant_message_id = amid
                     yield _sse(event, data)
             except QuotaExhaustedError as err:
                 span.set_attribute("status", "quota_exhausted")
                 span.set_attribute("error_type", type(err).__name__)
+                failure = (type(err).__name__, 402)
                 yield _sse(
                     "error",
                     {
@@ -232,6 +294,7 @@ async def stream_message(
             except GlobalBudgetExhaustedError as err:
                 span.set_attribute("status", "budget_exhausted")
                 span.set_attribute("error_type", type(err).__name__)
+                failure = (type(err).__name__, 503)
                 yield _sse(
                     "error",
                     {
@@ -242,6 +305,7 @@ async def stream_message(
             except BudgetError as err:
                 span.set_attribute("status", "budget_error")
                 span.set_attribute("error_type", type(err).__name__)
+                failure = (type(err).__name__, 503)
                 yield _sse(
                     "error",
                     {"code": "budget_error", "message": "Chat is paused."},
@@ -249,6 +313,7 @@ async def stream_message(
             except ThreadNotFoundError as err:
                 span.set_attribute("status", "thread_not_found")
                 span.set_attribute("error_type", type(err).__name__)
+                failure = (type(err).__name__, 404)
                 yield _sse(
                     "error",
                     {"code": "thread_not_found", "message": "Thread not found"},
@@ -256,6 +321,7 @@ async def stream_message(
             except Exception as exc:  # noqa: BLE001 — surface to client as an error event
                 span.set_attribute("status", "agent_failure")
                 span.set_attribute("error_type", type(exc).__name__)
+                failure = (type(exc).__name__, 500)
                 logger.exception("stream_message failed: %s", exc)
                 yield _sse(
                     "error",
@@ -263,8 +329,33 @@ async def stream_message(
                 )
             else:
                 span.set_attribute("status", "ok")
+                posthog_client.capture(
+                    user,
+                    "server.chat.completed",
+                    {
+                        "thread_id": resolved_thread_id or payload.thread_id,
+                        "assistant_message_id": assistant_message_id,
+                        "response_length": response_length,
+                        "stream": True,
+                        "persona_override": payload.persona is not None,
+                        "ui_locale": ui_locale,
+                    },
+                )
             finally:
                 span.set_attribute("response_length", response_length)
+                if failure is not None:
+                    err_type, status_code = failure
+                    posthog_client.capture(
+                        user,
+                        "server.chat.failed",
+                        {
+                            "thread_id": resolved_thread_id or payload.thread_id,
+                            "stream": True,
+                            "error_type": err_type,
+                            "status_code": status_code,
+                            "tokens_received": response_length,
+                        },
+                    )
 
     return StreamingResponse(
         event_stream(),
@@ -360,6 +451,49 @@ async def delete_thread(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
         ) from err
+
+
+@router.post("/messages/{message_id}/rating")
+@limiter.limit("60/minute")
+async def rate_message(
+    request: Request,
+    message_id: str,
+    payload: RateMessageRequest,
+    _session_id: Annotated[str, Depends(require_session)],
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> dict[str, bool]:
+    """Submit a thumbs rating for an assistant message the caller owns.
+
+    Optional and reversible: pass `rating: 0` to clear. The frontend treats
+    this as fire-and-forget (optimistic UI in `useFeedback.ts`); failures
+    surface as a toast and a state revert.
+    """
+    with logfire.span(
+        "chat.rate_message",
+        **user_attrs(user),
+        message_id=message_id,
+        rating=payload.rating,
+    ) as span:
+        try:
+            await service.rate_message(
+                user_id=user.id,
+                message_id=message_id,
+                rating=payload.rating,
+            )
+        except MessageNotFoundError as err:
+            span.set_attribute("status", "not_found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found",
+            ) from err
+        span.set_attribute("status", "ok")
+    posthog_client.capture(
+        user,
+        "server.chat.message_rated",
+        {"message_id": message_id, "rating": payload.rating},
+    )
+    return {"ok": True}
 
 
 @router.get("/thread", response_model=ThreadResponse)

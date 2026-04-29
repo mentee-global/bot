@@ -1,5 +1,7 @@
 export type MessageRole = "user" | "assistant";
 
+export type MessageRating = -1 | 1;
+
 export interface Message {
 	id: string;
 	thread_id: string;
@@ -12,6 +14,9 @@ export interface Message {
 	error?: { message: string };
 	/** Optional follow-up suggestions emitted by the agent (assistant only). */
 	suggestions?: string[];
+	/** Per-user thumbs rating: 1 (up), -1 (down), null/undefined (none).
+	 * Backend returns null when unset; assistant messages only. */
+	rating?: MessageRating | null;
 }
 
 export interface StreamMeta {

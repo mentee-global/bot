@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import logfire
+import posthog
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Request
@@ -27,6 +28,7 @@ from app.api.routes import (
 )
 from app.auth.session_store import SessionStore
 from app.auth.state_store import StateStore
+from app.core import posthog_client
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.db.engine import async_session_factory
@@ -58,6 +60,21 @@ def _configure_logfire() -> None:
     logfire.instrument_pydantic_ai(include_content=True)
     logfire.instrument_openai()
     logfire.instrument_httpx()
+
+
+def _configure_posthog() -> None:
+    """Wire the posthog Python SDK against module-level globals.
+
+    Token unset = `posthog.disabled = True` and every helper in
+    `app.core.posthog_client` becomes a no-op. With a key, server-side events
+    ship to the same project the frontend uses; identify joins on user.id.
+    """
+    if settings.posthog_api_key is None:
+        posthog.disabled = True
+        return
+    posthog.api_key = settings.posthog_api_key.get_secret_value()
+    posthog.host = settings.posthog_host
+    posthog.debug = not settings.is_prod
 
 
 _cleanup_task: asyncio.Task[None] | None = None
@@ -158,6 +175,7 @@ async def lifespan(app: FastAPI):
 # patch global state and bark if called twice, so keep this outside lifespan —
 # the TestClient re-enters the lifespan per test.
 _configure_logfire()
+_configure_posthog()
 
 app = FastAPI(title="Mentee Bot API", version="0.1.0", lifespan=lifespan)
 logfire.instrument_fastapi(app, capture_headers=False)
@@ -185,6 +203,9 @@ async def unhandled_exception_handler(  # type: ignore[no-untyped-def]
         request.method,
         request.url.path,
         exc,
+    )
+    posthog_client.capture_exception(
+        exc, path=request.url.path, method=request.method
     )
     payload: dict[str, object] = {"detail": "Internal server error"}
     if not settings.is_prod:
