@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated
 
 import logfire
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -111,6 +111,7 @@ async def send_message(
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[MessageService, Depends(get_message_service)],
+    ui_locale: Annotated[str | None, Header(alias="X-UI-Locale")] = None,
 ) -> SendMessageResponse:
     with logfire.span(
         "chat.send_message",
@@ -124,6 +125,7 @@ async def send_message(
                 user=user,
                 thread_id=payload.thread_id,
                 agent_user=_maybe_apply_persona(user, payload.persona),
+                ui_locale=ui_locale,
             )
         except QuotaExhaustedError as err:
             raise HTTPException(
@@ -171,6 +173,7 @@ async def stream_message(
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[MessageService, Depends(get_message_service)],
+    ui_locale: Annotated[str | None, Header(alias="X-UI-Locale")] = None,
 ) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[bytes]:
         with logfire.span(
@@ -185,6 +188,7 @@ async def stream_message(
                     user=user,
                     thread_id=payload.thread_id,
                     agent_user=_maybe_apply_persona(user, payload.persona),
+                    ui_locale=ui_locale,
                 ):
                     yield _sse(event, data)
             except QuotaExhaustedError as err:

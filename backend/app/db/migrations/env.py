@@ -12,6 +12,7 @@ from sqlmodel import SQLModel
 from app.auth import db_models  # noqa: F401
 from app.budget import db_models as budget_db_models  # noqa: F401
 from app.core.config import settings
+from app.reports import db_models as reports_db_models  # noqa: F401
 from app.services import db_models as chat_db_models  # noqa: F401
 
 config = context.config

@@ -24,13 +24,16 @@ class AgentPort(ABC):
         user: User | None = None,
         usage_out: UsageSummary | None = None,
         perplexity_enabled: bool = True,
+        ui_locale: str | None = None,
     ) -> str:
         """Return the assistant's reply body for the given user message.
 
         `usage_out` is filled in-place after the run so the caller can charge
         credits + roll spend totals. `perplexity_enabled=False` tells the
         agent to silently skip the Perplexity tool (used when the monthly
-        Perplexity sub-budget is near exhausted).
+        Perplexity sub-budget is near exhausted). `ui_locale` is the chat
+        UI's active locale when the user pressed send (e.g. "pt", "ar");
+        agents should treat it as a strong hint for reply language.
         """
         ...
 
@@ -42,6 +45,7 @@ class AgentPort(ABC):
         user: User | None = None,
         usage_out: UsageSummary | None = None,
         perplexity_enabled: bool = True,
+        ui_locale: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Yield assistant reply deltas and tool lifecycle events.
 
@@ -56,5 +60,6 @@ class AgentPort(ABC):
                 user=user,
                 usage_out=usage_out,
                 perplexity_enabled=perplexity_enabled,
+                ui_locale=ui_locale,
             )
         )

@@ -8,18 +8,22 @@ interface RequestOptions {
 	method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 	body?: JsonBody;
 	signal?: AbortSignal;
+	headers?: Record<string, string>;
 }
 
 async function request<T>(
 	path: string,
 	options: RequestOptions = {},
 ): Promise<T> {
-	const { method = "GET", body, signal } = options;
+	const { method = "GET", body, signal, headers: extraHeaders } = options;
+
+	const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
+	if (body) headers["Content-Type"] = "application/json";
 
 	const response = await fetch(`${API_URL}${path}`, {
 		method,
 		credentials: "include",
-		headers: body ? { "Content-Type": "application/json" } : undefined,
+		headers: Object.keys(headers).length ? headers : undefined,
 		body: body ? JSON.stringify(body) : undefined,
 		signal,
 	});
@@ -41,8 +45,12 @@ async function request<T>(
 
 export const api = {
 	get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
-	post: <T>(path: string, body?: JsonBody, signal?: AbortSignal) =>
-		request<T>(path, { method: "POST", body, signal }),
+	post: <T>(
+		path: string,
+		body?: JsonBody,
+		signal?: AbortSignal,
+		headers?: Record<string, string>,
+	) => request<T>(path, { method: "POST", body, signal, headers }),
 	put: <T>(path: string, body?: JsonBody, signal?: AbortSignal) =>
 		request<T>(path, { method: "PUT", body, signal }),
 	patch: <T>(path: string, body?: JsonBody, signal?: AbortSignal) =>

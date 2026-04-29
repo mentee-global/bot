@@ -1,6 +1,7 @@
 import type { PersonaPayload } from "#/features/admin/data/persona.types";
 import { API_URL } from "#/lib/api/client";
 import { ApiError } from "#/lib/api/errors";
+import { getLocale } from "#/paraglide/runtime";
 
 export type StreamEvent =
 	| { event: "meta"; data: string }
@@ -37,6 +38,7 @@ export async function* streamChatMessage(
 		headers: {
 			"Content-Type": "application/json",
 			Accept: "text/event-stream",
+			"X-UI-Locale": getLocale(),
 		},
 		body: JSON.stringify(payload),
 		signal,

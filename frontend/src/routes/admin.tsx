@@ -8,8 +8,10 @@ import {
 } from "@tanstack/react-router";
 import {
 	BarChart3,
+	Bug,
 	ChevronRight,
 	ChevronsUpDown,
+	Coins,
 	LogOut,
 	MessageSquare,
 	Moon,
@@ -112,18 +114,24 @@ function AdminLayout() {
 	}
 
 	return (
-		<SidebarProvider className="min-h-[100dvh]">
-			<AdminSidebar user={session.data} />
-			<SidebarInset className="bg-[var(--theme-bg)]">
-				<AdminTopBar />
-				<div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-6 sm:p-8">
-					<PageTitle />
-					<div className="flex min-h-0 flex-1 flex-col">
-						<Outlet />
+		// Pin the admin tree to LTR English regardless of the chat-side locale.
+		// The shell + shadcn sidebar/breadcrumb primitives are laid out for LTR
+		// and break visually under <html dir="rtl">. A scoped wrapper here
+		// overrides the global direction without touching the document root.
+		<div dir="ltr" lang="en" className="contents">
+			<SidebarProvider className="min-h-[100dvh]">
+				<AdminSidebar user={session.data} />
+				<SidebarInset className="bg-[var(--theme-bg)]">
+					<AdminTopBar />
+					<div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-6 sm:p-8">
+						<PageTitle />
+						<div className="flex min-h-0 flex-1 flex-col">
+							<Outlet />
+						</div>
 					</div>
-				</div>
-			</SidebarInset>
-		</SidebarProvider>
+				</SidebarInset>
+			</SidebarProvider>
+		</div>
 	);
 }
 
@@ -148,6 +156,8 @@ function AdminSidebar({ user }: { user: User }) {
 	const usersActive = pathname.startsWith("/admin/users");
 	const budgetActive = pathname.startsWith("/admin/budget");
 	const metricsActive = pathname.startsWith("/admin/metrics");
+	const bugReportsActive = pathname.startsWith("/admin/bug-reports");
+	const creditRequestsActive = pathname.startsWith("/admin/credit-requests");
 
 	return (
 		<Sidebar collapsible="icon" side="left">
@@ -214,6 +224,32 @@ function AdminSidebar({ user }: { user: User }) {
 								<Link to="/admin/metrics">
 									<BarChart3 />
 									<span>Metrics</span>
+								</Link>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								asChild
+								tooltip="Bug reports"
+								isActive={bugReportsActive}
+							>
+								<Link to="/admin/bug-reports">
+									<Bug />
+									<span>Bug reports</span>
+								</Link>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								asChild
+								tooltip="Credit requests"
+								isActive={creditRequestsActive}
+							>
+								<Link to="/admin/credit-requests">
+									<Coins />
+									<span>Credit requests</span>
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
@@ -523,6 +559,14 @@ function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 		return [root, { label: "Metrics" }];
 	}
 
+	if (pathname.startsWith("/admin/bug-reports")) {
+		return [root, { label: "Bug reports" }];
+	}
+
+	if (pathname.startsWith("/admin/credit-requests")) {
+		return [root, { label: "Credit requests" }];
+	}
+
 	if (pathname.startsWith("/admin/budget")) {
 		return [
 			root,
@@ -552,6 +596,18 @@ function getPageMeta(
 		return {
 			title: "Metrics",
 			description: "Activity over the selected window. All counts are UTC-day buckets.",
+		};
+	}
+	if (pathname.startsWith("/admin/bug-reports")) {
+		return {
+			title: "Bug reports",
+			description: "User-submitted bug reports. New reports email juan@ and letitia@.",
+		};
+	}
+	if (pathname.startsWith("/admin/credit-requests")) {
+		return {
+			title: "Credit requests",
+			description: "Users asking for more credits. Grant from here to update their quota.",
 		};
 	}
 	if (pathname.startsWith("/admin/budget")) {

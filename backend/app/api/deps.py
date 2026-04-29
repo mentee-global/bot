@@ -14,6 +14,7 @@ from app.auth.state_store import StateStore
 from app.budget.service import BudgetService
 from app.core.config import Settings, settings
 from app.domain.models import User
+from app.reports.service import ReportsService
 from app.services.message_service import MessageService
 from app.services.pg_thread_store import PostgresThreadStore
 from app.services.thread_store import InMemoryThreadStore, ThreadStore
@@ -41,6 +42,7 @@ _store: ThreadStore = _build_store(settings)
 _budget = BudgetService()
 _agent: AgentPort = _build_agent(settings, _budget)
 _service = MessageService(store=_store, agent=_agent, budget=_budget)
+_reports = ReportsService(budget=_budget, settings=settings)
 
 _http: httpx.AsyncClient | None = None
 _oauth_client: MenteeOAuthClient | None = None
@@ -106,6 +108,10 @@ def get_budget_service() -> BudgetService:
     return _budget
 
 
+def get_reports_service() -> ReportsService:
+    return _reports
+
+
 async def _resolve_session(
     auth: Annotated[AuthService, Depends(get_auth_service)],
     session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
@@ -161,3 +167,20 @@ async def optional_session(
     except AuthError:
         return None
     return session_id
+
+
+async def get_optional_user(
+    auth: Annotated[AuthService, Depends(get_auth_service)],
+    session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> User | None:
+    """Resolve the current user when a valid session cookie is present, else
+    return None. Used by endpoints that accept both authenticated and
+    anonymous traffic — e.g. the bug-report submit endpoint, where a visitor
+    on the landing page can report bugs without logging in but a logged-in
+    user gets their identity auto-attached."""
+    if not session_id:
+        return None
+    try:
+        return await auth.current_user(session_id)
+    except AuthError:
+        return None

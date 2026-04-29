@@ -55,6 +55,8 @@ import {
 import { clearAllDrafts } from "#/features/chat/hooks/useDraftsStore";
 import { usePinnedThreads } from "#/features/chat/hooks/usePinnedThreads";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
+import { BugReportTrigger } from "#/features/reports/components/BugReportTrigger";
+import { RequestCreditsButton } from "#/features/reports/components/RequestCreditsButton";
 import { track } from "#/lib/analytics";
 import { formatFullTimestamp } from "#/lib/datetime";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
@@ -147,6 +149,7 @@ function ChatView({
 	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const queryClient = useQueryClient();
+	const session = useSession();
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const debouncedQuery = useDebouncedValue(searchQuery.trim(), 200);
@@ -508,6 +511,11 @@ function ChatView({
 					>
 						<Keyboard className="size-4" aria-hidden="true" />
 					</button>
+					<BugReportTrigger
+						user={session.data ?? null}
+						variant="icon"
+						className="hidden md:inline-flex"
+					/>
 					<button
 						type="button"
 						onClick={handleLogout}
@@ -571,7 +579,12 @@ function ChatView({
 						/>
 					)}
 				</div>
-				{block ? <ChatBlockedBanner block={block} /> : null}
+				{block ? (
+					<ChatBlockedBanner
+						block={block}
+						showRequestCredits={block.kind === "out_of_credits"}
+					/>
+				) : null}
 				<ChatInput
 					ref={inputRef}
 					threadId={activeThreadId}
@@ -660,7 +673,13 @@ function useChatBlockState(me: MeResponse | undefined): ChatBlock | null {
 	return null;
 }
 
-function ChatBlockedBanner({ block }: { block: ChatBlock }) {
+function ChatBlockedBanner({
+	block,
+	showRequestCredits,
+}: {
+	block: ChatBlock;
+	showRequestCredits: boolean;
+}) {
 	const Icon = block.kind === "paused" ? PauseCircle : AlertTriangle;
 	return (
 		<output
@@ -672,6 +691,7 @@ function ChatBlockedBanner({ block }: { block: ChatBlock }) {
 				<div className="min-w-0 text-sm">
 					<p className="m-0 font-semibold">{block.title}</p>
 					<p className="m-0 text-[var(--theme-danger)]/90">{block.body}</p>
+					{showRequestCredits ? <RequestCreditsButton /> : null}
 				</div>
 			</div>
 		</output>

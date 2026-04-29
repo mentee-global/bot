@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     logfire_send_to_cloud: bool = False
     logfire_capture_message_body: bool = False
 
+    # Outbound email — used to alert juan/letitia about new bug reports and
+    # credit requests. Optional: when sendgrid_api_key is unset, the create
+    # endpoints still persist to DB but flag the row with email_error.
+    sendgrid_api_key: SecretStr | None = None
+    sender_email: str | None = None  # e.g. "Mentee Bot <bot@menteeglobal.org>"
+    admin_alert_recipients: Annotated[
+        list[str], NoDecode, BeforeValidator(_split_csv)
+    ] = [
+        "juan@menteeglobal.org",
+        "letitia@menteeglobal.org",
+    ]
+
     @property
     def is_prod(self) -> bool:
         return self.environment == "production"

@@ -5,6 +5,7 @@ import type {
 	ThreadListResponse,
 } from "#/features/chat/data/chat.types";
 import { api } from "#/lib/api/client";
+import { getLocale } from "#/paraglide/runtime";
 
 export const chatService = {
 	listThreads: (query?: string, signal?: AbortSignal) => {
@@ -32,6 +33,11 @@ export const chatService = {
 		const payload: Record<string, unknown> = { body };
 		if (threadId) payload.thread_id = threadId;
 		if (persona) payload.persona = persona;
-		return api.post<SendMessageResponse>("/api/chat/messages", payload);
+		return api.post<SendMessageResponse>(
+			"/api/chat/messages",
+			payload,
+			undefined,
+			{ "X-UI-Locale": getLocale() },
+		);
 	},
 };

@@ -15,7 +15,16 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.api.deps import init_auth, shutdown_auth
-from app.api.routes import admin, admin_budget, auth, chat, health, me
+from app.api.routes import (
+    admin,
+    admin_budget,
+    admin_reports,
+    auth,
+    chat,
+    health,
+    me,
+    reports,
+)
 from app.auth.session_store import SessionStore
 from app.auth.state_store import StateStore
 from app.core.config import settings
@@ -230,7 +239,7 @@ app.add_middleware(
     allow_origins=list(_ALLOWED_ORIGINS),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-UI-Locale"],
 )
 
 app.include_router(health.router)
@@ -239,3 +248,5 @@ app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(admin.router)
 app.include_router(admin_budget.router)
+app.include_router(reports.router)
+app.include_router(admin_reports.router)

@@ -19,3 +19,7 @@ class MenteeDeps:
     # Optional so unit tests / the clai harness can construct deps without a
     # real budget service; the Perplexity tool skips the flag flip when None.
     budget: BudgetService | None = None
+    # The chat UI's active locale at the time of the turn (e.g. "en", "es",
+    # "pt", "ar"). Surfaces in the per-turn profile block as the strongest
+    # signal for reply language, beating the user's stored preferred_language.
+    ui_locale: str | None = None

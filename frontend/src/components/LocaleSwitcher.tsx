@@ -10,6 +10,7 @@ const LOCALE_LABELS: Record<string, { name: string; native: string }> = {
 	en: { name: "English", native: "English" },
 	es: { name: "Spanish", native: "Español" },
 	pt: { name: "Portuguese", native: "Português" },
+	ar: { name: "Arabic", native: "العربية" },
 	fr: { name: "French", native: "Français" },
 	de: { name: "German", native: "Deutsch" },
 	it: { name: "Italian", native: "Italiano" },

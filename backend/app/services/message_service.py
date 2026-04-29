@@ -57,6 +57,7 @@ class MessageService:
         user: User,
         thread_id: str | None = None,
         agent_user: User | None = None,
+        ui_locale: str | None = None,
     ) -> tuple[Thread, Message, Message]:
         # `user` drives auth + budget; `agent_user`, when set, replaces the
         # context the model sees (admin "test persona" flow). Falls back to
@@ -77,6 +78,7 @@ class MessageService:
             user=agent_user or user,
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
+            ui_locale=ui_locale,
         )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
@@ -100,6 +102,7 @@ class MessageService:
         user: User,
         thread_id: str | None = None,
         agent_user: User | None = None,
+        ui_locale: str | None = None,
     ) -> AsyncIterator[tuple[str, dict | str]]:
         """Yield (event_name, payload) tuples for the SSE response.
 
@@ -137,6 +140,7 @@ class MessageService:
             user=agent_user or user,
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
+            ui_locale=ui_locale,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:
