@@ -51,7 +51,6 @@ import {
 	useBudgetUserUsageQuery,
 } from "#/features/budget/hooks/useBudget";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
-import { m } from "#/paraglide/messages";
 
 const TABS = ["overview", "conversations", "usage", "sessions"] as const;
 type Tab = (typeof TABS)[number];
@@ -90,7 +89,7 @@ function UserDetailRoute() {
 		return (
 			<ThreadView
 				threadId={search.threadId}
-				backLabel={m.admin_back_threads()}
+				backLabel="Back to conversations"
 				onBack={backToUser}
 				onDeleted={backToUser}
 			/>
@@ -123,7 +122,7 @@ function UserDetailView({ userId }: { userId: string }) {
 	return (
 		<section className="flex h-full min-h-0 flex-col gap-5">
 			<BackLink onClick={() => navigate({ to: "/admin/users" })}>
-				{m.admin_back_users()}
+				Back to users
 			</BackLink>
 
 			<div className="flex flex-wrap items-start justify-between gap-3">
@@ -249,11 +248,11 @@ function UserConversations({ userId }: { userId: string }) {
 		() => [
 			{
 				id: "title",
-				header: m.admin_col_title(),
+				header: "Title",
 				accessorFn: (t) => t.title ?? "",
 				cell: ({ row }) => (
 					<span className="block truncate">
-						{row.original.title || <Muted>{m.admin_thread_untitled()}</Muted>}
+						{row.original.title || <Muted>Untitled conversation</Muted>}
 					</span>
 				),
 				sortingFn: "alphanumeric",
@@ -265,7 +264,7 @@ function UserConversations({ userId }: { userId: string }) {
 			},
 			{
 				id: "messages",
-				header: m.admin_col_messages(),
+				header: "Messages",
 				accessorKey: "message_count",
 				cell: ({ row }) => (
 					<span className="tabular-nums">{row.original.message_count}</span>
@@ -279,7 +278,7 @@ function UserConversations({ userId }: { userId: string }) {
 			},
 			{
 				id: "updated",
-				header: m.admin_col_updated(),
+				header: "Updated",
 				accessorFn: (t) => new Date(t.updated_at).getTime(),
 				cell: ({ row }) => <CompactDate iso={row.original.updated_at} />,
 				size: 160,
@@ -331,8 +330,8 @@ function UserConversations({ userId }: { userId: string }) {
 				<EmptyState
 					message={
 						debounced
-							? m.admin_search_no_results({ query: debounced })
-							: m.admin_threads_empty()
+							? `No results for "${debounced}".`
+							: "This user has no conversations."
 					}
 				/>
 			) : (
@@ -352,12 +351,10 @@ function UserConversations({ userId }: { userId: string }) {
 									className="w-full rounded-xl border bg-card px-4 py-3 text-left shadow-sm transition hover:bg-accent/50"
 								>
 									<p className="m-0 text-sm font-medium">
-										{t.title || <Muted>{m.admin_thread_untitled()}</Muted>}
+										{t.title || <Muted>Untitled conversation</Muted>}
 									</p>
 									<p className="m-0 mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-										<span>
-											{m.admin_messages_count({ count: t.message_count })}
-										</span>
+										<span>{t.message_count} messages</span>
 										<span>·</span>
 										<CompactDate iso={t.updated_at} />
 									</p>
@@ -487,9 +484,7 @@ function UserSessionsPanel({
 		forceLogout.mutate(userId, {
 			onSuccess: (data) => {
 				setConfirmOpen(false);
-				setResultMsg(
-					m.admin_force_logout_result({ count: data.sessions_deleted }),
-				);
+				setResultMsg(`Deleted ${data.sessions_deleted} session(s).`);
 			},
 		});
 	};
@@ -498,7 +493,7 @@ function UserSessionsPanel({
 		<Card className="gap-4">
 			<div className="flex flex-wrap items-center justify-between gap-3 px-6">
 				<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-					{m.admin_sessions_heading()}
+					Sessions
 				</h3>
 				<Button
 					variant="destructive"
@@ -509,7 +504,7 @@ function UserSessionsPanel({
 					}
 					className="gap-1.5"
 				>
-					<LogOut className="size-3.5" /> {m.admin_force_logout()}
+					<LogOut className="size-3.5" /> Force logout
 				</Button>
 			</div>
 
@@ -549,20 +544,20 @@ function SessionSummary({
 	if (!data || data.session_count === 0) {
 		return (
 			<p className="m-0 text-sm text-muted-foreground">
-				{m.admin_sessions_empty()}
+				No sessions on record.
 			</p>
 		);
 	}
 	return (
 		<div className="flex flex-col gap-4">
 			<dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-				<StatItem label={m.admin_sessions_count()} value={data.session_count} />
+				<StatItem label="Active sessions" value={data.session_count} />
 				<StatItem
-					label={m.admin_sessions_first()}
+					label="First seen"
 					value={data.first_seen ? <CompactDate iso={data.first_seen} /> : "—"}
 				/>
 				<StatItem
-					label={m.admin_sessions_last()}
+					label="Last active"
 					value={
 						data.last_active ? <CompactDate iso={data.last_active} /> : "—"
 					}
@@ -575,9 +570,7 @@ function SessionSummary({
 							key={s.session_id_prefix}
 							className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground"
 						>
-							<span className="font-mono">
-								{m.admin_session_row_label({ prefix: s.session_id_prefix })}
-							</span>
+							<span className="font-mono">Session {s.session_id_prefix}</span>
 							<span>
 								<CompactDate iso={s.last_used_at} />
 							</span>
@@ -594,7 +587,7 @@ function SessionSummarySkeleton() {
 	return (
 		<output
 			aria-busy
-			aria-label={m.admin_loading()}
+			aria-label="Loading…"
 			className="flex flex-col gap-4"
 		>
 			<dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -636,18 +629,18 @@ function ConfirmForceLogoutDialog({
 	return (
 		<Dialog open={open} onOpenChange={(next) => (!next ? onCancel() : null)}>
 			<DialogContent>
-				<DialogTitle>{m.admin_force_logout_title()}</DialogTitle>
+				<DialogTitle>Force logout this user?</DialogTitle>
 				<DialogDescription>
-					{m.admin_force_logout_body({ name: displayName })}
+					All sessions for {displayName} will be deleted. They'll be signed
+					out on their next request and will need to log in again. Their
+					Mentee account is untouched.
 				</DialogDescription>
 				<DialogFooter>
 					<Button variant="outline" onClick={onCancel} disabled={pending}>
-						{m.common_cancel()}
+						Cancel
 					</Button>
 					<Button variant="destructive" onClick={onConfirm} disabled={pending}>
-						{pending
-							? m.admin_force_logout_pending()
-							: m.admin_force_logout_confirm()}
+						{pending ? "Signing out…" : "Force logout"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

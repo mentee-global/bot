@@ -10,7 +10,6 @@ import {
 	BarChart3,
 	ChevronRight,
 	ChevronsUpDown,
-	Globe,
 	LogOut,
 	MessageSquare,
 	Moon,
@@ -42,8 +41,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
@@ -78,12 +75,6 @@ import {
 	useLogoutMutation,
 	useSession,
 } from "#/features/auth/hooks/useSession";
-import { m } from "#/paraglide/messages";
-import { getLocale, locales, setLocale } from "#/paraglide/runtime";
-
-// Mirrors RTL_LOCALES in __root.tsx — kept inline to avoid coupling the
-// admin shell to the root document module. Extend both when adding locales.
-const RTL_LOCALES = new Set<string>(["ar", "he"]);
 
 export const Route = createFileRoute("/admin")({
 	component: AdminLayout,
@@ -120,11 +111,9 @@ function AdminLayout() {
 		return null;
 	}
 
-	const side = RTL_LOCALES.has(getLocale()) ? "right" : "left";
-
 	return (
 		<SidebarProvider className="min-h-[100dvh]">
-			<AdminSidebar user={session.data} side={side} />
+			<AdminSidebar user={session.data} />
 			<SidebarInset className="bg-[var(--theme-bg)]">
 				<AdminTopBar />
 				<div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-6 sm:p-8">
@@ -146,13 +135,13 @@ const BUDGET_SECTIONS = ["overview", "credits", "pricing", "controls"] as const;
 type BudgetSection = (typeof BUDGET_SECTIONS)[number];
 
 function budgetSectionLabel(section: BudgetSection): string {
-	if (section === "overview") return m.admin_budget_section_overview();
-	if (section === "credits") return m.admin_budget_section_credits();
-	if (section === "pricing") return m.admin_budget_section_pricing();
-	return m.admin_budget_section_controls();
+	if (section === "overview") return "Overview";
+	if (section === "credits") return "Credits";
+	if (section === "pricing") return "Pricing";
+	return "Controls";
 }
 
-function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
+function AdminSidebar({ user }: { user: User }) {
 	const { pathname } = useLocation();
 	const currentSection = useCurrentBudgetSection();
 	const activityActive = pathname.startsWith("/admin/activity");
@@ -161,7 +150,7 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 	const metricsActive = pathname.startsWith("/admin/metrics");
 
 	return (
-		<Sidebar collapsible="icon" side={side}>
+		<Sidebar collapsible="icon" side="left">
 			<SidebarHeader className="px-3 py-4">
 				<SidebarMenu>
 					<SidebarMenuItem>
@@ -170,14 +159,14 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 							className="hover:bg-transparent active:bg-transparent"
 							asChild
 						>
-							<Link to="/admin/activity" aria-label={m.admin_title()}>
+							<Link to="/admin/activity" aria-label="Admin panel">
 								<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-[var(--theme-accent)] text-[var(--theme-on-accent)]">
 									<Shield className="size-4" />
 								</div>
 								<div className="grid flex-1 text-left leading-tight">
-									<span className="island-kicker m-0">{m.admin_kicker()}</span>
+									<span className="island-kicker m-0">Admin</span>
 									<span className="truncate text-sm font-semibold">
-										{m.admin_title()}
+										Admin panel
 									</span>
 								</div>
 							</Link>
@@ -188,17 +177,17 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 
 			<SidebarContent className="px-2 py-2">
 				<SidebarGroup>
-					<SidebarGroupLabel>{m.admin_nav_group()}</SidebarGroupLabel>
+					<SidebarGroupLabel>Manage</SidebarGroupLabel>
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SidebarMenuButton
 								asChild
-								tooltip={m.admin_tab_activity()}
+								tooltip="Activity"
 								isActive={activityActive}
 							>
 								<Link to="/admin/activity">
 									<MessageSquare />
-									<span>{m.admin_tab_activity()}</span>
+									<span>Activity</span>
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
@@ -206,12 +195,12 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 						<SidebarMenuItem>
 							<SidebarMenuButton
 								asChild
-								tooltip={m.admin_tab_users()}
+								tooltip="Users"
 								isActive={usersActive}
 							>
 								<Link to="/admin/users">
 									<UsersIcon />
-									<span>{m.admin_tab_users()}</span>
+									<span>Users</span>
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
@@ -219,12 +208,12 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 						<SidebarMenuItem>
 							<SidebarMenuButton
 								asChild
-								tooltip={m.admin_tab_metrics()}
+								tooltip="Metrics"
 								isActive={metricsActive}
 							>
 								<Link to="/admin/metrics">
 									<BarChart3 />
-									<span>{m.admin_tab_metrics()}</span>
+									<span>Metrics</span>
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
@@ -237,11 +226,11 @@ function AdminSidebar({ user, side }: { user: User; side: "left" | "right" }) {
 							<SidebarMenuItem>
 								<CollapsibleTrigger asChild>
 									<SidebarMenuButton
-										tooltip={m.admin_tab_budget()}
+										tooltip="Budget"
 										isActive={budgetActive}
 									>
 										<Wallet />
-										<span>{m.admin_tab_budget()}</span>
+										<span>Budget</span>
 										<ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
 									</SidebarMenuButton>
 								</CollapsibleTrigger>
@@ -300,7 +289,6 @@ function NavUser({ user }: { user: User }) {
 	const { isMobile } = useSidebar();
 	const logout = useLogoutMutation();
 	const [theme, setTheme] = useState<ThemeMode>("light");
-	const currentLocale = getLocale();
 
 	useEffect(() => {
 		setTheme(readStoredTheme());
@@ -377,7 +365,7 @@ function NavUser({ user }: { user: User }) {
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<ThemeIcon />
-									<span>{m.admin_account_appearance()}</span>
+									<span>Theme</span>
 								</DropdownMenuSubTrigger>
 								<DropdownMenuSubContent>
 									<DropdownMenuCheckboxItem
@@ -387,7 +375,7 @@ function NavUser({ user }: { user: User }) {
 										}}
 									>
 										<Sun className="mr-2 size-4" />
-										{m.admin_account_appearance_light()}
+										Light
 									</DropdownMenuCheckboxItem>
 									<DropdownMenuCheckboxItem
 										checked={theme === "dark"}
@@ -396,35 +384,8 @@ function NavUser({ user }: { user: User }) {
 										}}
 									>
 										<Moon className="mr-2 size-4" />
-										{m.admin_account_appearance_dark()}
+										Dark
 									</DropdownMenuCheckboxItem>
-								</DropdownMenuSubContent>
-							</DropdownMenuSub>
-
-							<DropdownMenuSub>
-								<DropdownMenuSubTrigger>
-									<Globe />
-									<span>{m.admin_account_language()}</span>
-									<span className="ml-auto text-xs uppercase tracking-wider text-muted-foreground">
-										{currentLocale}
-									</span>
-								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent>
-									<DropdownMenuRadioGroup
-										value={currentLocale}
-										onValueChange={(value) => setLocale(value as never)}
-									>
-										{locales.map((loc) => (
-											<DropdownMenuRadioItem key={loc} value={loc} lang={loc}>
-												<span className="flex flex-1 items-center justify-between gap-3">
-													<span>{localeLabel(loc)}</span>
-													<span className="text-xs uppercase tracking-wider text-muted-foreground">
-														{loc}
-													</span>
-												</span>
-											</DropdownMenuRadioItem>
-										))}
-									</DropdownMenuRadioGroup>
 								</DropdownMenuSubContent>
 							</DropdownMenuSub>
 						</DropdownMenuGroup>
@@ -433,7 +394,7 @@ function NavUser({ user }: { user: User }) {
 
 						<DropdownMenuItem onSelect={() => logout.mutate()}>
 							<LogOut />
-							{m.admin_sign_out()}
+							Sign out
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
@@ -459,7 +420,7 @@ function AdminTopBar() {
 				<Button asChild variant="outline" size="sm" className="gap-1.5">
 					<Link to="/chat">
 						<MessageSquare className="size-3.5" />
-						<span className="hidden sm:inline">{m.admin_go_to_chat()}</span>
+						<span className="hidden sm:inline">Open chat</span>
 					</Link>
 				</Button>
 			</div>
@@ -535,7 +496,7 @@ type Crumb = {
 
 function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 	const root: Crumb = {
-		label: m.admin_breadcrumb_root(),
+		label: "Admin",
 		href: "/admin/activity",
 	};
 
@@ -544,7 +505,7 @@ function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 		const crumbs: Crumb[] = [
 			root,
 			{
-				label: m.admin_tab_activity(),
+				label: "Activity",
 				href: rest ? "/admin/activity" : undefined,
 			},
 		];
@@ -555,17 +516,17 @@ function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 	}
 
 	if (pathname.startsWith("/admin/users")) {
-		return [root, { label: m.admin_tab_users() }];
+		return [root, { label: "Users" }];
 	}
 
 	if (pathname.startsWith("/admin/metrics")) {
-		return [root, { label: m.admin_tab_metrics() }];
+		return [root, { label: "Metrics" }];
 	}
 
 	if (pathname.startsWith("/admin/budget")) {
 		return [
 			root,
-			{ label: m.admin_tab_budget(), href: "/admin/budget" },
+			{ label: "Budget", href: "/admin/budget" },
 			{ label: budgetSectionLabel(section) },
 		];
 	}
@@ -580,26 +541,26 @@ function getPageMeta(
 	if (pathname.startsWith("/admin/activity")) {
 		const rest = pathname.slice("/admin/activity".length).replace(/^\//, "");
 		if (rest) {
-			return { title: m.admin_page_title_thread() };
+			return { title: "Conversation" };
 		}
-		return { title: m.admin_page_title_activity() };
+		return { title: "Activity" };
 	}
 	if (pathname.startsWith("/admin/users")) {
-		return { title: m.admin_page_title_users() };
+		return { title: "Users" };
 	}
 	if (pathname.startsWith("/admin/metrics")) {
 		return {
-			title: m.admin_page_title_metrics(),
-			description: m.admin_metrics_subtitle(),
+			title: "Metrics",
+			description: "Activity over the selected window. All counts are UTC-day buckets.",
 		};
 	}
 	if (pathname.startsWith("/admin/budget")) {
 		return {
-			title: m.admin_page_title_budget(),
+			title: "Budget",
 			description: budgetSectionLabel(section),
 		};
 	}
-	return { title: m.admin_title() };
+	return { title: "Admin panel" };
 }
 
 function useCurrentBudgetSection(): BudgetSection {
@@ -626,19 +587,4 @@ function getInitials(name: string | undefined, email: string): string {
 	const first = parts[0]?.[0] ?? "A";
 	const second = parts[1]?.[0] ?? "";
 	return (first + second).toUpperCase();
-}
-
-const LOCALE_NATIVE: Record<string, string> = {
-	en: "English",
-	es: "Español",
-	pt: "Português",
-	fr: "Français",
-	de: "Deutsch",
-	it: "Italiano",
-	ar: "العربية",
-	he: "עברית",
-};
-
-function localeLabel(code: string): string {
-	return LOCALE_NATIVE[code] ?? code.toUpperCase();
 }

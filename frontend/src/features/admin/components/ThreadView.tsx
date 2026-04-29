@@ -18,7 +18,6 @@ import {
 } from "#/features/admin/hooks/useAdmin";
 import type { Message } from "#/features/chat/data/chat.types";
 import { cn } from "#/lib/utils";
-import { m } from "#/paraglide/messages";
 import {
 	AdminPagination,
 	BackLink,
@@ -56,9 +55,9 @@ export function ThreadView({
 		);
 
 	const data = thread.data;
-	if (!data) return <EmptyState message={m.admin_thread_empty()} />;
+	if (!data) return <EmptyState message="This conversation has no messages yet." />;
 
-	const title = data.title || m.admin_thread_untitled();
+	const title = data.title || "Untitled conversation";
 
 	const handleDelete = () => {
 		deleteMutation.mutate(threadId, {
@@ -103,7 +102,7 @@ export function ThreadView({
 							className="gap-1.5"
 						>
 							<Download className="size-3.5" />
-							{exporting ? "Exporting…" : m.admin_export_json()}
+							{exporting ? "Exporting…" : "Export JSON"}
 						</Button>
 						<Button
 							variant="destructive"
@@ -111,7 +110,7 @@ export function ThreadView({
 							onClick={() => setConfirmOpen(true)}
 							className="gap-1.5"
 						>
-							<Trash2 className="size-3.5" /> {m.admin_delete_thread()}
+							<Trash2 className="size-3.5" /> Delete thread
 						</Button>
 					</div>
 				</div>
@@ -124,7 +123,7 @@ export function ThreadView({
 
 			<div className="mt-4 flex min-h-0 flex-1 flex-col gap-2">
 				{total === 0 ? (
-					<EmptyState message={m.admin_thread_empty()} />
+					<EmptyState message="This conversation has no messages yet." />
 				) : (
 					<>
 						<div className="flex flex-wrap items-center justify-between gap-2">
@@ -224,7 +223,7 @@ function OwnerLine({ data }: { data: AdminThreadResponse }) {
 	if (!name && !email) {
 		return (
 			<p className="m-0 mt-1 break-all text-xs text-muted-foreground">
-				{m.admin_thread_owner({ id: data.user_id })}
+				Owner: {data.user_id}
 			</p>
 		);
 	}
@@ -244,27 +243,21 @@ function ThreadInsights({ data }: { data: AdminThreadResponse }) {
 	return (
 		<Card className="mt-4 gap-3 p-4 sm:p-5">
 			<dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+				<StatItem label="Messages" value={data.total_messages} />
+				<StatItem label="From user" value={data.user_message_count} />
 				<StatItem
-					label={m.admin_thread_stat_messages()}
-					value={data.total_messages}
-				/>
-				<StatItem
-					label={m.admin_thread_stat_user_messages()}
-					value={data.user_message_count}
-				/>
-				<StatItem
-					label={m.admin_thread_stat_assistant_messages()}
+					label="From assistant"
 					value={data.assistant_message_count}
 				/>
 				<StatItem
-					label={m.admin_thread_stat_created()}
+					label="Started"
 					value={<CompactDate iso={data.created_at} />}
 				/>
 				<StatItem
-					label={m.admin_thread_stat_updated()}
+					label="Last activity"
 					value={<CompactDate iso={data.updated_at} />}
 				/>
-				<StatItem label={m.admin_thread_stat_duration()} value={duration} />
+				<StatItem label="Duration" value={duration} />
 			</dl>
 		</Card>
 	);
@@ -350,18 +343,17 @@ function ConfirmDeleteDialog({
 	return (
 		<Dialog open={open} onOpenChange={(next) => (!next ? onCancel() : null)}>
 			<DialogContent>
-				<DialogTitle>{m.admin_delete_thread_title()}</DialogTitle>
+				<DialogTitle>Delete this conversation?</DialogTitle>
 				<DialogDescription>
-					{m.admin_delete_thread_body({ title })}
+					"{title}" and all its messages will be permanently removed. This
+					can't be undone.
 				</DialogDescription>
 				<DialogFooter>
 					<Button variant="outline" onClick={onCancel} disabled={pending}>
-						{m.common_cancel()}
+						Cancel
 					</Button>
 					<Button variant="destructive" onClick={onConfirm} disabled={pending}>
-						{pending
-							? m.admin_delete_thread_pending()
-							: m.admin_delete_thread_confirm()}
+						{pending ? "Deleting…" : "Delete"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

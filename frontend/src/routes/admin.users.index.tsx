@@ -31,7 +31,6 @@ import {
 import type { AdminUserSummary } from "#/features/admin/data/admin.types";
 import { useAdminUsersQuery } from "#/features/admin/hooks/useAdmin";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
-import { m } from "#/paraglide/messages";
 
 type UsersListSearch = {
 	q?: string;
@@ -96,7 +95,7 @@ function UsersListRoute() {
 		() => [
 			{
 				id: "name",
-				header: m.admin_col_name(),
+				header: "Name",
 				accessorFn: (u) => u.name ?? "",
 				cell: ({ row }) => (
 					<span className="truncate">
@@ -112,7 +111,7 @@ function UsersListRoute() {
 			},
 			{
 				id: "email",
-				header: m.admin_col_email(),
+				header: "Email",
 				accessorKey: "email",
 				cell: ({ row }) => (
 					<span className="block break-words">{row.original.email}</span>
@@ -125,7 +124,7 @@ function UsersListRoute() {
 			},
 			{
 				id: "role",
-				header: m.admin_col_role(),
+				header: "Role",
 				accessorKey: "role",
 				cell: ({ row }) => <RolePill role={row.original.role} />,
 				size: 120,
@@ -169,7 +168,7 @@ function UsersListRoute() {
 			},
 			{
 				id: "last_seen",
-				header: m.admin_col_last_seen(),
+				header: "Last seen",
 				accessorFn: (u) =>
 					u.last_used_at ? new Date(u.last_used_at).getTime() : 0,
 				cell: ({ row }) =>
@@ -203,7 +202,7 @@ function UsersListRoute() {
 							type="search"
 							value={queryInput}
 							onChange={(e) => setQueryInput(e.target.value)}
-							placeholder={m.admin_user_search_placeholder()}
+							placeholder="Filter users by name or email"
 							disabled
 						/>
 					</div>
@@ -233,7 +232,7 @@ function UsersListRoute() {
 						type="search"
 						value={queryInput}
 						onChange={(e) => setQueryInput(e.target.value)}
-						placeholder={m.admin_user_search_placeholder()}
+						placeholder="Filter users by name or email"
 					/>
 				</div>
 				<RoleFilter value={role} onChange={handleRoleChange} />
@@ -243,8 +242,8 @@ function UsersListRoute() {
 				<EmptyState
 					message={
 						debounced
-							? m.admin_search_no_results({ query: debounced })
-							: m.admin_users_empty()
+							? `No results for "${debounced}".`
+							: "No users have signed in yet."
 					}
 				/>
 			) : (
@@ -348,11 +347,11 @@ function RoleFilter({
 			value={value ?? ROLE_ALL}
 			onValueChange={(val) => onChange(val === ROLE_ALL ? undefined : val)}
 		>
-			<SelectTrigger aria-label={m.admin_filter_role_label()}>
+			<SelectTrigger aria-label="Filter by role">
 				<SelectValue />
 			</SelectTrigger>
 			<SelectContent>
-				<SelectItem value={ROLE_ALL}>{m.admin_filter_role_all()}</SelectItem>
+				<SelectItem value={ROLE_ALL}>All roles</SelectItem>
 				{ROLE_OPTIONS.map((opt) => (
 					<SelectItem key={opt} value={opt}>
 						{opt.charAt(0).toUpperCase() + opt.slice(1)}

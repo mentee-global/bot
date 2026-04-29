@@ -45,7 +45,6 @@ import type {
 } from "#/features/admin/data/admin.types";
 import { useAdminMetricsQuery } from "#/features/admin/hooks/useAdmin";
 import { cn } from "#/lib/utils";
-import { m } from "#/paraglide/messages";
 
 const RANGE_OPTIONS = [1, 7, 30, 90] as const;
 type RangeDays = (typeof RANGE_OPTIONS)[number];
@@ -135,7 +134,7 @@ function MetricsRoute() {
 				<>
 					<KpiGrid data={data} loading={loading} />
 
-					<MetricsSection title={m.admin_metrics_section_activity()}>
+					<MetricsSection title="Activity">
 						<div className="grid min-w-0 gap-4 lg:grid-cols-3 [&>*]:min-w-0">
 							<ActivityChart
 								data={data}
@@ -147,7 +146,7 @@ function MetricsRoute() {
 						<HourOfDayChart data={data} loading={loading} />
 					</MetricsSection>
 
-					<MetricsSection title={m.admin_metrics_section_engagement()}>
+					<MetricsSection title="Engagement">
 						<div className="grid min-w-0 gap-4 lg:grid-cols-3 [&>*]:min-w-0">
 							<RoleSplitChart data={data} loading={loading} />
 							<ThreadLengthChart data={data} loading={loading} />
@@ -155,7 +154,7 @@ function MetricsRoute() {
 						</div>
 					</MetricsSection>
 
-					<MetricsSection title={m.admin_metrics_section_cost()}>
+					<MetricsSection title="Cost & usage">
 						<div className="grid min-w-0 gap-4 lg:grid-cols-3 [&>*]:min-w-0">
 							<CostChart
 								data={data}
@@ -205,10 +204,10 @@ function RangeFilter({
 	onCustom: (next: { from: string; to: string }) => void;
 }) {
 	const labels: Record<RangeDays, string> = {
-		1: m.admin_metrics_range_today(),
-		7: m.admin_metrics_range_7(),
-		30: m.admin_metrics_range_30(),
-		90: m.admin_metrics_range_90(),
+		1: "Today",
+		7: "Last 7 days",
+		30: "Last 30 days",
+		90: "Last 90 days",
 	};
 	return (
 		<div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -269,7 +268,7 @@ function CalendarPopover({
 
 	const triggerLabel = custom
 		? `${formatChipDate(custom.from)} – ${formatChipDate(custom.to)}`
-		: m.admin_metrics_range_pick_dates();
+		: "Pick dates";
 
 	return (
 		<Popover open={open} onOpenChange={onOpenChange}>
@@ -304,7 +303,7 @@ function CalendarPopover({
 						className="h-8 text-xs"
 						onClick={() => setDraft(undefined)}
 					>
-						{m.admin_metrics_range_clear()}
+						Clear
 					</Button>
 					<Button
 						type="button"
@@ -313,7 +312,7 @@ function CalendarPopover({
 						disabled={!canApply}
 						onClick={apply}
 					>
-						{m.admin_metrics_range_apply()}
+						Apply
 					</Button>
 				</div>
 			</PopoverContent>
@@ -341,41 +340,26 @@ function KpiGrid({
 	const tokens =
 		(data?.input_tokens_period ?? 0) + (data?.output_tokens_period ?? 0);
 	const tiles: KpiTile[] = [
+		{ label: "New users", value: data?.new_users_period },
+		{ label: "New conversations", value: data?.new_threads_period },
+		{ label: "New messages", value: data?.new_messages_period },
+		{ label: "Active users", value: data?.active_users_period },
 		{
-			label: m.admin_metrics_kpi_new_users(),
-			value: data?.new_users_period,
-		},
-		{
-			label: m.admin_metrics_kpi_new_threads(),
-			value: data?.new_threads_period,
-		},
-		{
-			label: m.admin_metrics_kpi_new_messages(),
-			value: data?.new_messages_period,
-		},
-		{
-			label: m.admin_metrics_kpi_active_users(),
-			value: data?.active_users_period,
-		},
-		{
-			label: m.admin_metrics_kpi_avg_per_thread(),
+			label: "Avg messages / thread",
 			value: data?.avg_messages_per_thread,
 			format: "decimal",
 		},
 		{
-			label: m.admin_metrics_kpi_spend(),
+			label: "Spend (USD)",
 			value: data ? data.cost_period_usd_micros : undefined,
 			format: "usd_micros",
 		},
 		{
-			label: m.admin_metrics_kpi_tokens(),
+			label: "Tokens used",
 			value: data ? tokens : undefined,
 			format: "compact",
 		},
-		{
-			label: m.admin_metrics_kpi_requests(),
-			value: data?.requests_period,
-		},
+		{ label: "Provider calls", value: data?.requests_period },
 	];
 
 	return (
@@ -458,11 +442,11 @@ function ActivityChart({
 		() => ({
 			messages: {
 				...activityConfig.messages,
-				label: m.admin_metrics_messages_label(),
+				label: "Messages",
 			},
 			threads: {
 				...activityConfig.threads,
-				label: m.admin_metrics_threads_label(),
+				label: "Conversations",
 			},
 		}),
 		[],
@@ -470,8 +454,8 @@ function ActivityChart({
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_activity_title()}
-			description={m.admin_metrics_chart_activity_desc()}
+			title="Activity"
+			description="Messages and conversations created per day."
 			className={className}
 		>
 			{loading || !data ? (
@@ -566,15 +550,15 @@ function UsersChart({
 }) {
 	const config = useMemo(
 		() => ({
-			users: { ...usersConfig.users, label: m.admin_metrics_users_label() },
+			users: { ...usersConfig.users, label: "Users" },
 		}),
 		[],
 	);
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_users_title()}
-			description={m.admin_metrics_chart_users_desc()}
+			title="User signups"
+			description="New accounts created per day."
 		>
 			{loading || !data ? (
 				<ChartSkeleton />
@@ -648,7 +632,7 @@ function HourOfDayChart({
 	const config = useMemo(
 		() => ({
 			messages: {
-				label: m.admin_metrics_messages_label(),
+				label: "Messages",
 				color: "var(--theme-accent)",
 			},
 		}),
@@ -656,8 +640,8 @@ function HourOfDayChart({
 	);
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_hour_title()}
-			description={m.admin_metrics_chart_hour_desc()}
+			title="Active hours"
+			description="Message volume by UTC hour over the period."
 		>
 			{loading || !data ? (
 				<ChartSkeleton />
@@ -725,9 +709,9 @@ function RoleSplitChart({
 			...s,
 			label:
 				s.role === "user"
-					? m.admin_metrics_role_user()
+					? "User"
 					: s.role === "assistant"
-						? m.admin_metrics_role_assistant()
+						? "Assistant"
 						: s.role,
 		}));
 	}, [data]);
@@ -735,19 +719,16 @@ function RoleSplitChart({
 	const total = slices.reduce((sum, s) => sum + s.messages, 0);
 	const config: ChartConfig = useMemo(
 		() => ({
-			user: { label: m.admin_metrics_role_user(), color: ROLE_COLORS[0] },
-			assistant: {
-				label: m.admin_metrics_role_assistant(),
-				color: ROLE_COLORS[1],
-			},
+			user: { label: "User", color: ROLE_COLORS[0] },
+			assistant: { label: "Assistant", color: ROLE_COLORS[1] },
 		}),
 		[],
 	);
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_role_title()}
-			description={m.admin_metrics_chart_role_desc()}
+			title="Conversation balance"
+			description="Who's talking — user prompts vs assistant replies."
 		>
 			{loading || !data ? (
 				<ChartSkeleton />
@@ -832,7 +813,7 @@ function ThreadLengthChart({
 	const config: ChartConfig = useMemo(
 		() => ({
 			threads: {
-				label: m.admin_metrics_threads_label_short(),
+				label: "Threads",
 				color: "var(--theme-primary)",
 			},
 		}),
@@ -841,8 +822,8 @@ function ThreadLengthChart({
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_thread_length_title()}
-			description={m.admin_metrics_chart_thread_length_desc()}
+			title="Thread depth"
+			description="Active threads bucketed by message count over the period."
 		>
 			{loading || !data ? (
 				<ChartSkeleton />
@@ -899,8 +880,8 @@ function TopUsersCard({
 }) {
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_top_users_title()}
-			description={m.admin_metrics_chart_top_users_desc()}
+			title="Top users"
+			description="Most active accounts in the window."
 		>
 			{loading || !data ? (
 				<div className="flex flex-col gap-2">
@@ -910,7 +891,7 @@ function TopUsersCard({
 				</div>
 			) : data.top_users.length === 0 ? (
 				<div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
-					{m.admin_metrics_top_users_empty()}
+					No active users in this window yet.
 				</div>
 			) : (
 				<TopUsersList users={data.top_users} />
@@ -987,7 +968,7 @@ function CostChart({
 	const config: ChartConfig = useMemo(
 		() => ({
 			cost_usd: {
-				label: m.admin_metrics_kpi_spend(),
+				label: "Spend (USD)",
 				color: "var(--theme-accent)",
 			},
 		}),
@@ -1007,8 +988,8 @@ function CostChart({
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_cost_title()}
-			description={m.admin_metrics_chart_cost_desc()}
+			title="Spend"
+			description="Daily provider cost (USD) over the period."
 			className={className}
 		>
 			{loading || !data ? (
@@ -1101,11 +1082,11 @@ function TokensChart({
 	const config: ChartConfig = useMemo(
 		() => ({
 			input_tokens: {
-				label: m.admin_metrics_input_tokens_label(),
+				label: "Input tokens",
 				color: "var(--theme-primary)",
 			},
 			output_tokens: {
-				label: m.admin_metrics_output_tokens_label(),
+				label: "Output tokens",
 				color: "var(--theme-accent)",
 			},
 		}),
@@ -1114,8 +1095,8 @@ function TokensChart({
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_tokens_title()}
-			description={m.admin_metrics_chart_tokens_desc()}
+			title="Token usage"
+			description="Input + output tokens consumed per day."
 		>
 			{loading || !data ? (
 				<ChartSkeleton />
@@ -1225,15 +1206,15 @@ function ProviderMixChart({
 	const totalCost = slices.reduce((sum, s) => sum + s.cost_usd_micros, 0);
 	const config: ChartConfig = useMemo(
 		() => ({
-			cost: { label: m.admin_metrics_kpi_spend() },
+			cost: { label: "Spend (USD)" },
 		}),
 		[],
 	);
 
 	return (
 		<ChartCard
-			title={m.admin_metrics_chart_model_title()}
-			description={m.admin_metrics_chart_model_desc()}
+			title="Provider mix"
+			description="Share of period spend by provider."
 		>
 			{loading || !data ? (
 				<ChartSkeleton />
@@ -1387,9 +1368,9 @@ function formatHourLabel(hour: number): string {
 }
 
 function providerLabel(model: string): string {
-	if (model === "openai") return m.admin_metrics_provider_openai();
-	if (model === "perplexity") return m.admin_metrics_provider_perplexity();
-	if (model === "web_search") return m.admin_metrics_provider_web_search();
+	if (model === "openai") return "OpenAI";
+	if (model === "perplexity") return "Perplexity";
+	if (model === "web_search") return "Web search";
 	return model;
 }
 
@@ -1408,7 +1389,7 @@ function ChartSkeleton() {
 function EmptyChart() {
 	return (
 		<div className="flex h-44 items-center justify-center px-4 text-center text-xs text-muted-foreground sm:h-56 sm:text-sm">
-			{m.admin_metrics_empty()}
+			No data yet for this range.
 		</div>
 	);
 }

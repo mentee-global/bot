@@ -21,7 +21,6 @@ import {
 } from "#/components/ui/table";
 import { ApiError } from "#/lib/api/errors";
 import { cn } from "#/lib/utils";
-import { m } from "#/paraglide/messages";
 
 export function EmptyState({ message }: { message: string }) {
 	return (
@@ -36,7 +35,7 @@ export function LoadingState() {
 	// Card. Use when no domain-specific skeleton fits; prefer a tailored
 	// skeleton (DataTableSkeleton, MobileCardListSkeleton, …) when possible.
 	return (
-		<Card aria-busy aria-label={m.admin_loading()} className="gap-2 py-6">
+		<Card aria-busy aria-label="Loading…" className="gap-2 py-6">
 			<div className="px-6">
 				<Skeleton className="h-4 w-1/3" />
 				<Skeleton className="mt-3 h-3 w-2/3" />
@@ -137,7 +136,7 @@ export function InlineSpinner({
 	return (
 		<output
 			aria-busy
-			aria-label={label ?? m.admin_loading()}
+			aria-label={label ?? "Loading…"}
 			className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
 		>
 			<span
@@ -165,7 +164,7 @@ export function ResultsCount({
 	const to = (page - 1) * pageSize + shown;
 	return (
 		<p className="m-0 text-xs text-muted-foreground">
-			{m.admin_results_count({ from, to, total })}
+			Showing {from}–{to} of {total}
 		</p>
 	);
 }
@@ -186,7 +185,7 @@ export function AdminPagination({
 	const canPrev = page > 1;
 	const canNext = page < totalPages;
 	return (
-		<Pagination aria-label={m.admin_pagination_label()}>
+		<Pagination aria-label="Pagination">
 			<PaginationContent>
 				<PaginationItem>
 					<PaginationPrevious
@@ -200,7 +199,7 @@ export function AdminPagination({
 				</PaginationItem>
 				<PaginationItem>
 					<span className="flex items-center px-2 text-xs text-muted-foreground">
-						{m.admin_page_indicator({ page, total: totalPages })}
+						Page {page} of {totalPages}
 					</span>
 				</PaginationItem>
 				<PaginationItem>
@@ -311,7 +310,7 @@ export function DataTableSkeleton({
 	return (
 		<Card
 			aria-busy
-			aria-label={m.admin_loading()}
+			aria-label="Loading…"
 			className={cn(
 				"overflow-hidden p-0",
 				fillHeight &&
@@ -367,7 +366,7 @@ export function MobileCardListSkeleton({ rows = 6 }: { rows?: number }) {
 		<ul
 			className="flex flex-col gap-2"
 			aria-busy
-			aria-label={m.admin_loading()}
+			aria-label="Loading…"
 		>
 			{items.map((i) => (
 				<li key={i} className="rounded-xl border bg-card px-4 py-3 shadow-sm">
@@ -386,7 +385,7 @@ export function UserQuotaCardSkeleton() {
 	const periodTiles = Array.from({ length: 6 }, (_, i) => i);
 	const lifetimeTiles = Array.from({ length: 4 }, (_, i) => i);
 	return (
-		<Card aria-busy aria-label={m.admin_loading()} className="gap-4">
+		<Card aria-busy aria-label="Loading…" className="gap-4">
 			<div className="flex flex-wrap items-center justify-between gap-3 px-6">
 				<Skeleton className="h-3.5 w-20" />
 				<div className="flex flex-wrap gap-2">
@@ -423,7 +422,7 @@ export function UserQuotaCardSkeleton() {
 export function SessionsPanelSkeleton({ rows = 3 }: { rows?: number }) {
 	const items = Array.from({ length: rows }, (_, i) => i);
 	return (
-		<Card aria-busy aria-label={m.admin_loading()} className="gap-4">
+		<Card aria-busy aria-label="Loading…" className="gap-4">
 			<div className="flex flex-wrap items-center justify-between gap-3 px-6">
 				<Skeleton className="h-3.5 w-32" />
 				<Skeleton className="h-7 w-28 rounded-md" />

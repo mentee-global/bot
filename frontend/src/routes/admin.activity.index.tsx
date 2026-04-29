@@ -25,7 +25,6 @@ import {
 	useAdminStatsQuery,
 } from "#/features/admin/hooks/useAdmin";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
-import { m } from "#/paraglide/messages";
 
 type ActivitySearch = {
 	q?: string;
@@ -78,13 +77,13 @@ function ActivityIndexRoute() {
 		() => [
 			{
 				id: "title",
-				header: m.admin_col_title(),
+				header: "Title",
 				accessorFn: (r) => r.title ?? "",
 				cell: ({ row }) => {
 					const title = row.original.title;
 					return (
 						<span className="block truncate">
-							{title || <Muted>{m.admin_thread_untitled()}</Muted>}
+							{title || <Muted>Untitled conversation</Muted>}
 						</span>
 					);
 				},
@@ -97,7 +96,7 @@ function ActivityIndexRoute() {
 			},
 			{
 				id: "owner",
-				header: m.admin_col_owner(),
+				header: "Owner",
 				accessorFn: (r) => r.owner_name || r.owner_email || r.user_id,
 				cell: ({ row }) => <OwnerCell thread={row.original} />,
 				sortingFn: "alphanumeric",
@@ -109,7 +108,7 @@ function ActivityIndexRoute() {
 			},
 			{
 				id: "messages",
-				header: m.admin_col_messages(),
+				header: "Messages",
 				accessorKey: "message_count",
 				cell: ({ row }) => (
 					<span className="tabular-nums">{row.original.message_count}</span>
@@ -123,7 +122,7 @@ function ActivityIndexRoute() {
 			},
 			{
 				id: "updated",
-				header: m.admin_col_updated(),
+				header: "Updated",
 				accessorFn: (r) => new Date(r.updated_at).getTime(),
 				cell: ({ row }) => <CompactDate iso={row.original.updated_at} />,
 				size: 160,
@@ -156,7 +155,7 @@ function ActivityIndexRoute() {
 					type="search"
 					value={queryInput}
 					onChange={(e) => setQueryInput(e.target.value)}
-					placeholder={m.admin_activity_search_placeholder()}
+					placeholder="Search conversations by title or owner"
 					disabled
 				/>
 				<div className="min-h-0 flex-1 sm:hidden">
@@ -177,7 +176,7 @@ function ActivityIndexRoute() {
 				type="search"
 				value={queryInput}
 				onChange={(e) => setQueryInput(e.target.value)}
-				placeholder={m.admin_activity_search_placeholder()}
+				placeholder="Search conversations by title or owner"
 			/>
 
 			{threads.isError ? (
@@ -189,8 +188,8 @@ function ActivityIndexRoute() {
 				<EmptyState
 					message={
 						debounced
-							? m.admin_search_no_results({ query: debounced })
-							: m.admin_activity_empty()
+							? `No results for "${debounced}".`
+							: "No conversations match your search."
 					}
 				/>
 			) : (
@@ -211,15 +210,13 @@ function ActivityIndexRoute() {
 									className="w-full rounded-xl border bg-card px-4 py-3 text-left shadow-sm transition hover:bg-accent/50"
 								>
 									<p className="m-0 truncate text-sm font-medium">
-										{t.title || <Muted>{m.admin_thread_untitled()}</Muted>}
+										{t.title || <Muted>Untitled conversation</Muted>}
 									</p>
 									<p className="m-0 mt-0.5 truncate text-xs text-muted-foreground">
-										{t.owner_name || t.owner_email || m.admin_owner_unknown()}
+										{t.owner_name || t.owner_email || "Unknown"}
 									</p>
 									<p className="m-0 mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-										<span>
-											{m.admin_messages_count({ count: t.message_count })}
-										</span>
+										<span>{t.message_count} messages</span>
 										<span>·</span>
 										<CompactDate iso={t.updated_at} />
 									</p>
@@ -260,7 +257,7 @@ function ActivityIndexRoute() {
 
 function OwnerCell({ thread }: { thread: AdminThreadSummary }) {
 	const label = thread.owner_name || thread.owner_email;
-	if (!label) return <Muted>{m.admin_owner_unknown()}</Muted>;
+	if (!label) return <Muted>Unknown</Muted>;
 	return (
 		<span className="block min-w-0">
 			<span className="block truncate">{label}</span>
@@ -276,10 +273,10 @@ function OwnerCell({ thread }: { thread: AdminThreadSummary }) {
 function StatsTiles() {
 	const stats = useAdminStatsQuery();
 	const tiles = [
-		{ label: m.admin_stat_users(), value: stats.data?.users },
-		{ label: m.admin_stat_threads(), value: stats.data?.threads },
-		{ label: m.admin_stat_messages(), value: stats.data?.messages },
-		{ label: m.admin_stat_messages_24h(), value: stats.data?.messages_24h },
+		{ label: "Users", value: stats.data?.users },
+		{ label: "Conversations", value: stats.data?.threads },
+		{ label: "Messages", value: stats.data?.messages },
+		{ label: "Messages (24h)", value: stats.data?.messages_24h },
 	];
 	return (
 		<div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">

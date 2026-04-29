@@ -37,7 +37,6 @@ import {
 } from "#/features/budget/hooks/useBudget";
 import { formatMicros } from "#/features/budget/lib/format";
 import { cn } from "#/lib/utils";
-import { m } from "#/paraglide/messages";
 
 export const BUDGET_SECTIONS = [
 	"overview",
@@ -165,18 +164,10 @@ function BudgetRoute() {
 			className="flex h-full min-h-0 flex-col gap-4"
 		>
 			<TabsList className="shrink-0 self-start">
-				<TabsTrigger value="overview">
-					{m.admin_budget_section_overview()}
-				</TabsTrigger>
-				<TabsTrigger value="credits">
-					{m.admin_budget_section_credits()}
-				</TabsTrigger>
-				<TabsTrigger value="pricing">
-					{m.admin_budget_section_pricing()}
-				</TabsTrigger>
-				<TabsTrigger value="controls">
-					{m.admin_budget_section_controls()}
-				</TabsTrigger>
+				<TabsTrigger value="overview">Overview</TabsTrigger>
+				<TabsTrigger value="credits">Credits</TabsTrigger>
+				<TabsTrigger value="pricing">Pricing</TabsTrigger>
+				<TabsTrigger value="controls">Controls</TabsTrigger>
 			</TabsList>
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<TabsContent value="overview">
