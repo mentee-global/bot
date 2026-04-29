@@ -112,7 +112,16 @@ export function useStreamMessage(
 									...existing,
 									thread_id: meta.thread_id,
 								});
-								queryClient.removeQueries({ queryKey: cacheKey });
+								// `cacheKey` for a draft-new-chat is a PREFIX (`["chat",
+								// "thread"]`). Without `exact: true`, removeQueries
+								// prefix-matches and wipes the resolved key we just
+								// wrote one line above — leaving the UI on the welcome
+								// screen because subsequent token patches land on an
+								// empty thread.
+								queryClient.removeQueries({
+									queryKey: cacheKey,
+									exact: true,
+								});
 							}
 						}
 						patchThreadByKey(
