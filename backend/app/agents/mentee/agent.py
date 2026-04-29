@@ -16,10 +16,8 @@ from openai import AsyncOpenAI
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.messages import (
-    AgentStreamEvent,
-    BuiltinToolCallEvent,
-    BuiltinToolResultEvent,
-    FunctionToolCallEvent,
+    BuiltinToolCallPart,
+    BuiltinToolReturnPart,
     FunctionToolResultEvent,
     ModelMessage,
     ModelRequest,
@@ -28,6 +26,7 @@ from pydantic_ai.messages import (
     PartStartEvent,
     TextPart,
     TextPartDelta,
+    ToolCallPart,
     UserPromptPart,
 )
 from pydantic_ai.models.openai import OpenAIResponsesModel
@@ -327,36 +326,6 @@ def _dedup_response_text(messages: list[ModelMessage]) -> str | None:
     return "\n\n".join(chunks) if chunks else None
 
 
-def _convert_tool_event(event: AgentStreamEvent) -> StreamEvent | None:
-    if isinstance(event, FunctionToolCallEvent):
-        return ToolStart(
-            tool_call_id=event.part.tool_call_id,
-            name=event.part.tool_name,
-            source="function",
-        )
-    if isinstance(event, FunctionToolResultEvent):
-        return ToolEnd(
-            tool_call_id=event.result.tool_call_id,
-            name=event.result.tool_name,
-            source="function",
-            outcome=getattr(event.result, "outcome", "success") or "success",
-        )
-    if isinstance(event, BuiltinToolCallEvent):
-        return ToolStart(
-            tool_call_id=event.part.tool_call_id,
-            name=event.part.tool_name,
-            source="builtin",
-        )
-    if isinstance(event, BuiltinToolResultEvent):
-        return ToolEnd(
-            tool_call_id=event.result.tool_call_id,
-            name=event.result.tool_name,
-            source="builtin",
-            outcome=getattr(event.result, "outcome", "success") or "success",
-        )
-    return None
-
-
 def _fill_openai_usage(
     collector: UsageSummary, usage: object, *, model_sku: str | None = None
 ) -> None:
@@ -605,53 +574,82 @@ class MenteeAgent(AgentPort):
                         usage_limits=self._usage_limits,
                     ) as run:
                         async for node in run:
-                            if not Agent.is_model_request_node(node):
-                                continue
-                            async with node.stream(run.ctx) as handle:
-                                async for event in handle:
-                                    if isinstance(event, BuiltinToolCallEvent):
-                                        tool_name = getattr(event.part, "tool_name", "")
-                                        if tool_name == "web_search":
-                                            collector.inc_web_search()
-                                        tool_seen_since_text = True
-                                        converted = _convert_tool_event(event)
-                                        if converted is not None:
-                                            await queue.put(converted)
-                                    elif isinstance(
-                                        event,
-                                        (
-                                            BuiltinToolResultEvent,
-                                            FunctionToolCallEvent,
-                                            FunctionToolResultEvent,
-                                        ),
-                                    ):
-                                        if isinstance(event, FunctionToolCallEvent):
-                                            tool_seen_since_text = True
-                                        converted = _convert_tool_event(event)
-                                        if converted is not None:
-                                            await queue.put(converted)
-                                    elif isinstance(event, PartStartEvent) and isinstance(
-                                        event.part, TextPart
-                                    ):
-                                        first_text = accepted_text_index is None
-                                        if first_text or tool_seen_since_text:
-                                            accepted_text_index = event.index
-                                            tool_seen_since_text = False
-                                            if event.part.content:
-                                                cleaned = stripper.feed(event.part.content)
+                            # Built-in tool starts/ends and function tool starts arrive
+                            # as PartStartEvent inside the model-request stream (the
+                            # `BuiltinToolCallEvent` path is deprecated in pydantic-ai
+                            # and only fires from CallToolsNode). Function tool *ends*
+                            # only fire from CallToolsNode, so we iterate both nodes.
+                            if Agent.is_model_request_node(node):
+                                async with node.stream(run.ctx) as handle:
+                                    async for event in handle:
+                                        if isinstance(event, PartStartEvent):
+                                            part = event.part
+                                            if isinstance(part, BuiltinToolCallPart):
+                                                if part.tool_name == "web_search":
+                                                    collector.inc_web_search()
+                                                tool_seen_since_text = True
+                                                await queue.put(
+                                                    ToolStart(
+                                                        tool_call_id=part.tool_call_id,
+                                                        name=part.tool_name,
+                                                        source="builtin",
+                                                    )
+                                                )
+                                            elif isinstance(part, BuiltinToolReturnPart):
+                                                await queue.put(
+                                                    ToolEnd(
+                                                        tool_call_id=part.tool_call_id,
+                                                        name=part.tool_name,
+                                                        source="builtin",
+                                                        outcome="success",
+                                                    )
+                                                )
+                                            elif isinstance(part, ToolCallPart):
+                                                tool_seen_since_text = True
+                                                await queue.put(
+                                                    ToolStart(
+                                                        tool_call_id=part.tool_call_id,
+                                                        name=part.tool_name,
+                                                        source="function",
+                                                    )
+                                                )
+                                            elif isinstance(part, TextPart):
+                                                first_text = accepted_text_index is None
+                                                if first_text or tool_seen_since_text:
+                                                    accepted_text_index = event.index
+                                                    tool_seen_since_text = False
+                                                    if part.content:
+                                                        cleaned = stripper.feed(part.content)
+                                                        if cleaned:
+                                                            await queue.put(
+                                                                TextDelta(text=cleaned)
+                                                            )
+                                                # else: silently drop the duplicate text part
+                                        elif isinstance(event, PartDeltaEvent) and isinstance(
+                                            event.delta, TextPartDelta
+                                        ):
+                                            if (
+                                                event.index == accepted_text_index
+                                                and event.delta.content_delta
+                                            ):
+                                                cleaned = stripper.feed(event.delta.content_delta)
                                                 if cleaned:
                                                     await queue.put(TextDelta(text=cleaned))
-                                        # else: silently drop the duplicate text part
-                                    elif isinstance(event, PartDeltaEvent) and isinstance(
-                                        event.delta, TextPartDelta
-                                    ):
-                                        if (
-                                            event.index == accepted_text_index
-                                            and event.delta.content_delta
-                                        ):
-                                            cleaned = stripper.feed(event.delta.content_delta)
-                                            if cleaned:
-                                                await queue.put(TextDelta(text=cleaned))
+                            elif Agent.is_call_tools_node(node):
+                                async with node.stream(run.ctx) as handle:
+                                    async for event in handle:
+                                        if isinstance(event, FunctionToolResultEvent):
+                                            await queue.put(
+                                                ToolEnd(
+                                                    tool_call_id=event.result.tool_call_id,
+                                                    name=event.result.tool_name,
+                                                    source="function",
+                                                    outcome=getattr(
+                                                        event.result, "outcome", "success"
+                                                    )
+                                                    or "success",
+                                                )
+                                            )
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
