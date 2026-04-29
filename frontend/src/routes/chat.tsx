@@ -55,7 +55,6 @@ import {
 import { clearAllDrafts } from "#/features/chat/hooks/useDraftsStore";
 import { usePinnedThreads } from "#/features/chat/hooks/usePinnedThreads";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
-import { BugReportTrigger } from "#/features/reports/components/BugReportTrigger";
 import { RequestCreditsButton } from "#/features/reports/components/RequestCreditsButton";
 import { track } from "#/lib/analytics";
 import { formatFullTimestamp } from "#/lib/datetime";
@@ -149,7 +148,6 @@ function ChatView({
 	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const queryClient = useQueryClient();
-	const session = useSession();
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const debouncedQuery = useDebouncedValue(searchQuery.trim(), 200);
@@ -511,11 +509,6 @@ function ChatView({
 					>
 						<Keyboard className="size-4" aria-hidden="true" />
 					</button>
-					<BugReportTrigger
-						user={session.data ?? null}
-						variant="icon"
-						className="hidden md:inline-flex"
-					/>
 					<button
 						type="button"
 						onClick={handleLogout}

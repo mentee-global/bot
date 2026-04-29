@@ -3,7 +3,16 @@ import type { User } from "#/features/auth/data/auth.types";
 export interface MeCreditsInfo {
 	remaining: number;
 	used: number;
+	/** Available credits this period (period_starting_credits + admin grants). */
 	total: number;
+	/** Recurring monthly cap — what `total` resets to at the next period.
+	 * Use this for "X credits each month" copy; `total` is inflated by grants. */
+	monthly_allocation: number;
+	/** Credits granted on top of this period's starting balance. Frozen
+	 * server-side against mid-period config edits. Use this for the bonus
+	 * display — `total - monthly_allocation` would shift when an admin
+	 * retunes default_monthly_credits. */
+	granted_extra: number;
 	resets_at: string;
 	unlimited: boolean;
 }

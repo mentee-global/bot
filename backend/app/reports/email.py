@@ -17,10 +17,11 @@ import asyncio
 import html
 import logging
 from datetime import datetime
+from email.utils import parseaddr
 from typing import TYPE_CHECKING
 
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import From, Mail, To
 
 from app.core.config import Settings
 
@@ -127,11 +128,19 @@ class AlertMailer:
         recipients = self._settings.admin_alert_recipients
         assert api_key is not None and sender is not None  # narrowed by .configured
 
+        # Wrap recipients/sender as explicit `To` / `From` objects. Passing
+        # `to_emails` as a bare list[str] hits a SDK path that does
+        # `dict["email"]` lookups during multi-recipient consolidation and
+        # raises `KeyError: 'email'` — using `To(...)` objects bypasses it.
+        sender_name, sender_addr = parseaddr(sender)
+        from_obj = From(sender_addr or sender, sender_name or None)
+        to_objs = [To(addr) for addr in recipients]
+
         def _send_sync() -> tuple[bool, str | None]:
             try:
                 message = Mail(
-                    from_email=sender,
-                    to_emails=recipients,
+                    from_email=from_obj,
+                    to_emails=to_objs,
                     subject=subject,
                     html_content=html_body,
                 )

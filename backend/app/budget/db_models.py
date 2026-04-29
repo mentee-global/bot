@@ -23,6 +23,13 @@ class UserQuota(SQLModel, table=True):
     credits_remaining: int = Field(default=0)
     credits_used_period: int = Field(default=0)
     credits_granted_period: int = Field(default=0)
+    # Snapshot of the user's starting credits at the *current* period's
+    # rollover (or first creation). Frozen until the next rollover — admin
+    # edits to default_monthly_credits or override_monthly_credits don't
+    # rewrite history. The "extra granted this period" the UI shows is
+    # `credits_granted_period - period_starting_credits`, which would lie if
+    # we used the live monthly cap instead.
+    period_starting_credits: int = Field(default=0)
     override_monthly_credits: int | None = Field(default=None)
     period_start: datetime = Field(sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(sa_type=DateTime(timezone=True))

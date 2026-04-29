@@ -21,6 +21,15 @@ class CreditsInfo(BaseModel):
     remaining: int
     used: int
     total: int
+    # Recurring monthly cap (post-reset balance). Differs from `total` after an
+    # admin grant: `total = monthly_allocation + grants_this_period`. The pill's
+    # "X credits each month" copy must use this field — `total` is bigger than
+    # the actual monthly amount any time a credit-request grant is in effect.
+    monthly_allocation: int
+    # Credits granted on top of this period's starting balance. Computed
+    # server-side from a frozen snapshot so it doesn't shift when an admin
+    # edits default_monthly_credits mid-period.
+    granted_extra: int
     resets_at: datetime
     # Admins don't consume credits — the UI can hide the pill for them.
     unlimited: bool
@@ -53,6 +62,8 @@ async def get_me(
             remaining=snap.credits_remaining,
             used=snap.credits_used,
             total=snap.credits_total,
+            monthly_allocation=snap.monthly_allocation,
+            granted_extra=snap.granted_extra,
             resets_at=snap.resets_at,
             unlimited=snap.is_admin,
         ),

@@ -107,7 +107,21 @@ class GlobalBudgetExhaustedError(BudgetError):
 class QuotaSnapshot:
     credits_remaining: int
     credits_used: int
+    # Total credits available this period: monthly allocation + any admin
+    # grants. Diverges from `monthly_allocation` after a credit-request grant
+    # — the grant is a one-time top-up that's gone after the next reset.
     credits_total: int
+    # The recurring monthly cap the user gets refilled to at every period
+    # rollover. Equal to `override_monthly_credits` when set, else the
+    # platform-wide `default_monthly_credits`. Used by user-facing copy that
+    # answers "how many credits do I get each month" — `credits_total` is the
+    # wrong field there because admin grants inflate it for the period only.
+    monthly_allocation: int
+    # How many credits were granted on top of the period's starting balance,
+    # i.e. `credits_granted_period - period_starting_credits`. Stable against
+    # mid-period config edits — using `monthly_allocation` here would shift
+    # the displayed bonus when an admin retunes default_monthly_credits.
+    granted_extra: int
     resets_at: datetime
     perplexity_degraded: bool
     is_admin: bool
@@ -402,6 +416,7 @@ class BudgetService:
                 credits_remaining=starting,
                 credits_used_period=0,
                 credits_granted_period=starting,
+                period_starting_credits=starting,
                 period_start=now,
                 updated_at=now,
             )
@@ -416,6 +431,7 @@ class BudgetService:
             row.credits_remaining = monthly
             row.credits_used_period = 0
             row.credits_granted_period = monthly
+            row.period_starting_credits = monthly
             row.period_start = _advance_user_period(row.period_start, now)
             row.updated_at = now
             session.add(row)
@@ -430,10 +446,16 @@ class BudgetService:
             quota = await self._load_quota(session, uid, cfg)
             await session.commit()
         resets_at = _next_period_start(quota.period_start)
+        monthly = quota.override_monthly_credits or cfg.default_monthly_credits
+        granted_extra = max(
+            0, quota.credits_granted_period - quota.period_starting_credits
+        )
         return QuotaSnapshot(
             credits_remaining=quota.credits_remaining,
             credits_used=quota.credits_used_period,
             credits_total=quota.credits_granted_period,
+            monthly_allocation=monthly,
+            granted_extra=granted_extra,
             resets_at=resets_at,
             perplexity_degraded=state.perplexity_degraded,
             is_admin=(user.role == "admin"),
@@ -670,6 +692,7 @@ class BudgetService:
             quota.credits_remaining = monthly
             quota.credits_used_period = 0
             quota.credits_granted_period = monthly
+            quota.period_starting_credits = monthly
             quota.period_start = now
             quota.updated_at = now
             session.add(quota)

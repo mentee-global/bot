@@ -21,7 +21,15 @@ export function CreditsPill() {
 	if (!data) return null;
 	if (data.credits.unlimited) return null;
 
-	const { remaining, total, resets_at } = data.credits;
+	const { remaining, total, monthly_allocation, granted_extra, resets_at } =
+		data.credits;
+	// `total` is the period pool (starting + grants). When an admin has granted
+	// extra credits this period, surface that as a separate line so users
+	// don't read "434 credits each month" as a permanent bump. `granted_extra`
+	// is the server-side authoritative bonus — frozen against mid-period
+	// config edits, unlike a frontend `total - monthly_allocation` calc.
+	const hasBonus = granted_extra > 0;
+	const bonus = granted_extra;
 	const { perplexity_degraded, hard_stopped } = data.agent_state;
 	const pct = total > 0 ? (remaining / total) * 100 : 0;
 	const low = pct <= 20;
@@ -136,10 +144,20 @@ export function CreditsPill() {
 								<li>
 									You get{" "}
 									<span className="font-semibold text-[var(--theme-primary)]">
-										{total} credits
+										{monthly_allocation} credits
 									</span>{" "}
 									each month for chatting with the mentor.
 								</li>
+								{hasBonus ? (
+									<li>
+										The team granted you{" "}
+										<span className="font-semibold text-[var(--theme-primary)]">
+											{bonus} extra credits
+										</span>{" "}
+										this period. They're available until the next reset and
+										don't carry over.
+									</li>
+								) : null}
 								<li>
 									Every reply uses some credits. Quick answers cost a little;
 									longer answers and live web research cost more.

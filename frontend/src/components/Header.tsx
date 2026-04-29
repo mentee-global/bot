@@ -2,8 +2,11 @@ import { Link } from "@tanstack/react-router";
 import ParaglideLocaleSwitcher from "#/components/LocaleSwitcher";
 import { MenteeLogo } from "#/components/Logo";
 import ThemeToggle from "#/components/ThemeToggle";
+import { useSession } from "#/features/auth/hooks/useSession";
+import { BugReportTrigger } from "#/features/reports/components/BugReportTrigger";
 
 export default function Header() {
+	const session = useSession();
 	return (
 		<header className="sticky top-0 z-50 border-b border-[var(--theme-border)] bg-[var(--theme-header-bg)] px-4 backdrop-blur-xl sm:px-6">
 			<div className="page-wrap flex h-16 items-center justify-between gap-4">
@@ -26,6 +29,7 @@ export default function Header() {
 				</Link>
 
 				<div className="flex items-center gap-1.5">
+					<BugReportTrigger user={session.data ?? null} variant="header" />
 					<ParaglideLocaleSwitcher />
 					<ThemeToggle />
 				</div>

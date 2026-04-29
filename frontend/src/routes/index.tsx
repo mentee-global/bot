@@ -4,7 +4,6 @@ import { useState } from "react";
 import { LoginRedirectOverlay } from "#/features/auth/components/LoginRedirectOverlay";
 import { authService } from "#/features/auth/data/auth.service";
 import { useSession } from "#/features/auth/hooks/useSession";
-import { BugReportTrigger } from "#/features/reports/components/BugReportTrigger";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/")({ component: Landing });
@@ -149,10 +148,6 @@ function Landing() {
 					.
 				</p>
 			</section>
-
-			<div className="mt-16 flex justify-start border-t border-[var(--theme-border)] pt-6">
-				<BugReportTrigger user={session.data ?? null} variant="link" />
-			</div>
 
 			{isRedirecting && <LoginRedirectOverlay />}
 		</main>

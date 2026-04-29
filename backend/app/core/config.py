@@ -1,3 +1,4 @@
+import json
 from typing import Annotated, Literal
 
 from pydantic import AnyHttpUrl, BeforeValidator, SecretStr
@@ -5,9 +6,26 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _split_csv(value: str | list[str]) -> list[str]:
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return value
+    """Accept either comma-separated values or a JSON array string.
+
+    Both forms work in .env:
+        ADMIN_ALERT_RECIPIENTS=a@x.com,b@x.com
+        ADMIN_ALERT_RECIPIENTS=["a@x.com","b@x.com"]
+    Without this, JSON-array form leaks the brackets/quotes into each item
+    (parsed naively as one CSV chunk) and downstream consumers (e.g.
+    SendGrid's `parseaddr`) silently drop the address.
+    """
+    if isinstance(value, list):
+        return value
+    s = value.strip()
+    if s.startswith("[") and s.endswith("]"):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            pass  # fall through to CSV parsing
+    return [item.strip() for item in s.split(",") if item.strip()]
 
 
 class Settings(BaseSettings):
@@ -80,10 +98,7 @@ class Settings(BaseSettings):
     sender_email: str | None = None  # e.g. "Mentee Bot <bot@menteeglobal.org>"
     admin_alert_recipients: Annotated[
         list[str], NoDecode, BeforeValidator(_split_csv)
-    ] = [
-        "juan@menteeglobal.org",
-        "letitia@menteeglobal.org",
-    ]
+    ] = ["juan@menteeglobal.org"]
 
     @property
     def is_prod(self) -> bool:
