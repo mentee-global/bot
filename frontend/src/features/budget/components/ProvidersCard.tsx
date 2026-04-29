@@ -2,6 +2,8 @@ import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { InfoTooltip } from "#/components/ui/info-tooltip";
+import { Skeleton } from "#/components/ui/Skeleton";
+import { ErrorState } from "#/features/admin/components/shared";
 import type { ProviderSpend } from "#/features/budget/data/budget.types";
 import {
 	useBudgetProvidersQuery,
@@ -57,13 +59,30 @@ export function ProvidersCard() {
 				</div>
 
 				{providers.isPending ? (
-					<p className="m-0 text-sm text-muted-foreground">
-						Loading providers…
-					</p>
+					<output
+						aria-busy
+						aria-label="Loading providers"
+						className="grid gap-3 sm:grid-cols-2"
+					>
+						{[0, 1].map((i) => (
+							<div
+								key={i}
+								className="rounded-lg border bg-[var(--theme-surface)] p-4"
+							>
+								<div className="flex items-baseline justify-between gap-2">
+									<Skeleton className="h-3.5 w-32" />
+									<Skeleton className="h-3 w-16" />
+								</div>
+								<Skeleton className="mt-3 h-7 w-24" />
+								<Skeleton className="mt-2 h-3 w-2/3" />
+							</div>
+						))}
+					</output>
 				) : providers.isError ? (
-					<p className="m-0 text-sm text-destructive">
-						{providers.error.message}
-					</p>
+					<ErrorState
+						error={providers.error}
+						onRetry={() => providers.refetch()}
+					/>
 				) : providers.data ? (
 					<div className="grid gap-3 sm:grid-cols-2">
 						<ProviderRow

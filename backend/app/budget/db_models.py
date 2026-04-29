@@ -57,6 +57,10 @@ class MessageUsage(SQLModel, table=True):
         ondelete="SET NULL",
     )
     model: str = Field(max_length=64)
+    # Specific model SKU as called (e.g. "gpt-5.4-mini", "sonar-pro"). Captured
+    # at write-time from settings so a future model swap stays observable in
+    # historical analytics without per-SKU pricing.
+    model_sku: str | None = Field(default=None, max_length=128)
     input_tokens: int = Field(default=0)
     output_tokens: int = Field(default=0)
     request_count: int = Field(default=1)

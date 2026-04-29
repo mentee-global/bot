@@ -11,6 +11,7 @@ audit trail is `grep`-able, matching the existing admin.py pattern.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Annotated
@@ -111,9 +112,19 @@ class UserQuotaResponse(BaseModel):
     credits_used_period: int
     credits_granted_period: int
     override_monthly_credits: int | None
+    # Resolved monthly cap: override if set, else the platform default from
+    # BudgetConfig.default_monthly_credits. Lets the admin UI render a number
+    # instead of a vague "default" placeholder.
+    effective_monthly_credits: int
     period_start: datetime
     updated_at: datetime
     cost_period_micros: int
+    # Lifetime aggregates over MessageUsage. Survive monthly resets.
+    cost_total_micros: int
+    credits_used_total: int
+    turns_total: int
+    input_tokens_total: int
+    output_tokens_total: int
 
 
 class UserQuotaListResponse(BaseModel):
@@ -158,7 +169,8 @@ class MessageUsageResponse(BaseModel):
     user_id: str
     message_id: str | None
     thread_id: str | None
-    model: str
+    model: str  # provider family: "openai" | "perplexity" | "web_search"
+    model_sku: str | None  # specific SKU as called, e.g. "gpt-5.4-mini"
     input_tokens: int
     output_tokens: int
     request_count: int
@@ -503,22 +515,34 @@ async def set_override(
 async def _quota_after(
     budget: BudgetService, user_id: UUID
 ) -> UserQuotaResponse:
-    rows = await budget.list_user_quotas([user_id])
+    # Four independent reads — fan out so total wait ≈ the slowest one.
+    rows, period_cost, lifetime, cfg = await asyncio.gather(
+        budget.list_user_quotas([user_id]),
+        budget.user_period_cost_micros(user_id),
+        budget.user_lifetime_totals(user_id),
+        budget.get_config(),
+    )
     row = rows.get(user_id)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Quota not found"
         )
-    period_cost = await budget.user_period_cost_micros(user_id)
+    effective = row.override_monthly_credits or cfg.default_monthly_credits
     return UserQuotaResponse(
         user_id=str(row.user_id),
         credits_remaining=row.credits_remaining,
         credits_used_period=row.credits_used_period,
         credits_granted_period=row.credits_granted_period,
         override_monthly_credits=row.override_monthly_credits,
+        effective_monthly_credits=effective,
         period_start=row.period_start,
         updated_at=row.updated_at,
         cost_period_micros=period_cost,
+        cost_total_micros=lifetime.cost_micros,
+        credits_used_total=lifetime.credits_used,
+        turns_total=lifetime.turns,
+        input_tokens_total=lifetime.input_tokens,
+        output_tokens_total=lifetime.output_tokens,
     )
 
 
@@ -529,6 +553,7 @@ def _usage_to_response(row) -> MessageUsageResponse:  # type: ignore[no-untyped-
         message_id=str(row.message_id) if row.message_id else None,
         thread_id=str(row.thread_id) if row.thread_id else None,
         model=row.model,
+        model_sku=row.model_sku,
         input_tokens=row.input_tokens,
         output_tokens=row.output_tokens,
         request_count=row.request_count,

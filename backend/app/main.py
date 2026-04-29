@@ -1,13 +1,18 @@
 import asyncio
 import logging
+import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import logfire
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 
 from app.api.deps import init_auth, shutdown_auth
 from app.api.routes import admin, admin_budget, auth, chat, health, me
@@ -15,6 +20,7 @@ from app.auth.session_store import SessionStore
 from app.auth.state_store import StateStore
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.db.engine import async_session_factory
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,8 +68,70 @@ async def _cleanup_loop() -> None:
         await asyncio.sleep(300)
 
 
+class SchemaDriftError(RuntimeError):
+    """Raised when the live database is on an older Alembic revision than the
+    code expects. Refusing to start with a clear message beats letting the next
+    query crash on a missing column halfway through a request."""
+
+
+def _alembic_head_revision() -> str:
+    """Read the latest migration revision from the alembic scripts directory.
+    Pure file-system read; no DB roundtrip."""
+    cfg = AlembicConfig(
+        str(Path(__file__).resolve().parent.parent / "alembic.ini")
+    )
+    script = ScriptDirectory.from_config(cfg)
+    head = script.get_current_head()
+    if head is None:
+        raise SchemaDriftError("alembic has no migrations defined")
+    return head
+
+
+async def _verify_schema_up_to_date() -> None:
+    """Compare the DB's `alembic_version` row to the latest migration script.
+
+    Production deploys run `alembic upgrade head` as a release step (see
+    `Procfile` / `railway.json`), so this check is a no-op there. In local dev
+    it catches the case where someone pulled new code that depends on a
+    migration they haven't run yet — preventing column-not-exist errors from
+    reaching live requests.
+    """
+    head = _alembic_head_revision()
+    async with async_session_factory() as session:
+        try:
+            row = (
+                await session.execute(
+                    text("SELECT version_num FROM alembic_version")
+                )
+            ).scalar_one_or_none()
+        except Exception as err:
+            raise SchemaDriftError(
+                f"Cannot read alembic_version (is the DB initialized?): {err}"
+            ) from err
+    if row is None:
+        raise SchemaDriftError(
+            "Database has no alembic_version row. "
+            "Run: cd backend && uv run alembic upgrade head"
+        )
+    if row != head:
+        raise SchemaDriftError(
+            f"Database is on revision {row!r} but code expects {head!r}. "
+            "Run: cd backend && uv run alembic upgrade head"
+        )
+    logger.info("schema check ok: alembic_version=%s", row)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        await _verify_schema_up_to_date()
+    except SchemaDriftError as err:
+        # Fail loudly. uvicorn --reload will repeat this until the user runs
+        # the migration; nothing past this point would work anyway.
+        logger.error("=" * 72)
+        logger.error("SCHEMA DRIFT — refusing to start: %s", err)
+        logger.error("=" * 72)
+        raise
     await init_auth()
     global _cleanup_task
     _cleanup_task = asyncio.create_task(_cleanup_loop())
@@ -91,6 +159,36 @@ logfire.instrument_fastapi(app, capture_headers=False)
 # `app.core.rate_limit`; routes attach `@limiter.limit(...)` decorators.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(  # type: ignore[no-untyped-def]
+    request: Request, exc: Exception
+):
+    """Return structured 500s so the admin UI can show actionable detail.
+
+    In non-production environments we include the exception class and message
+    plus the last few frames of the traceback. In production we keep the body
+    minimal to avoid leaking internals.
+
+    Always logged at ERROR level with the full trace regardless of verbosity.
+    """
+    logger.exception(
+        "unhandled error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    payload: dict[str, object] = {"detail": "Internal server error"}
+    if not settings.is_prod:
+        tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
+        # Last ~12 lines is enough to pinpoint the failing call without
+        # dumping the entire async machinery underneath it.
+        payload["type"] = type(exc).__name__
+        payload["message"] = str(exc)
+        payload["trace"] = "".join(tb[-12:])
+        payload["path"] = f"{request.method} {request.url.path}"
+    return JSONResponse(status_code=500, content=payload)
 
 
 _ALLOWED_ORIGINS = {str(o).rstrip("/") for o in settings.cors_origins}

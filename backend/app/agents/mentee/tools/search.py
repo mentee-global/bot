@@ -140,6 +140,8 @@ async def search_perplexity(
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )
+    if ctx.deps.usage.perplexity_model_sku is None:
+        ctx.deps.usage.perplexity_model_sku = settings.perplexity_model
 
     return ok(
         {

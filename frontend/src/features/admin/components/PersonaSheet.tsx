@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/Skeleton";
 import {
 	Sheet,
 	SheetContent,
@@ -95,10 +95,19 @@ export function PersonaSheet({ open, onOpenChange }: PersonaSheetProps) {
 
 				<div className="flex-1 overflow-y-auto px-5 py-4">
 					{schemaQuery.isPending ? (
-						<div className="flex items-center gap-2 text-sm text-muted-foreground">
-							<Loader2 className="size-4 animate-spin" />
-							Loading…
-						</div>
+						<output
+							aria-busy
+							aria-label="Loading form"
+							className="block space-y-4"
+						>
+							{Array.from({ length: 4 }).map((_, i) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: shape is static
+								<div key={i} className="space-y-2">
+									<Skeleton className="h-3 w-32" />
+									<Skeleton className="h-9 w-full rounded-md" />
+								</div>
+							))}
+						</output>
 					) : schemaQuery.isError || !schema ? (
 						<p className="text-sm text-destructive">
 							Couldn't load the persona form. Try reopening the panel.

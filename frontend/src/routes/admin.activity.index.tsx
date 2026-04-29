@@ -181,7 +181,10 @@ function ActivityIndexRoute() {
 			/>
 
 			{threads.isError ? (
-				<ErrorState message={threads.error.message} />
+				<ErrorState
+					error={threads.error}
+					onRetry={() => threads.refetch()}
+				/>
 			) : rows.length === 0 && !threads.isFetching ? (
 				<EmptyState
 					message={

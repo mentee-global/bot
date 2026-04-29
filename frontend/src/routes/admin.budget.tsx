@@ -13,7 +13,11 @@ import {
 	TableRow,
 } from "#/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
-import { ErrorState, LoadingState } from "#/features/admin/components/shared";
+import {
+	DataTableSkeleton,
+	ErrorState,
+	LoadingState,
+} from "#/features/admin/components/shared";
 import { Field } from "#/features/budget/components/Field";
 import { ProvidersCard } from "#/features/budget/components/ProvidersCard";
 import { SpendBar } from "#/features/budget/components/SpendBar";
@@ -200,7 +204,8 @@ function OverviewTab() {
 	const state = useBudgetStateQuery();
 
 	if (state.isPending) return <LoadingState />;
-	if (state.isError) return <ErrorState message={state.error.message} />;
+	if (state.isError)
+		return <ErrorState error={state.error} onRetry={() => state.refetch()} />;
 	const s = state.data;
 	if (!s) return null;
 
@@ -455,7 +460,8 @@ function CreditsTab() {
 	}, [update.isSuccess]);
 
 	if (cfg.isPending) return <LoadingState />;
-	if (cfg.isError) return <ErrorState message={cfg.error.message} />;
+	if (cfg.isError)
+		return <ErrorState error={cfg.error} onRetry={() => cfg.refetch()} />;
 	const c = cfg.data;
 	if (!c) return null;
 
@@ -595,7 +601,8 @@ function PricingTab() {
 	}, [update.isSuccess]);
 
 	if (cfg.isPending) return <LoadingState />;
-	if (cfg.isError) return <ErrorState message={cfg.error.message} />;
+	if (cfg.isError)
+		return <ErrorState error={cfg.error} onRetry={() => cfg.refetch()} />;
 	const c = cfg.data;
 	if (!c) return null;
 
@@ -849,7 +856,8 @@ function ControlsTab() {
 	const flags = useUpdateFlagsMutation();
 
 	if (state.isPending) return <LoadingState />;
-	if (state.isError) return <ErrorState message={state.error.message} />;
+	if (state.isError)
+		return <ErrorState error={state.error} onRetry={() => state.refetch()} />;
 	const s = state.data;
 	if (!s) return null;
 
@@ -1165,11 +1173,15 @@ function ChangeHistoryCard({
 					) : null}
 				</div>
 				{history.isPending ? (
-					<p className="m-0 text-xs text-muted-foreground">Loading history…</p>
+					<DataTableSkeleton
+						columns={[{ width: 130 }, {}, { width: 90, align: "right" }, {}]}
+						rows={4}
+					/>
 				) : history.isError ? (
-					<p className="m-0 text-xs text-destructive">
-						{history.error.message}
-					</p>
+					<ErrorState
+						error={history.error}
+						onRetry={() => history.refetch()}
+					/>
 				) : filtered.length === 0 ? (
 					<p className="m-0 text-xs text-muted-foreground">
 						No changes yet. Saved edits will appear here with the reason you

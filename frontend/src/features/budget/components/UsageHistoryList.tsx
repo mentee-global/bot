@@ -64,9 +64,23 @@ export function UsageHistoryList({ rows }: { rows: MessageUsage[] }) {
 								tooltip="The time this turn was processed by the mentor."
 							/>
 							<HeaderCell
-								label="Model"
-								title="Model"
-								tooltip="The exact AI model that handled this turn (e.g. gpt-5-mini, sonar)."
+								label="Provider"
+								title="Provider"
+								tooltip={
+									<>
+										<p className="m-0">
+											Which provider handled this row: <code>openai</code>,{" "}
+											<code>perplexity</code>, or <code>web_search</code> (an
+											OpenAI builtin tool). A single turn can produce one row
+											per provider.
+										</p>
+										<p className="m-0 mt-2">
+											When known, the specific model SKU (e.g. gpt-5.4-mini,
+											sonar-pro) is shown underneath. Older rows pre-date SKU
+											capture and show only the provider.
+										</p>
+									</>
+								}
 							/>
 							<HeaderCell
 								label="Input"
@@ -75,12 +89,14 @@ export function UsageHistoryList({ rows }: { rows: MessageUsage[] }) {
 								tooltip={
 									<>
 										<p className="m-0">
-											Tokens we sent to the AI provider — the user's question
-											plus all relevant prior context for this turn.
+											Tokens sent to the provider on this row — the user's
+											question plus relevant prior context. For Perplexity rows
+											this is summed across every Perplexity call in the turn;
+											for web_search it's always 0 (the OpenAI builtin doesn't
+											expose token counts).
 										</p>
 										<p className="m-0 mt-2">
-											1,000,000 tokens ≈ 750,000 words. Bigger numbers usually
-											mean longer conversations or richer context.
+											1,000,000 tokens ≈ 750,000 words.
 										</p>
 									</>
 								}
@@ -89,25 +105,34 @@ export function UsageHistoryList({ rows }: { rows: MessageUsage[] }) {
 								label="Output"
 								title="Output tokens"
 								align="right"
-								tooltip="Tokens the AI provider returned — the mentor's reply for this turn. Output is usually billed higher than input."
+								tooltip="Tokens the provider returned on this row. Same caveat as Input — summed across Perplexity calls in the turn, always 0 for web_search."
 							/>
 							<HeaderCell
 								label="Calls"
 								title="API calls"
 								align="right"
-								tooltip="How many provider requests this turn made. Most chat turns are 1; research questions can fan out into several calls."
+								tooltip={
+									<>
+										<p className="m-0">How many provider requests this row represents.</p>
+										<p className="m-0 mt-2">
+											OpenAI rows are always 1 even when the model did several
+											internal hops. Perplexity rows reflect the actual number of
+											tool calls. web_search rows count each builtin invocation.
+										</p>
+									</>
+								}
 							/>
 							<HeaderCell
 								label="Cost"
 								title="Estimated cost"
 								align="right"
-								tooltip="Our estimate of what this turn cost in USD, based on the rates configured under Budget → Pricing."
+								tooltip="Cost of this provider call in USD, based on the rates configured under Budget → Pricing. Multi-provider turns produce one row per provider — sum rows with the same timestamp for the turn total."
 							/>
 							<HeaderCell
 								label="Credits"
 								title="Credits charged"
 								align="right"
-								tooltip="How many credits we deducted from this user's balance for this turn. Configured under Budget → Credits."
+								tooltip="Credits deducted from the user's balance for the whole turn. Stamped on the first row of each turn; subsequent rows show — to avoid double-counting. Configured under Budget → Credits."
 							/>
 						</TableRow>
 					</TableHeader>
@@ -122,7 +147,18 @@ export function UsageHistoryList({ rows }: { rows: MessageUsage[] }) {
 										minute: "2-digit",
 									})}
 								</TableCell>
-								<TableCell className="font-medium">{row.model}</TableCell>
+								<TableCell className="font-medium">
+									{row.model_sku ? (
+										<span className="flex flex-col leading-tight">
+											<span>{row.model_sku}</span>
+											<span className="text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+												{row.model}
+											</span>
+										</span>
+									) : (
+										row.model
+									)}
+								</TableCell>
 								<TableCell className="text-right tabular-nums">
 									{row.input_tokens.toLocaleString()}
 								</TableCell>

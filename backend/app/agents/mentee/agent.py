@@ -344,13 +344,19 @@ def _convert_tool_event(event: AgentStreamEvent) -> StreamEvent | None:
     return None
 
 
-def _fill_openai_usage(collector: UsageSummary, usage: object) -> None:
+def _fill_openai_usage(
+    collector: UsageSummary, usage: object, *, model_sku: str | None = None
+) -> None:
     """Copy pydantic-ai's Usage into our collector. Usage fields are optional —
-    missing attributes silently contribute zero."""
+    missing attributes silently contribute zero. `model_sku` is the SKU
+    settings.agent_model resolved to for this run; stamped on the collector so
+    the budget ledger remembers which model produced these tokens."""
     if usage is None:
         return
     collector.openai_input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
     collector.openai_output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+    if model_sku and collector.openai_model_sku is None:
+        collector.openai_model_sku = model_sku
 
 
 def _count_builtin_tool_calls(
@@ -467,7 +473,11 @@ class MenteeAgent(AgentPort):
                     or None,
                     usage_limits=self._usage_limits,
                 )
-                _fill_openai_usage(collector, result.usage())
+                _fill_openai_usage(
+                    collector,
+                    result.usage(),
+                    model_sku=self._settings.agent_model,
+                )
                 _count_builtin_tool_calls(collector, result.all_messages())
                 deduped = _dedup_response_text(result.all_messages())
                 return _strip_citations(deduped if deduped is not None else result.output)
@@ -563,7 +573,11 @@ class MenteeAgent(AgentPort):
                             await queue.put(TextDelta(text=tail))
                         if run.result is not None:
                             try:
-                                _fill_openai_usage(collector, run.result.usage())
+                                _fill_openai_usage(
+                                    collector,
+                                    run.result.usage(),
+                                    model_sku=self._settings.agent_model,
+                                )
                             except Exception:  # noqa: BLE001 — usage is best-effort
                                 pass
                 finally:

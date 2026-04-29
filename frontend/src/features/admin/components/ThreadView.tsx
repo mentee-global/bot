@@ -25,6 +25,7 @@ import {
 	CompactDate,
 	EmptyState,
 	ErrorState,
+	InlineSpinner,
 	ResultsCount,
 	StatItem,
 } from "./shared";
@@ -49,7 +50,10 @@ export function ThreadView({
 
 	if (thread.isPending && !thread.data)
 		return <ThreadViewSkeleton backLabel={backLabel} onBack={onBack} />;
-	if (thread.isError) return <ErrorState message={thread.error.message} />;
+	if (thread.isError)
+		return (
+			<ErrorState error={thread.error} onRetry={() => thread.refetch()} />
+		);
 
 	const data = thread.data;
 	if (!data) return <EmptyState message={m.admin_thread_empty()} />;
@@ -131,7 +135,7 @@ export function ThreadView({
 								shown={data.messages.length}
 							/>
 							{thread.isFetching && page !== (data.page ?? page) ? (
-								<span className="text-xs text-muted-foreground">Loading…</span>
+								<InlineSpinner />
 							) : null}
 						</div>
 						<Card

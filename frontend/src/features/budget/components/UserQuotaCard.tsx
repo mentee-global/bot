@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
@@ -8,6 +9,7 @@ import {
 	DialogFooter,
 	DialogTitle,
 } from "#/components/ui/Dialog";
+import { InfoTooltip } from "#/components/ui/info-tooltip";
 import { Input } from "#/components/ui/input";
 import { StatItem } from "#/features/admin/components/shared";
 import { UserPicker } from "#/features/admin/components/UserPicker";
@@ -36,8 +38,19 @@ export function UserQuotaCard({ data }: { data: UserUsageResponse }) {
 			<Card>
 				<CardContent className="flex flex-col gap-4">
 					<div className="flex flex-wrap items-center justify-between gap-3">
-						<h3 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						<h3 className="m-0 inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
 							Credits
+							<InfoTooltip title="Billing period">
+								<p className="m-0">
+									Each user has their own monthly billing window, anchored to
+									their first message or the last admin reset — not the calendar
+									month.
+								</p>
+								<p className="m-0 mt-2">
+									"This period" totals roll over on that user-specific
+									anniversary. Lifetime totals below survive every reset.
+								</p>
+							</InfoTooltip>
 						</h3>
 						<div className="flex flex-wrap gap-2">
 							<Button size="sm" onClick={() => setOpen("grant")}>
@@ -79,21 +92,112 @@ export function UserQuotaCard({ data }: { data: UserUsageResponse }) {
 
 					<dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 						<StatItem label="Remaining" value={quota.credits_remaining} />
-						<StatItem label="Used" value={quota.credits_used_period} />
-						<StatItem label="Granted" value={quota.credits_granted_period} />
 						<StatItem
-							label="Monthly cap"
-							value={quota.override_monthly_credits ?? "default"}
+							label={
+								<TooltipLabel
+									label="Used this period"
+									tip="Credits deducted from this user's balance during the current billing window. Resets to 0 on the user's monthly anniversary."
+								/>
+							}
+							value={quota.credits_used_period}
+						/>
+						<StatItem
+							label={
+								<TooltipLabel
+									label="Allotted this period"
+									tip="Total credits made available this period — the monthly cap plus any admin grants or transfers in. Overwritten by the monthly cap on each reset."
+								/>
+							}
+							value={quota.credits_granted_period}
+						/>
+						<StatItem
+							label={
+								<TooltipLabel
+									label="Monthly cap"
+									tip="Credits the user receives at every monthly reset. Set per-user via Override; otherwise the platform default from Budget → Config."
+								/>
+							}
+							value={
+								<span className="inline-flex items-baseline gap-1">
+									<span>{quota.effective_monthly_credits}</span>
+									<span className="text-[10px] font-normal text-muted-foreground">
+										{quota.override_monthly_credits == null
+											? "(default)"
+											: "(override)"}
+									</span>
+								</span>
+							}
 						/>
 						<StatItem
 							label="Spend this period"
-							value={formatMicros(quota.cost_period_micros)}
+							value={formatMicros(quota.cost_period_micros, {
+								precision: "auto",
+							})}
 						/>
 						<StatItem
 							label="Period started"
 							value={formatDate(quota.period_start)}
 						/>
 					</dl>
+
+					<div className="border-t pt-3">
+						<h4 className="m-0 inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+							Lifetime
+							<InfoTooltip title="Lifetime totals">
+								<p className="m-0">
+									Aggregated across the user's entire history — not reset on
+									the monthly rollover. Useful for spotting heavy users or
+									estimating total cost-to-serve.
+								</p>
+							</InfoTooltip>
+						</h4>
+						<dl className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+							<StatItem
+								label={
+									<TooltipLabel
+										label="Turns"
+										tip="Total turns this user has had with the mentor across all periods. A turn that called multiple providers still counts once."
+									/>
+								}
+								value={quota.turns_total.toLocaleString()}
+							/>
+							<StatItem
+								label={
+									<TooltipLabel
+										label="Credits used"
+										tip="Total credits ever charged to this user. Survives monthly resets."
+									/>
+								}
+								value={quota.credits_used_total.toLocaleString()}
+							/>
+							<StatItem
+								label={
+									<TooltipLabel
+										label="Total spend"
+										tip="Sum of provider costs (USD) we estimate this user has incurred across their full history. Pricing is captured at write-time, so historical rates aren't rewritten by a config change."
+									/>
+								}
+								value={formatMicros(quota.cost_total_micros, {
+									precision: "auto",
+								})}
+							/>
+							<StatItem
+								label={
+									<TooltipLabel
+										label="Tokens (in / out)"
+										tip="Sum of input / output tokens across every provider call. web_search rows always contribute 0 (the OpenAI builtin doesn't expose token counts)."
+									/>
+								}
+								value={
+									<span className="tabular-nums">
+										{quota.input_tokens_total.toLocaleString()}
+										<span className="mx-1 text-muted-foreground">/</span>
+										{quota.output_tokens_total.toLocaleString()}
+									</span>
+								}
+							/>
+						</dl>
+					</div>
 				</CardContent>
 			</Card>
 
@@ -392,5 +496,14 @@ function OverrideDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function TooltipLabel({ label, tip }: { label: string; tip: ReactNode }) {
+	return (
+		<span className="inline-flex items-center gap-1">
+			{label}
+			<InfoTooltip title={label}>{tip}</InfoTooltip>
+		</span>
 	);
 }

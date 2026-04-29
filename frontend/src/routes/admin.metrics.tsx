@@ -127,7 +127,10 @@ function MetricsRoute() {
 			/>
 
 			{metrics.isError ? (
-				<ErrorState message={metrics.error.message} />
+				<ErrorState
+					error={metrics.error}
+					onRetry={() => metrics.refetch()}
+				/>
 			) : (
 				<>
 					<KpiGrid data={data} loading={loading} />

@@ -84,9 +84,18 @@ export interface UserQuota {
 	credits_used_period: number;
 	credits_granted_period: number;
 	override_monthly_credits: number | null;
+	// Resolved monthly cap = override if set, else BudgetConfig default.
+	// Lets the UI render a number instead of a vague "default".
+	effective_monthly_credits: number;
 	period_start: string;
 	updated_at: string;
 	cost_period_micros: number;
+	// Lifetime aggregates over MessageUsage. Survive monthly resets.
+	cost_total_micros: number;
+	credits_used_total: number;
+	turns_total: number;
+	input_tokens_total: number;
+	output_tokens_total: number;
 }
 
 export interface MessageUsage {
@@ -94,7 +103,12 @@ export interface MessageUsage {
 	user_id: string;
 	message_id: string | null;
 	thread_id: string | null;
+	// Provider family: "openai" | "perplexity" | "web_search".
 	model: string;
+	// Specific SKU as called (e.g. "gpt-5.4-mini", "sonar-pro"). Null for old
+	// rows written before SKU capture shipped, and for web_search rows when
+	// the parent OpenAI run didn't record one.
+	model_sku: string | null;
 	input_tokens: number;
 	output_tokens: number;
 	request_count: number;

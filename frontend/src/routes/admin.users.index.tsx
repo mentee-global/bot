@@ -222,7 +222,8 @@ function UsersListRoute() {
 			</section>
 		);
 	}
-	if (users.isError) return <ErrorState message={users.error.message} />;
+	if (users.isError)
+		return <ErrorState error={users.error} onRetry={() => users.refetch()} />;
 
 	return (
 		<section className="flex h-full min-h-0 flex-col gap-4">

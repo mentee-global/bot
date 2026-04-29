@@ -115,6 +115,22 @@ class QuotaSnapshot:
 
 
 @dataclass(frozen=True)
+class UserLifetimeTotals:
+    """Aggregate `MessageUsage` view across the user's whole history.
+
+    Survives monthly resets — values only ever grow. Pricing changes don't
+    rewrite past rows, so this is a faithful "what this user has cost us"
+    even after rate edits.
+    """
+
+    cost_micros: int
+    credits_used: int
+    turns: int
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True)
 class GlobalSpendSnapshot:
     period_start: datetime
     openai_spend_micros: int
@@ -475,6 +491,7 @@ class BudgetService:
                         message_id=mid,
                         thread_id=tid,
                         model="openai",
+                        model_sku=usage.openai_model_sku,
                         input_tokens=usage.openai_input_tokens,
                         output_tokens=usage.openai_output_tokens,
                         request_count=1,
@@ -492,6 +509,7 @@ class BudgetService:
                         message_id=mid,
                         thread_id=tid,
                         model="perplexity",
+                        model_sku=usage.perplexity_model_sku,
                         input_tokens=total_in,
                         output_tokens=total_out,
                         request_count=len(usage.perplexity_calls),
@@ -507,6 +525,9 @@ class BudgetService:
                         message_id=mid,
                         thread_id=tid,
                         model="web_search",
+                        # web_search is an OpenAI builtin tool; its SKU follows
+                        # the OpenAI model that invoked it.
+                        model_sku=usage.openai_model_sku,
                         input_tokens=0,
                         output_tokens=0,
                         request_count=usage.web_search_calls,
@@ -747,6 +768,41 @@ class BudgetService:
                 or 0
             )
             return rows, total
+
+    async def user_lifetime_totals(
+        self, user_id: str | UUID
+    ) -> UserLifetimeTotals:
+        """Sum of `MessageUsage` across the user's whole history.
+
+        Single round-trip: cost, credits charged, true turn count (DISTINCT on
+        message_id, since one turn can produce up to three rows — one per
+        provider), and total input/output tokens. Uses the leading column of
+        the `(user_id, created_at)` index so it scales with the user's row
+        count, not the table size.
+        """
+        uid = _as_uuid(user_id)
+        async with self._factory() as session:
+            result = (
+                await session.execute(
+                    select(
+                        func.coalesce(func.sum(MessageUsage.cost_usd_micros), 0),
+                        func.coalesce(func.sum(MessageUsage.credits_charged), 0),
+                        func.count(func.distinct(MessageUsage.message_id)).filter(
+                            MessageUsage.message_id.is_not(None)
+                        ),
+                        func.coalesce(func.sum(MessageUsage.input_tokens), 0),
+                        func.coalesce(func.sum(MessageUsage.output_tokens), 0),
+                    ).where(MessageUsage.user_id == uid)
+                )
+            ).one()
+        cost, credits, turns, in_tok, out_tok = result
+        return UserLifetimeTotals(
+            cost_micros=int(cost or 0),
+            credits_used=int(credits or 0),
+            turns=int(turns or 0),
+            input_tokens=int(in_tok or 0),
+            output_tokens=int(out_tok or 0),
+        )
 
     async def user_period_cost_micros(self, user_id: str | UUID) -> int:
         """Sum of message-usage costs since the user's current period anchor.

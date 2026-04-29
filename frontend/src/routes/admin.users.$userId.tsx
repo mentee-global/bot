@@ -14,6 +14,7 @@ import {
 import { Input } from "#/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { DataTable } from "#/features/admin/components/DataTable";
+import { Skeleton } from "#/components/ui/Skeleton";
 import {
 	AdminPagination,
 	BackLink,
@@ -26,6 +27,7 @@ import {
 	ResultsCount,
 	RolePill,
 	StatItem,
+	UserQuotaCardSkeleton,
 } from "#/features/admin/components/shared";
 import { ThreadView } from "#/features/admin/components/ThreadView";
 import {
@@ -185,12 +187,10 @@ function UserDetailView({ userId }: { userId: string }) {
 
 function UserOverview({ userId }: { userId: string }) {
 	const usage = useBudgetUserUsageQuery(userId);
-	if (usage.isPending) {
-		return <p className="m-0 text-sm text-muted-foreground">Loading quota…</p>;
-	}
+	if (usage.isPending) return <UserQuotaCardSkeleton />;
 	if (usage.isError) {
 		return (
-			<p className="m-0 text-sm text-destructive">{usage.error.message}</p>
+			<ErrorState error={usage.error} onRetry={() => usage.refetch()} />
 		);
 	}
 	const data = usage.data;
@@ -298,7 +298,10 @@ function UserConversations({ userId }: { userId: string }) {
 		[],
 	);
 
-	if (threads.isError) return <ErrorState message={threads.error.message} />;
+	if (threads.isError)
+		return (
+			<ErrorState error={threads.error} onRetry={() => threads.refetch()} />
+		);
 
 	const threadsPending = threads.isPending && !data;
 
@@ -406,12 +409,23 @@ function UserUsage({ userId }: { userId: string }) {
 	const usage = useBudgetUserUsagePageQuery(userId, { page });
 
 	if (usage.isPending && !usage.data) {
-		return <p className="m-0 text-sm text-muted-foreground">Loading usage…</p>;
+		return (
+			<DataTableSkeleton
+				columns={[
+					{},
+					{},
+					{ width: 90, align: "right" },
+					{ width: 90, align: "right" },
+					{ width: 70, align: "right" },
+					{ width: 110, align: "right" },
+					{ width: 90, align: "right" },
+				]}
+				rows={8}
+			/>
+		);
 	}
 	if (usage.isError) {
-		return (
-			<p className="m-0 text-sm text-destructive">{usage.error.message}</p>
-		);
+		return <ErrorState error={usage.error} onRetry={() => usage.refetch()} />;
 	}
 	const data = usage.data;
 	if (!data) return null;
@@ -426,8 +440,9 @@ function UserUsage({ userId }: { userId: string }) {
 	return (
 		<div className="flex flex-col gap-3">
 			<p className="m-0 text-xs text-muted-foreground">
-				Every turn this user has had with the mentor, newest first. Hover any
-				column header to learn what it means.
+				Every provider call this user's turns made, newest first. A turn that
+				hits OpenAI, Perplexity, and web_search produces one row per provider.
+				Hover any column header to learn what it means.
 			</p>
 			{data.rows.length === 0 ? (
 				<EmptyState message="No usage recorded yet for this user." />
@@ -504,13 +519,12 @@ function UserSessionsPanel({
 
 			<CardContent>
 				{sessions.isPending ? (
-					<p className="m-0 text-sm text-muted-foreground">
-						{m.admin_loading()}
-					</p>
+					<SessionSummarySkeleton />
 				) : sessions.isError ? (
-					<p className="m-0 text-sm text-destructive">
-						{sessions.error.message}
-					</p>
+					<ErrorState
+						error={sessions.error}
+						onRetry={() => sessions.refetch()}
+					/>
 				) : (
 					<SessionSummary data={sessions.data} />
 				)}
@@ -572,6 +586,37 @@ function SessionSummary({
 				</ul>
 			) : null}
 		</div>
+	);
+}
+
+function SessionSummarySkeleton() {
+	const items = Array.from({ length: 3 }, (_, i) => i);
+	return (
+		<output
+			aria-busy
+			aria-label={m.admin_loading()}
+			className="flex flex-col gap-4"
+		>
+			<dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+				{items.map((i) => (
+					<div key={i}>
+						<Skeleton className="h-2.5 w-16" />
+						<Skeleton className="mt-2 h-4 w-20" />
+					</div>
+				))}
+			</dl>
+			<ul className="flex flex-col gap-1.5 border-t pt-3">
+				{items.map((i) => (
+					<li
+						key={`row-${i}`}
+						className="flex items-baseline justify-between gap-2"
+					>
+						<Skeleton className="h-3 w-24" />
+						<Skeleton className="h-3 w-20" />
+					</li>
+				))}
+			</ul>
+		</output>
 	);
 }
 

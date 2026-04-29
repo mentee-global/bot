@@ -1,5 +1,5 @@
-import { ArrowLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
@@ -19,6 +19,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "#/components/ui/table";
+import { ApiError } from "#/lib/api/errors";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -31,18 +32,120 @@ export function EmptyState({ message }: { message: string }) {
 }
 
 export function LoadingState() {
+	// Generic block-level skeleton — three lines of varying width inside a
+	// Card. Use when no domain-specific skeleton fits; prefer a tailored
+	// skeleton (DataTableSkeleton, MobileCardListSkeleton, …) when possible.
 	return (
-		<Card className="items-center justify-center py-10">
-			<p className="text-sm text-muted-foreground">{m.admin_loading()}</p>
+		<Card aria-busy aria-label={m.admin_loading()} className="gap-2 py-6">
+			<div className="px-6">
+				<Skeleton className="h-4 w-1/3" />
+				<Skeleton className="mt-3 h-3 w-2/3" />
+				<Skeleton className="mt-2 h-3 w-1/2" />
+			</div>
 		</Card>
 	);
 }
 
-export function ErrorState({ message }: { message: string }) {
+interface ErrorStateProps {
+	/** Either a string message or an ApiError; rendered with full detail when available. */
+	message?: string;
+	error?: unknown;
+	/** Refetch / retry handler, surfaces a button when provided. */
+	onRetry?: () => void;
+}
+
+/** Block-level admin error card. Shows status code, detail, exception type,
+ * path, and a collapsible traceback when the error came from `ApiError`. */
+export function ErrorState({ message, error, onRetry }: ErrorStateProps) {
+	const api = error instanceof ApiError ? error : null;
+	const headline =
+		api?.detail ?? message ?? (error instanceof Error ? error.message : null) ??
+		"Request failed.";
+	const status = api?.status ?? null;
+	const type = api?.exceptionType ?? null;
+	const path = api?.path ?? null;
+	const trace = api?.trace ?? null;
+	const [showTrace, setShowTrace] = useState(false);
 	return (
-		<Card className="items-center justify-center py-10">
-			<p className="text-sm text-destructive">{message}</p>
+		<Card className="gap-3 py-5">
+			<div className="flex flex-wrap items-start justify-between gap-3 px-6">
+				<div className="min-w-0 flex-1">
+					<div className="flex flex-wrap items-center gap-2">
+						{status != null ? (
+							<Badge variant="destructive" className="font-mono text-[10px]">
+								{status}
+							</Badge>
+						) : null}
+						{type ? (
+							<Badge
+								variant="outline"
+								className="font-mono text-[10px] text-destructive"
+							>
+								{type}
+							</Badge>
+						) : null}
+						{path ? (
+							<span className="font-mono text-[10px] text-muted-foreground">
+								{path}
+							</span>
+						) : null}
+					</div>
+					<p className="m-0 mt-2 break-words text-sm font-medium text-destructive">
+						{headline}
+					</p>
+				</div>
+				{onRetry ? (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={onRetry}
+						className="gap-1.5"
+					>
+						<RefreshCw className="size-3.5" /> Retry
+					</Button>
+				) : null}
+			</div>
+			{trace ? (
+				<div className="px-6">
+					<button
+						type="button"
+						onClick={() => setShowTrace((v) => !v)}
+						className="text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+					>
+						{showTrace ? "Hide" : "Show"} server traceback
+					</button>
+					{showTrace ? (
+						<pre className="mt-2 max-h-64 overflow-auto rounded-md border bg-[var(--theme-surface-2,_var(--theme-surface))] p-3 text-[11px] leading-snug text-muted-foreground">
+							{trace}
+						</pre>
+					) : null}
+				</div>
+			) : null}
 		</Card>
+	);
+}
+
+/** Inline spinner for compact loading states (combobox, button, small panels). */
+export function InlineSpinner({
+	label,
+	size = 14,
+}: {
+	label?: string;
+	size?: number;
+}) {
+	return (
+		<output
+			aria-busy
+			aria-label={label ?? m.admin_loading()}
+			className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+		>
+			<span
+				className="inline-block animate-spin rounded-full border-2 border-current border-t-transparent"
+				style={{ width: size, height: size }}
+			/>
+			{label ? <span>{label}</span> : null}
+		</output>
 	);
 }
 
@@ -154,7 +257,7 @@ export function StatItem({
 	label,
 	value,
 }: {
-	label: string;
+	label: ReactNode;
 	value: ReactNode;
 }) {
 	return (
@@ -274,6 +377,78 @@ export function MobileCardListSkeleton({ rows = 6 }: { rows?: number }) {
 				</li>
 			))}
 		</ul>
+	);
+}
+
+/** Skeleton matching the UserQuotaCard layout: header row, 6-tile period grid,
+ * Lifetime divider + 4-tile lifetime grid. */
+export function UserQuotaCardSkeleton() {
+	const periodTiles = Array.from({ length: 6 }, (_, i) => i);
+	const lifetimeTiles = Array.from({ length: 4 }, (_, i) => i);
+	return (
+		<Card aria-busy aria-label={m.admin_loading()} className="gap-4">
+			<div className="flex flex-wrap items-center justify-between gap-3 px-6">
+				<Skeleton className="h-3.5 w-20" />
+				<div className="flex flex-wrap gap-2">
+					{Array.from({ length: 5 }).map((_, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: shape is static
+						<Skeleton key={i} className="h-7 w-16 rounded-md" />
+					))}
+				</div>
+			</div>
+			<div className="grid grid-cols-2 gap-3 px-6 sm:grid-cols-4">
+				{periodTiles.map((i) => (
+					<div key={i}>
+						<Skeleton className="h-2.5 w-16" />
+						<Skeleton className="mt-2 h-4 w-12" />
+					</div>
+				))}
+			</div>
+			<div className="border-t px-6 pt-3 pb-2">
+				<Skeleton className="h-2.5 w-14" />
+				<div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+					{lifetimeTiles.map((i) => (
+						<div key={i}>
+							<Skeleton className="h-2.5 w-16" />
+							<Skeleton className="mt-2 h-4 w-12" />
+						</div>
+					))}
+				</div>
+			</div>
+		</Card>
+	);
+}
+
+/** Skeleton for the sessions panel (label + 3 stat items + a few session rows). */
+export function SessionsPanelSkeleton({ rows = 3 }: { rows?: number }) {
+	const items = Array.from({ length: rows }, (_, i) => i);
+	return (
+		<Card aria-busy aria-label={m.admin_loading()} className="gap-4">
+			<div className="flex flex-wrap items-center justify-between gap-3 px-6">
+				<Skeleton className="h-3.5 w-32" />
+				<Skeleton className="h-7 w-28 rounded-md" />
+			</div>
+			<div className="grid grid-cols-1 gap-3 px-6 sm:grid-cols-3">
+				{Array.from({ length: 3 }).map((_, i) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: shape is static
+					<div key={i}>
+						<Skeleton className="h-2.5 w-16" />
+						<Skeleton className="mt-2 h-4 w-20" />
+					</div>
+				))}
+			</div>
+			<ul className="flex flex-col gap-1.5 border-t px-6 pt-3">
+				{items.map((i) => (
+					<li
+						key={i}
+						className="flex items-baseline justify-between gap-2"
+					>
+						<Skeleton className="h-3 w-24" />
+						<Skeleton className="h-3 w-20" />
+					</li>
+				))}
+			</ul>
+		</Card>
 	);
 }
 

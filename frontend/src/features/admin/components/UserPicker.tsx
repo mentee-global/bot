@@ -1,6 +1,8 @@
 import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { useEffect, useId, useRef, useState } from "react";
+import { Skeleton } from "#/components/ui/Skeleton";
+import { InlineSpinner } from "#/features/admin/components/shared";
 import type { AdminUserSummary } from "#/features/admin/data/admin.types";
 import { useAdminUsersQuery } from "#/features/admin/hooks/useAdmin";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
@@ -84,7 +86,7 @@ export function UserPicker({
 	const triggerLabel = selected
 		? selected.name || selected.email
 		: value
-			? "Loading…"
+			? null  // value set but not yet resolved — render an inline spinner instead
 			: placeholder;
 
 	return (
@@ -104,7 +106,11 @@ export function UserPicker({
 					)}
 				>
 					<span className="flex min-w-0 flex-col text-left">
-						<span className="truncate">{triggerLabel}</span>
+						{triggerLabel == null ? (
+							<InlineSpinner />
+						) : (
+							<span className="truncate">{triggerLabel}</span>
+						)}
 						{selected?.name && selected.email ? (
 							<span className="truncate text-xs text-muted-foreground">
 								{selected.email}
@@ -153,9 +159,19 @@ export function UserPicker({
 					</div>
 					<div className="max-h-72 overflow-y-auto py-1">
 						{list.isPending ? (
-							<p className="px-3 py-4 text-center text-sm text-muted-foreground">
-								Loading users…
-							</p>
+							<ul
+								aria-busy
+								aria-label="Loading users"
+								className="flex flex-col gap-1.5 px-3 py-2"
+							>
+								{Array.from({ length: 5 }).map((_, i) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: shape is static
+									<li key={i} className="flex flex-col gap-1">
+										<Skeleton className="h-3 w-1/2" />
+										<Skeleton className="h-2.5 w-1/3" />
+									</li>
+								))}
+							</ul>
 						) : list.isError ? (
 							<p className="px-3 py-4 text-center text-sm text-destructive">
 								{list.error.message}
