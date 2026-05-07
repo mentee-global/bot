@@ -140,15 +140,14 @@ def _is_user_facing_url(url: str) -> bool:
     return not bare.endswith(_NON_USER_FACING_EXTS)
 
 
-# HEAD-check tuning. We want false positives (stripping a live URL) to be
-# rare, so only confident negatives count as dead. 401/403/405/406/429
+# Liveness-check tuning. We want false positives (stripping a live URL)
+# to be rare, so only confident negatives count as dead. 401/403/405/406/429
 # are common on Wellfound, Indeed, LinkedIn etc. — bot-block, not gone.
 _DEAD_STATUS = frozenset({404, 410})
-_RETRY_AS_GET_STATUS = frozenset({405, 501})
-_HEAD_TIMEOUT_S = 2.0
+_PROBE_TIMEOUT_S = 2.0
 # Total wall-clock budget at validation time. Anything still pending is
 # treated as alive (we'd rather show a 404 than a slow blank reply).
-_HEAD_GATHER_BUDGET_S = 1.0
+_LIVENESS_GATHER_BUDGET_S = 1.0
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -160,23 +159,25 @@ async def _check_url_alive_and_record(
 ) -> None:
     """Best-effort liveness probe; mutates `dead_urls` only on 404/410.
 
-    Networks errors, timeouts, and "alive but blocking" status codes (401,
-    403, 405, 406, 429, 5xx) all leave the URL alone — better to surface a
-    real-but-bot-blocked link than to amputate it. Some servers refuse HEAD
-    but answer GET, so we retry once with a tiny `Range` GET.
+    Algorithm: HEAD first (fast, cheap), then retry with a tiny `Range` GET
+    on *any* HTTP error response. Some servers (e.g. Workable's
+    `jobs.workable.com`) return 404 to HEAD as an anti-bot signal even when
+    GET returns 200 — without the GET retry we get false positives that
+    strip live URLs from the reply. Only the GET verdict counts; network
+    errors and timeouts leave the URL alone.
     """
     headers = {"User-Agent": _BROWSER_UA}
     try:
         r = await client.head(
             url,
-            timeout=_HEAD_TIMEOUT_S,
+            timeout=_PROBE_TIMEOUT_S,
             follow_redirects=True,
             headers=headers,
         )
-        if r.status_code in _RETRY_AS_GET_STATUS:
+        if r.status_code >= 400:
             r = await client.get(
                 url,
-                timeout=_HEAD_TIMEOUT_S,
+                timeout=_PROBE_TIMEOUT_S,
                 follow_redirects=True,
                 headers={**headers, "Range": "bytes=0-1"},
             )
@@ -206,7 +207,7 @@ def _add_url_to_allowlist(deps: MenteeDeps, url: str) -> None:
 
 
 async def _gather_liveness(deps: MenteeDeps) -> None:
-    """Wait up to `_HEAD_GATHER_BUDGET_S` for outstanding HEAD checks to
+    """Wait up to `_LIVENESS_GATHER_BUDGET_S` for outstanding probes to
     finish. Tasks still pending after the budget are abandoned (their URLs
     stay in the allowlist; this errs toward showing rather than hiding)."""
     tasks = [t for t in deps.liveness_tasks.values() if not getattr(t, "done", lambda: False)()]
@@ -215,7 +216,7 @@ async def _gather_liveness(deps: MenteeDeps) -> None:
     try:
         await asyncio.wait_for(
             asyncio.gather(*tasks, return_exceptions=True),
-            timeout=_HEAD_GATHER_BUDGET_S,
+            timeout=_LIVENESS_GATHER_BUDGET_S,
         )
     except TimeoutError:
         return
@@ -684,11 +685,11 @@ class MenteeAgent(AgentPort):
             request_limit=settings.agent_request_limit,
             total_tokens_limit=settings.agent_total_tokens_limit,
         )
-        # Reused across turns so HEAD-check connection pooling kicks in for
-        # popular hosts (Wellfound, Indeed, Lever). Process-lifetime client;
-        # FastAPI workers terminate it on shutdown.
+        # Reused across turns so liveness-probe connection pooling kicks
+        # in for popular hosts (Wellfound, Indeed, Lever). Process-lifetime
+        # client; FastAPI workers terminate it on shutdown.
         self._http_client: httpx.AsyncClient = httpx.AsyncClient(
-            timeout=_HEAD_TIMEOUT_S,
+            timeout=_PROBE_TIMEOUT_S,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
 
