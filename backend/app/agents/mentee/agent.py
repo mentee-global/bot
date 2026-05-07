@@ -413,6 +413,21 @@ def _expand_relative_citations(text: str) -> str:
     return _EMPTY_CITE_PARENS_RE.sub("", rewritten)
 
 
+def _split_concatenated_urls(text: str) -> str:
+    """Insert a space when one URL runs straight into another.
+
+    The model occasionally writes two URLs back to back with no separator
+    (`https://platzi.com/https://platzi.com/cursos` — visible in the wild).
+    The browser then treats the whole thing as one URL and 404s. Split on
+    any `https?://` that appears mid-URL — false positives are limited to
+    redirect-style links that embed another URL in their query string,
+    which are rare.
+    """
+    # Lookahead matches *only* when another https:// follows immediately
+    # without whitespace; the non-greedy body keeps each URL minimal.
+    return re.sub(r"(https?://[^\s]*?)(?=https?://)", r"\1 ", text)
+
+
 def _absolutize_dot_urls(text: str) -> str:
     """Convert `.host.tld/path` pseudo-URLs to `https://host.tld/path`.
 
@@ -443,6 +458,10 @@ def _strip_citations(text: str, cited_urls: set[str] | None = None) -> str:
     text = _absolutize_dot_urls(text)
     text = _MD_LINK_RE.sub(r"\2", text)
     text = _ORPHAN_CITE_RE.sub(r"\1", text)
+    # Split URLs the model glued together without whitespace before any
+    # downstream URL processing (allowlist matching, autolinking) sees
+    # them as one giant malformed URL.
+    text = _split_concatenated_urls(text)
     # Last: try to reconnect bare path stubs (`nrtai/`) to the full URL
     # the search tool returned. Runs after the markdown-link unwrapping
     # so we never re-edit a slug already inside a real URL.

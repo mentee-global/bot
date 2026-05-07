@@ -74,6 +74,13 @@ function expandRelativeCitations(md: string): string {
 	return rewritten.replace(/ ?\(\s*\)/g, "");
 }
 
+// Insert a space when the model glues two URLs together without a
+// separator (`https://platzi.com/https://platzi.com/cursos`). Without
+// this the URL extractor sees one giant malformed URL.
+function splitConcatenatedUrls(md: string): string {
+	return md.replace(/(https?:\/\/[^\s]*?)(?=https?:\/\/)/g, "$1 ");
+}
+
 function absolutizeDotUrls(md: string): string {
 	return md.replace(
 		DOT_URL_RE,
@@ -181,7 +188,11 @@ function sanitize(body: string): string {
 	const trailerless = stripSourcesTrailer(body);
 	const cleaned = trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
 	return autolinkBareDomains(
-		reconstructOrphanPaths(absolutizeDotUrls(expandRelativeCitations(cleaned))),
+		reconstructOrphanPaths(
+			splitConcatenatedUrls(
+				absolutizeDotUrls(expandRelativeCitations(cleaned)),
+			),
+		),
 	);
 }
 
