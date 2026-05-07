@@ -66,6 +66,16 @@ _PUA_CITATION_RE = re.compile(r"[\ue200-\ue2ff][^\ue200-\ue2ff]*[\ue200-\ue2ff]"
 _CITATION_MARKER_RE = re.compile(r"(?:cite)?turn\d+search\d+(?:(?:cite)?turn\d+search\d+)*")
 _STRAY_PUA_RE = re.compile(r"[\ue200-\ue2ff]")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
+# OpenAI's web_search builtin emits inline citations as `[host](path)`
+# markdown links where the path is relative (no protocol). Browsers
+# interpret the relative href as relative to the current chat URL, so
+# clicks 404. Expand to a fully-qualified URL using the link text's
+# hostname so the link works.
+_OAI_RELATIVE_CITE_RE = re.compile(
+    r"\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]"
+    r"\((?!https?:|mailto:|#)([^\s)]+)\)",
+    re.IGNORECASE,
+)
 # Only match "cite" when it trails a URL, to avoid mauling prose uses.
 _ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
 # URL extraction. Match anything up to whitespace and the few characters
@@ -257,11 +267,33 @@ async def _gather_liveness(deps: MenteeDeps) -> None:
         return
 
 
+def _expand_relative_citations(text: str) -> str:
+    """Rewrite OpenAI's `[host](path)` citations to absolute URLs.
+
+    The Responses API web_search builtin sometimes emits inline citations
+    as markdown links with the path-only as the href. Without a protocol
+    the browser resolves the href against the current page URL, so clicks
+    end up at `/chat/jobs/view/...` and 404. Reconstructing the full URL
+    using the link text's hostname makes the link work without changing
+    the visible link text.
+    """
+
+    def repl(match: re.Match[str]) -> str:
+        host = match.group(1)
+        path = match.group(2).lstrip("/")
+        return f"[{host}](https://{host}/{path})"
+
+    return _OAI_RELATIVE_CITE_RE.sub(repl, text)
+
+
 def _strip_citations(text: str) -> str:
     # PUA pairs first so their inner cite/turn tokens go with them.
     text = _PUA_CITATION_RE.sub("", text)
     text = _CITATION_MARKER_RE.sub("", text)
     text = _STRAY_PUA_RE.sub("", text)
+    # Expand `[host](relative-path)` to absolute URLs *before* unwrapping
+    # markdown-link syntax so the bare-URL form below still works.
+    text = _expand_relative_citations(text)
     text = _MD_LINK_RE.sub(r"\2", text)
     text = _ORPHAN_CITE_RE.sub(r"\1", text)
     return text

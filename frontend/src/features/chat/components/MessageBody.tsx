@@ -83,6 +83,75 @@ interface Source {
 	title?: string;
 }
 
+// Path components that don't carry meaning on their own — usually wrappers
+// around the actual content slug. We skip them when picking a fallback
+// label so e.g. `/jobs/view/spanish-support-12345` lands on the slug.
+const SKIP_PATH_SEGMENTS = new Set([
+	"jobs",
+	"job",
+	"view",
+	"role",
+	"roles",
+	"company",
+	"companies",
+	"l",
+	"hc",
+	"en-us",
+	"en",
+	"page",
+	"posts",
+	"p",
+	"q",
+	"search",
+	"detail",
+	"details",
+]);
+
+// Segments that look like opaque identifiers — UUIDs, hex blobs, or pure
+// digits. Skipped so the label lands on a human-readable slug.
+const ID_SEGMENT_RE = /^(?:[a-f0-9]{8,}(?:-[a-f0-9]+)*|\d+)$/i;
+
+function cleanupSlug(seg: string): string {
+	const decoded = decodeURIComponent(seg)
+		.replace(/\.(?:html?|php|aspx?|jsp)$/i, "") // file extensions
+		.replace(/[-_+]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	// Drop trailing numeric / hex IDs that the slug suffix conventions leave behind.
+	const withoutTail = decoded
+		.replace(/\s\d{4,}$/, "")
+		.replace(/\s[a-f0-9]{8,}$/i, "")
+		.trim();
+	const final = withoutTail || decoded;
+	return final.replace(/\b[\p{Ll}]/gu, (c) => c.toUpperCase());
+}
+
+function deriveFallbackTitle(u: URL): string | undefined {
+	const segments = u.pathname.split("/").filter(Boolean);
+	if (segments.length === 0) return undefined;
+	// Find meaningful slugs — anything with letters that isn't a wrapper or
+	// an opaque ID. Take the last 1-2 (closer to the leaf, more specific).
+	const meaningful: string[] = [];
+	for (let i = segments.length - 1; i >= 0 && meaningful.length < 2; i--) {
+		const seg = segments[i];
+		const lower = seg.toLowerCase();
+		if (SKIP_PATH_SEGMENTS.has(lower)) continue;
+		if (ID_SEGMENT_RE.test(seg)) continue;
+		if (!/[a-z]/i.test(seg)) continue;
+		meaningful.unshift(cleanupSlug(seg));
+	}
+	if (meaningful.length === 0) return undefined;
+	// If the leaf is a short single word (e.g. "Colombia"), pair it with
+	// its parent ("Software Engineer / Colombia") so the pill carries
+	// enough context to differentiate from siblings.
+	let label =
+		meaningful.length > 1 && meaningful[1].split(" ").length <= 2
+			? `${meaningful[0]} / ${meaningful[1]}`
+			: meaningful[meaningful.length - 1];
+	if (label.length > 60) label = `${label.slice(0, 57)}…`;
+	return label;
+}
+
 function extractSources(
 	body: string,
 	titles: Record<string, string>,
@@ -96,7 +165,11 @@ function extractSources(
 			const u = new URL(raw);
 			const hostname = u.hostname.replace(/^www\./, "");
 			// Trailer keys are stored without trailing slash; match either form.
-			const title = titles[raw] ?? titles[raw.replace(/\/$/, "")] ?? undefined;
+			const annotated =
+				titles[raw] ?? titles[raw.replace(/\/$/, "")] ?? undefined;
+			// Fall back to a path-derived label so two URLs from the same host
+			// don't render as identical hostname-only pills.
+			const title = annotated ?? deriveFallbackTitle(u);
 			found.set(raw, { url: raw, hostname, title });
 		} catch {
 			// malformed URL — skip
