@@ -795,7 +795,7 @@ function InThreadFind({
 				onClick={onPrev}
 				disabled={totalMatches === 0}
 				className="rounded p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)] disabled:opacity-50"
-				aria-label="Previous match"
+				aria-label={m.chat_search_prev_aria()}
 			>
 				↑
 			</button>
@@ -804,7 +804,7 @@ function InThreadFind({
 				onClick={onNext}
 				disabled={totalMatches === 0}
 				className="rounded p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)] disabled:opacity-50"
-				aria-label="Next match"
+				aria-label={m.chat_search_next_aria()}
 			>
 				↓
 			</button>
@@ -812,7 +812,7 @@ function InThreadFind({
 				type="button"
 				onClick={onClose}
 				className="rounded p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)]"
-				aria-label="Close search"
+				aria-label={m.chat_search_close_aria()}
 			>
 				×
 			</button>

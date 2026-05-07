@@ -24,7 +24,7 @@ interface MyRouterContext {
 
 // Right-to-left scripts. Extend this set if you add locales that need RTL
 // layout (e.g. Persian "fa", Urdu "ur").
-const RTL_LOCALES = new Set<string>(["ar", "he"]);
+const RTL_LOCALES = new Set<string>(["ar", "he", "fa", "prs", "ps"]);
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=stored==='dark'?'dark':'light';var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(mode);root.setAttribute('data-theme',mode);root.style.colorScheme=mode;}catch(e){}})();`;
 

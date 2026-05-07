@@ -22,7 +22,7 @@ export function ThreadActionsMenu({
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
-					aria-label="Conversation actions"
+					aria-label={m.chat_thread_actions_aria()}
 					className="inline-flex size-8 items-center justify-center rounded-md text-[var(--theme-muted)] transition hover:bg-[var(--theme-surface)] hover:text-[var(--theme-primary)]"
 				>
 					<MoreHorizontal aria-hidden="true" className="size-4" />

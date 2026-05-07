@@ -2,6 +2,8 @@ import { AlertTriangle, Coins, Info, PauseCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useMeQuery } from "#/features/budget/hooks/useBudget";
 import { cn } from "#/lib/utils";
+import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
 export function CreditsPill() {
 	const me = useMeQuery();
@@ -36,11 +38,12 @@ export function CreditsPill() {
 	const empty = remaining <= 0;
 
 	const resetDate = new Date(resets_at);
-	const resetsShort = resetDate.toLocaleDateString(undefined, {
+	const locale = getLocale();
+	const resetsShort = resetDate.toLocaleDateString(locale, {
 		month: "short",
 		day: "numeric",
 	});
-	const resetsLabel = resetDate.toLocaleDateString(undefined, {
+	const resetsLabel = resetDate.toLocaleDateString(locale, {
 		month: "long",
 		day: "numeric",
 		year: "numeric",
@@ -51,34 +54,34 @@ export function CreditsPill() {
 	);
 	const inDaysLabel =
 		daysUntil === 0
-			? "today"
+			? m.credits_refresh_today()
 			: daysUntil === 1
-				? "tomorrow"
-				: `in ${daysUntil} days`;
+				? m.credits_refresh_tomorrow()
+				: m.credits_refresh_in_days({ days: daysUntil });
 
 	return (
 		<div className="flex items-center gap-2">
 			{hard_stopped ? (
 				<span
 					className="hidden items-center gap-1.5 rounded-full border border-[var(--theme-danger)] bg-[var(--theme-danger)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--theme-danger)] sm:inline-flex"
-					title="All chat is paused until the next reset."
+					title={m.credits_chip_paused_title()}
 				>
 					<PauseCircle size={12} />
-					Paused
+					{m.credits_chip_paused()}
 				</span>
 			) : perplexity_degraded ? (
 				<span
 					className="hidden items-center gap-1.5 rounded-full border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--theme-secondary)] sm:inline-flex"
-					title="Real-time search temporarily disabled to stay within budget."
+					title={m.credits_chip_limited_search_title()}
 				>
 					<AlertTriangle size={12} />
-					Limited search
+					{m.credits_chip_limited_search()}
 				</span>
 			) : null}
 			<span className="group/pill relative inline-flex">
 				<button
 					type="button"
-					aria-label="How credits work"
+					aria-label={m.credits_pill_aria()}
 					aria-expanded={open}
 					onPointerEnter={(e) => {
 						// Mouse hover only — touch pointers fire enter on tap which would
@@ -104,7 +107,7 @@ export function CreditsPill() {
 					<Coins size={12} />
 					<span>
 						{remaining}/{total}
-						<span className="hidden sm:inline"> credits</span>
+						<span className="hidden sm:inline"> {m.credits_pill_units()}</span>
 					</span>
 					<Info
 						size={11}
@@ -117,7 +120,7 @@ export function CreditsPill() {
 						{/* Mobile-only backdrop: tap-anywhere to dismiss the bottom sheet. */}
 						<button
 							type="button"
-							aria-label="Close credits info"
+							aria-label={m.credits_pill_close_info_aria()}
 							onClick={() => setOpen(false)}
 							className="fixed inset-0 z-40 cursor-default bg-black/30 sm:hidden"
 						/>
@@ -131,56 +134,35 @@ export function CreditsPill() {
 						>
 							<button
 								type="button"
-								aria-label="Close"
+								aria-label={m.credits_pill_close_aria()}
 								onClick={() => setOpen(false)}
 								className="absolute right-2 top-2 rounded-md p-1 text-[var(--theme-muted)] transition hover:text-[var(--theme-primary)] sm:hidden"
 							>
 								<X size={14} />
 							</button>
 							<p className="m-0 mb-1.5 pr-6 text-xs font-semibold text-[var(--theme-primary)] sm:pr-0">
-								How credits work
+								{m.credits_popover_title()}
 							</p>
 							<ul className="m-0 list-none space-y-1.5 p-0 text-xs leading-relaxed text-[var(--theme-muted)]">
 								<li>
-									You get{" "}
-									<span className="font-semibold text-[var(--theme-primary)]">
-										{monthly_allocation} credits
-									</span>{" "}
-									each month for chatting with the mentor.
+									{m.credits_popover_monthly({ amount: monthly_allocation })}
 								</li>
 								{hasBonus ? (
-									<li>
-										The team granted you{" "}
-										<span className="font-semibold text-[var(--theme-primary)]">
-											{bonus} extra credits
-										</span>{" "}
-										this period. They're available until the next reset and
-										don't carry over.
-									</li>
+									<li>{m.credits_popover_bonus({ amount: bonus })}</li>
 								) : null}
+								<li>{m.credits_popover_usage()}</li>
 								<li>
-									Every reply uses some credits. Quick answers cost a little;
-									longer answers and live web research cost more.
-								</li>
-								<li>
-									Your balance refreshes on{" "}
-									<span className="font-semibold text-[var(--theme-primary)]">
-										{resetsLabel}
-									</span>{" "}
-									<span className="text-[var(--theme-secondary)]">
-										({inDaysLabel}).
-									</span>
+									{m.credits_popover_refresh({
+										date: resetsLabel,
+										when: inDaysLabel,
+									})}
 								</li>
 								{hard_stopped ? (
 									<li className="text-[var(--theme-danger)]">
-										You've used this month's credits — chat resumes after the
-										reset.
+										{m.credits_popover_hard_stopped()}
 									</li>
 								) : perplexity_degraded ? (
-									<li>
-										Real-time web search is paused this month so you can keep
-										chatting; the mentor will rely on what it already knows.
-									</li>
+									<li>{m.credits_popover_perplexity_degraded()}</li>
 								) : null}
 							</ul>
 						</div>
@@ -191,7 +173,7 @@ export function CreditsPill() {
 				className="hidden text-[11px] tabular-nums text-[var(--theme-muted)] sm:inline"
 				title={`${resetsLabel} (${inDaysLabel})`}
 			>
-				Renews {resetsShort}
+				{m.credits_pill_renews({ date: resetsShort })}
 			</span>
 		</div>
 	);

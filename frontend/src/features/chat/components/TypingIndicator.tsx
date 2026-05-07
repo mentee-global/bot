@@ -1,3 +1,5 @@
+import { m } from "#/paraglide/messages";
+
 /**
  * Three-dot "thinking" animation shown in the assistant bubble while the
  * model is processing and hasn't produced any text yet.
@@ -6,7 +8,7 @@ export function TypingIndicator() {
 	return (
 		<span
 			role="status"
-			aria-label="Mentor is thinking"
+			aria-label={m.chat_typing_aria()}
 			className="flex items-center gap-1 py-1"
 		>
 			<span className="typing-dot" />
