@@ -115,7 +115,7 @@ async def _verify_schema_up_to_date() -> None:
     """Compare the DB's `alembic_version` row to the latest migration script.
 
     Production deploys run `alembic upgrade head` as a release step (see
-    `Procfile` / `railway.json`), so this check is a no-op there. In local dev
+    the Dockerfile CMD), so this check is a no-op there. In local dev
     it catches the case where someone pulled new code that depends on a
     migration they haven't run yet — preventing column-not-exist errors from
     reaching live requests.

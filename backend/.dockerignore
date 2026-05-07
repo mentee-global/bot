@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local venv (we build a fresh one in the image)
+.venv/
+venv/
+
+# Local env files (Railway injects vars at runtime)
+.env
+.env.local
+.env.*
+
+# Test / lint / observability caches
+.pytest_cache/
+.ruff_cache/
+.logfire/
+.coverage
+htmlcov/
+
+# Editor / agent state
+.claude/
+.cursorrules
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Docs and offline tooling not needed in the image
+README.md
+CLAUDE.md
+scripts/
