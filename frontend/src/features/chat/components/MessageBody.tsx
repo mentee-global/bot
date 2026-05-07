@@ -23,15 +23,54 @@ const SOURCES_TRAILER_RE = /\n*<!-- mentee-sources: (\{.*?\}) -->\s*$/;
 // markdown links \u2014 clicking those resolves the href against the current
 // chat URL and 404s. The backend expands them on new messages, but
 // already-persisted bodies still contain the broken form, so we run
-// the same expansion at render time.
+// the same expansion at render time. Empty paths and tracking-only
+// fragments (`source=openai`, `openai`, etc.) get dropped \u2014 they're
+// stale references the model couldn't link anywhere useful.
 const RELATIVE_CITE_RE =
-	/\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]\((?!https?:|mailto:|#)([^\s)]+)\)/gi;
+	/\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]\((?!https?:|mailto:|#)([^\s)]*)\)/gi;
+const TRACKING_PATH_TOKENS = new Set([
+	"openai",
+	"utm_source",
+	"utm_medium",
+	"utm_campaign",
+	"source",
+]);
+// Bare-but-broken pseudo-URLs (`.greenhouse.io/praxent/jobs/\u2026`) \u2014 the
+// leading char is captured so we don't false-match prose like
+// "version 2.5.10/path".
+const DOT_URL_RE =
+	/(^|[\s(])\.([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\/(\S+)/gim;
+
+function isGarbageRelPath(path: string): boolean {
+	const trimmed = path.replace(/^\/+/, "").trim();
+	if (!trimmed) return true;
+	if (trimmed.includes("/")) return false;
+	const before = trimmed.split("?")[0];
+	if (!before) return true;
+	const lower = before.toLowerCase();
+	if (TRACKING_PATH_TOKENS.has(lower)) return true;
+	if (lower.includes("=")) return true;
+	if (before.length < 4 && !/\d/.test(before)) return true;
+	return false;
+}
 
 function expandRelativeCitations(md: string): string {
-	return md.replace(
+	const rewritten = md.replace(
 		RELATIVE_CITE_RE,
-		(_match, host: string, path: string) =>
-			`[${host}](https://${host}/${path.replace(/^\/+/, "")})`,
+		(_match, host: string, path: string) => {
+			if (isGarbageRelPath(path)) return "";
+			return `[${host}](https://${host}/${path.replace(/^\/+/, "")})`;
+		},
+	);
+	// Drop empty `()` parens left behind when we strip a garbage citation.
+	return rewritten.replace(/ ?\(\s*\)/g, "");
+}
+
+function absolutizeDotUrls(md: string): string {
+	return md.replace(
+		DOT_URL_RE,
+		(_m, leading: string, host: string, path: string) =>
+			`${leading}https://${host}/${path}`,
 	);
 }
 
@@ -83,7 +122,9 @@ function parseSourcesTrailer(body: string): Record<string, string> {
 function sanitize(body: string): string {
 	const trailerless = stripSourcesTrailer(body);
 	const cleaned = trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
-	return autolinkBareDomains(expandRelativeCitations(cleaned));
+	return autolinkBareDomains(
+		absolutizeDotUrls(expandRelativeCitations(cleaned)),
+	);
 }
 
 export function stripChatBody(body: string): string {

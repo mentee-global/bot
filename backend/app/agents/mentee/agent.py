@@ -73,11 +73,52 @@ _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
 # hostname so the link works.
 _OAI_RELATIVE_CITE_RE = re.compile(
     r"\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]"
-    r"\((?!https?:|mailto:|#)([^\s)]+)\)",
+    r"\((?!https?:|mailto:|#)([^\s)]*)\)",
     re.IGNORECASE,
+)
+# Empty citation wrappers (like `()` or `( )`) left over after we drop a
+# garbage `[host](path)` — strip the parens too so the prose reads cleanly.
+_EMPTY_CITE_PARENS_RE = re.compile(r" ?\(\s*\)")
+# Bare-but-broken pseudo-URLs the model occasionally emits without a
+# protocol, like `.greenhouse.io/praxent/jobs/...`. The leading char is
+# captured (whitespace, `(`, or line start via MULTILINE `^`) and put
+# back verbatim so we don't misfire on prose like "version 2.5.10".
+_DOT_URL_RE = re.compile(
+    r"(^|[\s(])\.([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)/(\S+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Tracking-only fragments OpenAI sometimes leaves as the entire `path`
+# slot of a citation (the URL was a dead reference). Single-segment paths
+# matching these are dropped instead of expanded into bogus links.
+_TRACKING_PATH_TOKENS = frozenset(
+    {"openai", "utm_source", "utm_medium", "utm_campaign", "source"}
 )
 # Only match "cite" when it trails a URL, to avoid mauling prose uses.
 _ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
+
+
+def _is_garbage_rel_path(path: str) -> bool:
+    """True if the path of a `[host](path)` citation is too degenerate to
+    expand into a real URL — empty, a tracking-only fragment, or a single
+    short letter token. Multi-segment paths (containing `/`) always pass.
+    """
+    trimmed = path.lstrip("/").strip()
+    if not trimmed:
+        return True
+    if "/" in trimmed:
+        return False
+    before_query = trimmed.split("?", 1)[0]
+    if not before_query:
+        return True
+    lower = before_query.lower()
+    if lower in _TRACKING_PATH_TOKENS:
+        return True
+    if "=" in before_query:
+        return True
+    # Short pure-letter token — almost certainly a stray tracking word.
+    if len(before_query) < 4 and not any(c.isdigit() for c in before_query):
+        return True
+    return False
 # URL extraction. Match anything up to whitespace and the few characters
 # that almost never appear inside a URL. Parens and brackets are *allowed*
 # inside (some URLs really contain them, e.g. jobright.ai/...(remote,-latam)),
@@ -275,15 +316,38 @@ def _expand_relative_citations(text: str) -> str:
     the browser resolves the href against the current page URL, so clicks
     end up at `/chat/jobs/view/...` and 404. Reconstructing the full URL
     using the link text's hostname makes the link work without changing
-    the visible link text.
+    the visible link text. Citations whose path is degenerate (empty, a
+    tracking-only fragment, or a single short letter token) are dropped
+    entirely — there's no real URL behind them to link to.
     """
 
     def repl(match: re.Match[str]) -> str:
         host = match.group(1)
-        path = match.group(2).lstrip("/")
-        return f"[{host}](https://{host}/{path})"
+        path = match.group(2)
+        if _is_garbage_rel_path(path):
+            return ""
+        return f"[{host}](https://{host}/{path.lstrip('/')})"
 
-    return _OAI_RELATIVE_CITE_RE.sub(repl, text)
+    rewritten = _OAI_RELATIVE_CITE_RE.sub(repl, text)
+    return _EMPTY_CITE_PARENS_RE.sub("", rewritten)
+
+
+def _absolutize_dot_urls(text: str) -> str:
+    """Convert `.host.tld/path` pseudo-URLs to `https://host.tld/path`.
+
+    The model sometimes prefixes a citation host with a leading dot
+    (`.greenhouse.io/praxent/jobs/…`) instead of a real protocol; the
+    result is rendered as inert text in the chat. Adding a protocol
+    promotes them to bare URLs that GFM autolinks naturally.
+    """
+
+    def repl(match: re.Match[str]) -> str:
+        leading = match.group(1)
+        host = match.group(2)
+        path = match.group(3)
+        return f"{leading}https://{host}/{path}"
+
+    return _DOT_URL_RE.sub(repl, text)
 
 
 def _strip_citations(text: str) -> str:
@@ -294,6 +358,8 @@ def _strip_citations(text: str) -> str:
     # Expand `[host](relative-path)` to absolute URLs *before* unwrapping
     # markdown-link syntax so the bare-URL form below still works.
     text = _expand_relative_citations(text)
+    # Promote `.host.tld/path` pseudo-URLs so they're clickable too.
+    text = _absolutize_dot_urls(text)
     text = _MD_LINK_RE.sub(r"\2", text)
     text = _ORPHAN_CITE_RE.sub(r"\1", text)
     return text
