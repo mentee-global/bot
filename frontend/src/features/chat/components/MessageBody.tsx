@@ -19,6 +19,22 @@ const STRAY_PUA = /[\uE000-\uF8FF]/g;
 // JSON contains "-->" sequences (it shouldn't, but defensive).
 const SOURCES_TRAILER_RE = /\n*<!-- mentee-sources: (\{.*?\}) -->\s*$/;
 
+// OpenAI web_search emits inline citations as `[host](relative-path)`
+// markdown links \u2014 clicking those resolves the href against the current
+// chat URL and 404s. The backend expands them on new messages, but
+// already-persisted bodies still contain the broken form, so we run
+// the same expansion at render time.
+const RELATIVE_CITE_RE =
+	/\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]\((?!https?:|mailto:|#)([^\s)]+)\)/gi;
+
+function expandRelativeCitations(md: string): string {
+	return md.replace(
+		RELATIVE_CITE_RE,
+		(_match, host: string, path: string) =>
+			`[${host}](https://${host}/${path.replace(/^\/+/, "")})`,
+	);
+}
+
 // Curated TLDs so we don't autolink things like "v1.2.3" or "file.tar.gz".
 const COMMON_TLDS =
 	"com|org|net|edu|gov|io|co|ai|app|dev|info|uk|au|ca|de|fr|es|it|nz|jp|in|br|mx|ar|ch|nl|se|no|dk|fi|pt|ie|be|at|pl|cz|za|sg|hk|kr";
@@ -67,7 +83,7 @@ function parseSourcesTrailer(body: string): Record<string, string> {
 function sanitize(body: string): string {
 	const trailerless = stripSourcesTrailer(body);
 	const cleaned = trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
-	return autolinkBareDomains(cleaned);
+	return autolinkBareDomains(expandRelativeCitations(cleaned));
 }
 
 export function stripChatBody(body: string): string {
