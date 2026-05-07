@@ -50,11 +50,10 @@ class FeedbackTriggerConfig(BaseModel):
     `mode` selects which gating logic the frontend trigger hook uses:
     - "interactions": every N user messages (lifetime, browser-scoped).
     - "time": time elapsed since first activity (first ask) and last shown.
-    - "hybrid": fires when EITHER interaction or time threshold is met.
     """
 
     enabled: bool
-    mode: str  # "interactions" | "time" | "hybrid"
+    mode: str  # "interactions" | "time"
     interactions_first: int
     interactions_repeat: int
     time_first_minutes: int

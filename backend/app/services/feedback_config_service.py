@@ -18,7 +18,7 @@ from app.db.engine import async_session_factory
 from app.domain.models import FeedbackTriggerConfig
 from app.services.db_models import FeedbackTriggerConfigRecord
 
-_VALID_MODES = frozenset({"interactions", "time", "hybrid"})
+_VALID_MODES = frozenset({"interactions", "time"})
 
 
 class FeedbackConfigError(Exception):

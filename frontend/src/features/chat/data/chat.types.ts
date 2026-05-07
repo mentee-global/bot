@@ -96,7 +96,7 @@ export interface GetThreadRatingResponse {
 	rating: ThreadRating | null;
 }
 
-export type FeedbackTriggerMode = "interactions" | "time" | "hybrid";
+export type FeedbackTriggerMode = "interactions" | "time";
 
 export interface FeedbackTriggerConfig {
 	enabled: boolean;

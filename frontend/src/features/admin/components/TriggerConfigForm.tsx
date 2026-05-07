@@ -1,7 +1,6 @@
 import {
 	type Activity,
 	Clock,
-	Layers,
 	MessageSquare,
 	RotateCw,
 } from "lucide-react";
@@ -95,8 +94,8 @@ function formToPayload(form: FormState): UpdateFeedbackTriggerConfigPayload {
 
 /**
  * Admin form for the in-chat session rating prompt cadence. Fetches the
- * current config, lets the admin pick a trigger mode (interactions / time /
- * hybrid) and tune its parameters, and writes back via PUT. On success the
+ * current config, lets the admin pick a trigger mode (interactions / time)
+ * and tune its parameters, and writes back via PUT. On success the
  * mutation hook also primes the user-facing query cache so chats in other
  * open tabs pick up the new cadence on their next read.
  */
@@ -128,9 +127,8 @@ export function TriggerConfigForm() {
 		});
 	};
 
-	const showInteractions =
-		form.mode === "interactions" || form.mode === "hybrid";
-	const showTime = form.mode === "time" || form.mode === "hybrid";
+	const showInteractions = form.mode === "interactions";
+	const showTime = form.mode === "time";
 
 	return (
 		<form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -244,12 +242,6 @@ const MODE_OPTIONS: {
 		description: "Ask after a fixed amount of time has passed.",
 		icon: Clock,
 	},
-	{
-		value: "hybrid",
-		label: "Hybrid",
-		description: "Whichever fires first — interactions or time.",
-		icon: Layers,
-	},
 ];
 
 function ModePicker({
@@ -262,7 +254,7 @@ function ModePicker({
 	return (
 		<div className="flex flex-col gap-2">
 			<span className="text-sm font-medium">Trigger mode</span>
-			<div className="grid gap-2 sm:grid-cols-3">
+			<div className="grid gap-2 sm:grid-cols-2">
 				{MODE_OPTIONS.map((opt) => {
 					const Icon = opt.icon;
 					const active = mode === opt.value;

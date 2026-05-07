@@ -149,7 +149,7 @@ class FeedbackTriggerConfigRecord(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("id = 1", name="ck_feedback_trigger_config_singleton"),
         CheckConstraint(
-            "mode IN ('interactions', 'time', 'hybrid')",
+            "mode IN ('interactions', 'time')",
             name="ck_feedback_trigger_config_mode",
         ),
         CheckConstraint(

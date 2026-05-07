@@ -271,7 +271,7 @@ class AdminTriggerConfigUpdate(BaseModel):
     """
 
     enabled: bool
-    mode: Literal["interactions", "time", "hybrid"]
+    mode: Literal["interactions", "time"]
     interactions_first: int = Field(ge=1, le=1000)
     interactions_repeat: int = Field(ge=1, le=1000)
     time_first_minutes: int = Field(ge=1, le=525_600)  # max ~1 year
@@ -351,9 +351,7 @@ _METRICS_DEFAULT_DAYS = 30
 
 @router.get("/metrics", response_model=AdminMetricsResponse)
 async def get_metrics(
-    days: Annotated[
-        int | None, Query(ge=_METRICS_MIN_DAYS, le=_METRICS_MAX_DAYS)
-    ] = None,
+    days: Annotated[int | None, Query(ge=_METRICS_MIN_DAYS, le=_METRICS_MAX_DAYS)] = None,
     date_from: Annotated[
         str | None,
         Query(
@@ -414,9 +412,7 @@ async def get_metrics(
     usage_day = func.date_trunc("day", MessageUsage.created_at)
     # `extract('hour', tz_aware_ts)` is session-tz dependent — pin to UTC so
     # the hour buckets line up with how `created_at` was stored.
-    message_hour = func.extract(
-        "hour", func.timezone("UTC", MessageRecord.created_at)
-    )
+    message_hour = func.extract("hour", func.timezone("UTC", MessageRecord.created_at))
 
     user_stmt = (
         select(user_day.label("d"), func.count())
@@ -561,15 +557,12 @@ async def get_metrics(
         )
         .group_by(rating_day)
     )
-    rating_totals_stmt = (
-        select(
-            func.coalesce(func.avg(ThreadRatingRecord.stars), 0),
-            func.count(),
-        )
-        .where(
-            ThreadRatingRecord.created_at >= start,
-            ThreadRatingRecord.created_at < end_exclusive,
-        )
+    rating_totals_stmt = select(
+        func.coalesce(func.avg(ThreadRatingRecord.stars), 0),
+        func.count(),
+    ).where(
+        ThreadRatingRecord.created_at >= start,
+        ThreadRatingRecord.created_at < end_exclusive,
     )
     thumbs_stmt = (
         select(MessageRatingRecord.rating, func.count())
@@ -642,9 +635,7 @@ async def get_metrics(
         for d, cost, in_tok, out_tok, req in cost_rows
     }
     # Hour buckets — Postgres extract returns a Decimal; coerce to int 0..23.
-    hour_buckets: dict[int, int] = {
-        int(h): int(n or 0) for h, n in hour_rows if h is not None
-    }
+    hour_buckets: dict[int, int] = {int(h): int(n or 0) for h, n in hour_rows if h is not None}
 
     series: list[AdminMetricsPoint] = []
     new_users = 0
@@ -659,9 +650,7 @@ async def get_metrics(
         new_users += u
         new_threads += t
         new_messages += m
-        series.append(
-            AdminMetricsPoint(date=key, users=u, threads=t, messages=m)
-        )
+        series.append(AdminMetricsPoint(date=key, users=u, threads=t, messages=m))
 
     cost_series: list[AdminMetricsCostPoint] = []
     cost_period = 0
@@ -687,13 +676,11 @@ async def get_metrics(
         )
 
     hour_of_day = [
-        AdminMetricsHourPoint(hour=h, messages=hour_buckets.get(h, 0))
-        for h in range(24)
+        AdminMetricsHourPoint(hour=h, messages=hour_buckets.get(h, 0)) for h in range(24)
     ]
 
     role_breakdown = [
-        AdminMetricsRoleSlice(role=str(role), messages=int(n or 0))
-        for role, n in role_rows
+        AdminMetricsRoleSlice(role=str(role), messages=int(n or 0)) for role, n in role_rows
     ]
     model_breakdown = [
         AdminMetricsModelSlice(
@@ -719,11 +706,7 @@ async def get_metrics(
         [int(n or 0) for _, n in thread_length_rows]
     )
 
-    avg = (
-        round(messages_total_n / threads_total_n, 2)
-        if threads_total_n
-        else 0.0
-    )
+    avg = round(messages_total_n / threads_total_n, 2) if threads_total_n else 0.0
 
     feedback = _build_feedback(
         days=days,
@@ -799,12 +782,9 @@ def _build_feedback(  # type: ignore[no-untyped-def]
     thumbs_rows,
 ) -> AdminMetricsFeedback:
     # Distribution: emit all 5 buckets so the chart renders even when empty.
-    dist_counts: dict[int, int] = {
-        int(stars): int(n or 0) for stars, n in star_distribution_rows
-    }
+    dist_counts: dict[int, int] = {int(stars): int(n or 0) for stars, n in star_distribution_rows}
     star_distribution = [
-        AdminMetricsStarBucket(stars=s, count=dist_counts.get(s, 0))
-        for s in range(1, 6)
+        AdminMetricsStarBucket(stars=s, count=dist_counts.get(s, 0)) for s in range(1, 6)
     ]
 
     # Daily series: zero-fill missing days; avg_stars stays None on empty days
@@ -821,24 +801,18 @@ def _build_feedback(  # type: ignore[no-untyped-def]
         day = start + timedelta(days=i)
         key = day.strftime("%Y-%m-%d")
         avg, n = series_buckets.get(key, (None, 0))
-        avg_rating_series.append(
-            AdminMetricsRatingPoint(date=key, avg_stars=avg, count=n)
-        )
+        avg_rating_series.append(AdminMetricsRatingPoint(date=key, avg_stars=avg, count=n))
 
     # Period totals — DataFusion returns one row even on empty tables.
     if rating_totals_rows:
         total_avg, total_count = rating_totals_rows[0]
         total_count_int = int(total_count or 0)
-        avg_rating_period = (
-            round(float(total_avg), 2) if total_count_int > 0 else None
-        )
+        avg_rating_period = round(float(total_avg), 2) if total_count_int > 0 else None
     else:
         total_count_int = 0
         avg_rating_period = None
 
-    thumbs_buckets: dict[int, int] = {
-        int(rating): int(n or 0) for rating, n in thumbs_rows
-    }
+    thumbs_buckets: dict[int, int] = {int(rating): int(n or 0) for rating, n in thumbs_rows}
     up = thumbs_buckets.get(1, 0)
     down = thumbs_buckets.get(-1, 0)
     denom = up + down
@@ -884,16 +858,13 @@ async def list_users(
     query = (q or "").strip() or None
     role_filter = (role or "").strip() or None
     rows, total = await asyncio.gather(
-        sessions.list_users(
-            limit=_PAGE_SIZE, offset=offset, role=role_filter, query=query
-        ),
+        sessions.list_users(limit=_PAGE_SIZE, offset=offset, role=role_filter, query=query),
         sessions.count_users(role=role_filter, query=query),
     )
     quotas = await budget.list_user_quotas([user.id for user, _ in rows])
     return AdminUserListResponse(
         users=[
-            _user_summary(user, last_used_at, quotas.get(user.id))
-            for user, last_used_at in rows
+            _user_summary(user, last_used_at, quotas.get(user.id)) for user, last_used_at in rows
         ],
         total=total,
         page=page,
@@ -901,9 +872,7 @@ async def list_users(
     )
 
 
-@router.get(
-    "/users/{user_id}/threads", response_model=AdminThreadListResponse
-)
+@router.get("/users/{user_id}/threads", response_model=AdminThreadListResponse)
 async def list_user_threads(
     user_id: UUID,
     service: Annotated[MessageService, Depends(get_message_service)],
@@ -916,14 +885,10 @@ async def list_user_threads(
     query = (q or "").strip() or None
     uid_str = str(user_id)
     threads, total = await asyncio.gather(
-        service.store.list_threads(
-            uid_str, query=query, limit=_PAGE_SIZE, offset=offset
-        ),
+        service.store.list_threads(uid_str, query=query, limit=_PAGE_SIZE, offset=offset),
         service.store.count_threads(uid_str, query=query),
     )
-    counts = await service.store.count_messages_for_threads(
-        [t.id for t in threads]
-    )
+    counts = await service.store.count_messages_for_threads([t.id for t in threads])
     owners = await _resolve_owners(sessions, [t.user_id for t in threads])
     return AdminThreadListResponse(
         threads=[_thread_summary(t, counts, owners) for t in threads],
@@ -970,14 +935,10 @@ async def list_all_threads(
     offset = (page - 1) * _PAGE_SIZE
     query = (q or "").strip() or None
     threads, total = await asyncio.gather(
-        service.store.list_all_threads(
-            query=query, limit=_PAGE_SIZE, offset=offset
-        ),
+        service.store.list_all_threads(query=query, limit=_PAGE_SIZE, offset=offset),
         service.store.count_all_threads(query=query),
     )
-    counts = await service.store.count_messages_for_threads(
-        [t.id for t in threads]
-    )
+    counts = await service.store.count_messages_for_threads([t.id for t in threads])
     owners = await _resolve_owners(sessions, [t.user_id for t in threads])
     return AdminThreadListResponse(
         threads=[_thread_summary(t, counts, owners) for t in threads],
@@ -1005,10 +966,8 @@ async def read_thread(
     offset = (page_num - 1) * _THREAD_MESSAGE_PAGE_SIZE
     try:
         thread = await service.store.get_any_thread_summary(thread_id)
-        messages, total, role_counts = (
-            await service.store.get_any_thread_messages_page(
-                thread_id, limit=_THREAD_MESSAGE_PAGE_SIZE, offset=offset
-            )
+        messages, total, role_counts = await service.store.get_any_thread_messages_page(
+            thread_id, limit=_THREAD_MESSAGE_PAGE_SIZE, offset=offset
         )
     except ThreadNotFoundError as err:
         raise HTTPException(
@@ -1033,9 +992,7 @@ async def read_thread(
     )
 
 
-@router.get(
-    "/threads/{thread_id}/export", response_model=AdminThreadResponse
-)
+@router.get("/threads/{thread_id}/export", response_model=AdminThreadResponse)
 async def export_thread(
     thread_id: str,
     service: Annotated[MessageService, Depends(get_message_service)],
@@ -1072,24 +1029,25 @@ async def export_thread(
     )
 
 
-@router.get(
-    "/feedback/ratings", response_model=AdminRatingsResponse
-)
+@router.get("/feedback/ratings", response_model=AdminRatingsResponse)
 async def list_ratings(
     sessions: Annotated[SessionStore, Depends(get_session_store)],
     page: Annotated[int | None, Query(ge=1)] = None,
     min_stars: Annotated[int | None, Query(ge=1, le=5)] = None,
     max_stars: Annotated[int | None, Query(ge=1, le=5)] = None,
+    has_comment: Annotated[bool | None, Query()] = None,
     q: Annotated[str | None, Query(max_length=128)] = None,
 ) -> AdminRatingsResponse:
     """Paginated list of session star ratings, newest first.
 
     Optional `min_stars` / `max_stars` filters carve out a band — the admin
-    UI uses `max_stars=2` to surface a low-rated triage view from the same
-    endpoint. `q` is a substring search across thread title, comment, and
-    owner email/name. Pagination is independent of the metrics window:
-    admins can scroll through every rating without changing the date range
-    above.
+    UI uses `min_stars=max_stars` for an exact-star drill-down and the
+    bands (e.g. `max_stars=2`) for triage views. `has_comment=true` keeps
+    only ratings that include free-text feedback — useful for triaging
+    qualitative responses. `q` is a substring search across thread title,
+    comment, and owner email/name. Pagination is independent of the
+    metrics window: admins can scroll through every rating without
+    changing the date range above.
     """
     page_num = _normalize_page(page)
     offset = (page_num - 1) * _PAGE_SIZE
@@ -1099,6 +1057,16 @@ async def list_ratings(
         where_clauses.append(ThreadRatingRecord.stars >= min_stars)
     if max_stars is not None:
         where_clauses.append(ThreadRatingRecord.stars <= max_stars)
+    if has_comment is True:
+        where_clauses.append(ThreadRatingRecord.comment.is_not(None))
+        where_clauses.append(func.length(func.trim(ThreadRatingRecord.comment)) > 0)
+    elif has_comment is False:
+        where_clauses.append(
+            or_(
+                ThreadRatingRecord.comment.is_(None),
+                func.length(func.trim(ThreadRatingRecord.comment)) == 0,
+            )
+        )
     needle = q.strip() if q else None
     if needle:
         like = f"%{needle.lower()}%"
@@ -1300,27 +1268,19 @@ def _truncate(text: str, n: int) -> str:
     return text[: n - 1].rstrip() + "…"
 
 
-@router.get(
-    "/config/feedback-trigger", response_model=FeedbackTriggerConfig
-)
+@router.get("/config/feedback-trigger", response_model=FeedbackTriggerConfig)
 async def get_feedback_trigger_config(
-    service: Annotated[
-        FeedbackConfigService, Depends(get_feedback_config_service)
-    ],
+    service: Annotated[FeedbackConfigService, Depends(get_feedback_config_service)],
 ) -> FeedbackTriggerConfig:
     """Read the current cadence config for the in-chat session rating prompt."""
     return await service.get()
 
 
-@router.put(
-    "/config/feedback-trigger", response_model=FeedbackTriggerConfig
-)
+@router.put("/config/feedback-trigger", response_model=FeedbackTriggerConfig)
 async def update_feedback_trigger_config(
     payload: AdminTriggerConfigUpdate,
     actor: Annotated[User, Depends(require_admin)],
-    service: Annotated[
-        FeedbackConfigService, Depends(get_feedback_config_service)
-    ],
+    service: Annotated[FeedbackConfigService, Depends(get_feedback_config_service)],
 ) -> FeedbackTriggerConfig:
     """Update the cadence config. Logged at WARNING for an audit trail."""
     try:
@@ -1335,9 +1295,7 @@ async def update_feedback_trigger_config(
             re_rate_after_messages=payload.re_rate_after_messages,
         )
     except FeedbackConfigError as err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
-        ) from err
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
     logger.warning(
         "admin update_feedback_trigger_config: actor=%s mode=%s enabled=%s "
         "interactions_first=%d interactions_repeat=%d "
@@ -1360,9 +1318,7 @@ async def update_feedback_trigger_config(
 # ---------------------------------------------------------------------------
 
 
-@router.delete(
-    "/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thread(
     thread_id: str,
     service: Annotated[MessageService, Depends(get_message_service)],
@@ -1374,9 +1330,7 @@ async def delete_thread(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
         ) from err
-    logger.warning(
-        "admin delete_thread: actor=%s thread_id=%s", actor.email, thread_id
-    )
+    logger.warning("admin delete_thread: actor=%s thread_id=%s", actor.email, thread_id)
 
 
 @router.post(
@@ -1410,7 +1364,9 @@ async def _scalar(stmt) -> int:  # type: ignore[no-untyped-def]
 
 
 def _user_summary(
-    user: UserRecord, last_used_at: datetime | None, quota=None  # type: ignore[no-untyped-def]
+    user: UserRecord,
+    last_used_at: datetime | None,
+    quota=None,  # type: ignore[no-untyped-def]
 ) -> AdminUserSummary:
     return AdminUserSummary(
         user_id=str(user.id),

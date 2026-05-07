@@ -202,7 +202,6 @@ interface UseSessionRatingTriggerResult {
  *     M messages.
  *   - mode `time`: ask after T minutes since first activity, then every U
  *     minutes since the last ask.
- *   - mode `hybrid`: fire when EITHER threshold is met.
  *   - `enabled = false`: never ask.
  *
  * Suppression layers (always apply):
@@ -458,24 +457,22 @@ export function useSessionRatingTrigger(
 // Threshold evaluation
 // ---------------------------------------------------------------------------
 
-/**
- * Return which trigger fired (or null if none). Hybrid mode prefers
- * `interactions` over `time` so analytics lands on the more specific cause
- * when both happen on the same render.
- */
+/** Return which trigger fired (or null if none). */
 function evaluateThreshold(
 	config: FeedbackTriggerConfig,
 	state: InteractionState,
 	now: number,
 ): "interactions" | "time" | null {
 	if (!config.enabled) return null;
-	const wantInteractions =
-		config.mode === "interactions" || config.mode === "hybrid";
-	const wantTime = config.mode === "time" || config.mode === "hybrid";
-	if (wantInteractions && meetsInteractionThreshold(config, state)) {
+	if (
+		config.mode === "interactions" &&
+		meetsInteractionThreshold(config, state)
+	) {
 		return "interactions";
 	}
-	if (wantTime && meetsTimeThreshold(config, state, now)) return "time";
+	if (config.mode === "time" && meetsTimeThreshold(config, state, now)) {
+		return "time";
+	}
 	return null;
 }
 
