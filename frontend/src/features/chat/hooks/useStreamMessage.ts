@@ -10,6 +10,8 @@ import type {
 	StreamMeta,
 	StreamSuggestions,
 	Thread,
+	ThreadListResponse,
+	ThreadSummary,
 	ToolEvent,
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
@@ -39,6 +41,21 @@ function patchThreadByKey(
 	});
 }
 
+function patchThreadsLists(
+	queryClient: QueryClient,
+	updater: (data: ThreadListResponse) => ThreadListResponse,
+) {
+	queryClient.setQueriesData<ThreadListResponse>(
+		{ queryKey: chatKeys.threadsRoot() },
+		(prev) => updater(prev ?? { threads: [] }),
+	);
+}
+
+function placeholderTitleFromBody(body: string): string {
+	const trimmed = body.trim().replace(/\s+/g, " ");
+	return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed;
+}
+
 // On error, we roll back the optimistic bubbles and fall back to the
 // non-streaming POST so the user still sees an answer. `stop()` aborts the
 // in-flight stream and keeps whatever tokens have accumulated so far.
@@ -54,6 +71,7 @@ export function useStreamMessage(
 		mutationFn: async (body: string) => {
 			const pendingUserId = `pending-user-${crypto.randomUUID()}`;
 			const pendingAssistantId = `pending-assistant-${crypto.randomUUID()}`;
+			const pendingThreadId = `pending-thread-${crypto.randomUUID()}`;
 			const activeThreadId = threadId ?? undefined;
 			const cacheKey = chatKeys.thread(activeThreadId);
 			const startedAt = Date.now();
@@ -97,6 +115,25 @@ export function useStreamMessage(
 				activeThreadId,
 			);
 
+			// Draft new chat: prepend a placeholder summary to the sidebar list
+			// immediately so the thread appears the moment the user sends. The
+			// backend can take several seconds to emit `meta` (it generates the
+			// title first), so waiting on that feels like the sidebar lags
+			// behind the agent's reply.
+			const isDraftNewChat = !threadId;
+			if (isDraftNewChat) {
+				const nowTs = nowIso();
+				const placeholder: ThreadSummary = {
+					thread_id: pendingThreadId,
+					title: placeholderTitleFromBody(body),
+					created_at: nowTs,
+					updated_at: nowTs,
+				};
+				patchThreadsLists(queryClient, (data) => ({
+					threads: [placeholder, ...data.threads],
+				}));
+			}
+
 			let meta: StreamMeta | null = null;
 			let resolvedCacheKey = cacheKey;
 			let accumulated = "";
@@ -113,7 +150,26 @@ export function useStreamMessage(
 						meta = JSON.parse(evt.data) as StreamMeta;
 						titleFromMeta = meta.title;
 						const metaSnapshot = meta;
-						if (!threadId) options?.onThreadResolved?.(meta.thread_id);
+						if (isDraftNewChat) {
+							// Swap the placeholder's thread_id to the real one so the
+							// sidebar's active-highlight stays on this entry the moment
+							// the URL flips to ?threadId=<real>.
+							patchThreadsLists(queryClient, (data) => ({
+								threads: data.threads.map((t) =>
+									t.thread_id === pendingThreadId
+										? {
+												...t,
+												thread_id: metaSnapshot.thread_id,
+												title: metaSnapshot.title ?? t.title,
+											}
+										: t,
+								),
+							}));
+							options?.onThreadResolved?.(meta.thread_id);
+							queryClient.invalidateQueries({
+								queryKey: chatKeys.threadsRoot(),
+							});
+						}
 						if (
 							cacheKey.join("/") !== chatKeys.thread(meta.thread_id).join("/")
 						) {
@@ -250,6 +306,13 @@ export function useStreamMessage(
 								(m) => m.id !== pendingUserId && m.id !== pendingAssistantId,
 							),
 						}));
+						if (isDraftNewChat) {
+							patchThreadsLists(queryClient, (data) => ({
+								threads: data.threads.filter(
+									(t) => t.thread_id !== pendingThreadId,
+								),
+							}));
+						}
 					}
 					if (titleFromMeta) {
 						queryClient.invalidateQueries({
@@ -275,6 +338,13 @@ export function useStreamMessage(
 					title: t.title,
 					messages: t.messages.filter((m) => !cleanupIds.has(m.id)),
 				}));
+				if (isDraftNewChat) {
+					patchThreadsLists(queryClient, (data) => ({
+						threads: data.threads.filter(
+							(t) => t.thread_id !== pendingThreadId,
+						),
+					}));
+				}
 
 				try {
 					const fallback = await chatService.sendMessage(
@@ -298,6 +368,11 @@ export function useStreamMessage(
 						}),
 						fallback.thread_id,
 					);
+					if (isDraftNewChat) {
+						queryClient.invalidateQueries({
+							queryKey: chatKeys.threadsRoot(),
+						});
+					}
 					console.warn("stream failed, used POST fallback:", err);
 					track("chat.response_received", {
 						thread_id: fallback.thread_id,
