@@ -376,6 +376,15 @@ async def _gather_liveness(deps: MenteeDeps) -> None:
         return
 
 
+# Path slots that begin with `.<domain>/` are OpenAI shorthand for "the
+# link-text host's parent domain". Strip the prefix so we don't end up
+# building `https://gradschool.cornell.edu/.cornell.edu/academics/…`.
+_PATH_DOT_DOMAIN_PREFIX_RE = re.compile(
+    r"^\.[a-z0-9-]+(?:\.[a-z0-9-]+)*/",
+    re.IGNORECASE,
+)
+
+
 def _expand_relative_citations(text: str) -> str:
     """Rewrite OpenAI's `[host](path)` citations to absolute URLs.
 
@@ -394,6 +403,10 @@ def _expand_relative_citations(text: str) -> str:
         path = match.group(2)
         if _is_garbage_rel_path(path):
             return ""
+        # Strip the leading `.subdomain/` prefix OpenAI sometimes inserts
+        # (e.g. `[gradschool.cornell.edu](.cornell.edu/academics/…)`),
+        # otherwise the resulting URL has a junk segment at the start.
+        path = _PATH_DOT_DOMAIN_PREFIX_RE.sub("", path)
         return f"[{host}](https://{host}/{path.lstrip('/')})"
 
     rewritten = _OAI_RELATIVE_CITE_RE.sub(repl, text)

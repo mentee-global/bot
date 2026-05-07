@@ -54,12 +54,20 @@ function isGarbageRelPath(path: string): boolean {
 	return false;
 }
 
+// Path slots that begin with `.<domain>/` are OpenAI shorthand for "the
+// link-text host's parent domain". Strip the prefix so we don't end up
+// building `https://gradschool.cornell.edu/.cornell.edu/academics/…`.
+const PATH_DOT_DOMAIN_PREFIX_RE = /^\.[a-z0-9-]+(?:\.[a-z0-9-]+)*\//i;
+
 function expandRelativeCitations(md: string): string {
 	const rewritten = md.replace(
 		RELATIVE_CITE_RE,
 		(_match, host: string, path: string) => {
 			if (isGarbageRelPath(path)) return "";
-			return `[${host}](https://${host}/${path.replace(/^\/+/, "")})`;
+			const cleaned = path
+				.replace(PATH_DOT_DOMAIN_PREFIX_RE, "")
+				.replace(/^\/+/, "");
+			return `[${host}](https://${host}/${cleaned})`;
 		},
 	);
 	// Drop empty `()` parens left behind when we strip a garbage citation.
