@@ -11,6 +11,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 
+import httpx
 import logfire
 from openai import AsyncOpenAI
 from pydantic_ai import Agent, RunContext
@@ -67,18 +68,39 @@ _STRAY_PUA_RE = re.compile(r"[\ue200-\ue2ff]")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
 # Only match "cite" when it trails a URL, to avoid mauling prose uses.
 _ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
-# URL extraction. Stops at whitespace or any of the "obviously not part of a URL"
-# characters; trailing punctuation is stripped via _strip_url_trailing_punct.
-_URL_RE = re.compile(r'https?://[^\s<>"\)\]]+')
+# URL extraction. Match anything up to whitespace and the few characters
+# that almost never appear inside a URL. Parens and brackets are *allowed*
+# inside (some URLs really contain them, e.g. jobright.ai/...(remote,-latam)),
+# so trailing-punctuation stripping does balanced-bracket cleanup instead.
+_URL_RE = re.compile(r'https?://[^\s<>"]+')
 _URL_TRAIL_PUNCT = ".,;:!?"
 
 
 def _strip_url_trailing_punct(url: str) -> tuple[str, str]:
-    """Split a regex-matched URL into (clean_url, trailing_punct)."""
+    """Split a regex-matched URL into (clean_url, trailing_punct).
+
+    Punctuation comes in two flavors:
+      - sentence-end chars (".,;:!?") — always stripped from the tail
+      - closing brackets (")", "]") — stripped only when unbalanced (i.e.
+        more closers than openers in the URL), so genuine in-URL parens
+        like `/foo(bar)/` survive while trailing markdown brackets don't.
+    """
     trail = ""
-    while url and url[-1] in _URL_TRAIL_PUNCT:
-        trail = url[-1] + trail
-        url = url[:-1]
+    while url:
+        last = url[-1]
+        if last in _URL_TRAIL_PUNCT:
+            trail = last + trail
+            url = url[:-1]
+            continue
+        if last == ")" and url.count("(") < url.count(")"):
+            trail = last + trail
+            url = url[:-1]
+            continue
+        if last == "]" and url.count("[") < url.count("]"):
+            trail = last + trail
+            url = url[:-1]
+            continue
+        break
     return url, trail
 
 
@@ -118,11 +140,85 @@ def _is_user_facing_url(url: str) -> bool:
     return not bare.endswith(_NON_USER_FACING_EXTS)
 
 
-def _add_url_to_allowlist(allowlist: set[str], url: str) -> None:
-    """Insert `url` into the per-run allowlist if it's a user-facing page."""
+# HEAD-check tuning. We want false positives (stripping a live URL) to be
+# rare, so only confident negatives count as dead. 401/403/405/406/429
+# are common on Wellfound, Indeed, LinkedIn etc. — bot-block, not gone.
+_DEAD_STATUS = frozenset({404, 410})
+_RETRY_AS_GET_STATUS = frozenset({405, 501})
+_HEAD_TIMEOUT_S = 2.0
+# Total wall-clock budget at validation time. Anything still pending is
+# treated as alive (we'd rather show a 404 than a slow blank reply).
+_HEAD_GATHER_BUDGET_S = 1.0
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+async def _check_url_alive_and_record(
+    client: httpx.AsyncClient, url: str, dead_urls: set[str]
+) -> None:
+    """Best-effort liveness probe; mutates `dead_urls` only on 404/410.
+
+    Networks errors, timeouts, and "alive but blocking" status codes (401,
+    403, 405, 406, 429, 5xx) all leave the URL alone — better to surface a
+    real-but-bot-blocked link than to amputate it. Some servers refuse HEAD
+    but answer GET, so we retry once with a tiny `Range` GET.
+    """
+    headers = {"User-Agent": _BROWSER_UA}
+    try:
+        r = await client.head(
+            url,
+            timeout=_HEAD_TIMEOUT_S,
+            follow_redirects=True,
+            headers=headers,
+        )
+        if r.status_code in _RETRY_AS_GET_STATUS:
+            r = await client.get(
+                url,
+                timeout=_HEAD_TIMEOUT_S,
+                follow_redirects=True,
+                headers={**headers, "Range": "bytes=0-1"},
+            )
+        if r.status_code in _DEAD_STATUS:
+            dead_urls.add(url)
+    except Exception:  # noqa: BLE001 — network blip, treat as alive
+        return
+
+
+def _add_url_to_allowlist(deps: MenteeDeps, url: str) -> None:
+    """Insert `url` into the per-run allowlist if it's a user-facing page,
+    and kick off a parallel HEAD-check when the deps carry an http client."""
     if not _is_user_facing_url(url):
         return
-    allowlist.add(url.rstrip("/"))
+    normalized = url.rstrip("/")
+    if normalized in deps.cited_urls:
+        return
+    deps.cited_urls.add(normalized)
+    client = deps.http_client
+    if (
+        isinstance(client, httpx.AsyncClient)
+        and normalized not in deps.liveness_tasks
+    ):
+        deps.liveness_tasks[normalized] = asyncio.create_task(
+            _check_url_alive_and_record(client, normalized, deps.dead_urls)
+        )
+
+
+async def _gather_liveness(deps: MenteeDeps) -> None:
+    """Wait up to `_HEAD_GATHER_BUDGET_S` for outstanding HEAD checks to
+    finish. Tasks still pending after the budget are abandoned (their URLs
+    stay in the allowlist; this errs toward showing rather than hiding)."""
+    tasks = [t for t in deps.liveness_tasks.values() if not getattr(t, "done", lambda: False)()]
+    if not tasks:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=_HEAD_GATHER_BUDGET_S,
+        )
+    except TimeoutError:
+        return
 
 
 def _strip_citations(text: str) -> str:
@@ -138,24 +234,27 @@ def _strip_citations(text: str) -> str:
 def _filter_off_allowlist_urls(
     text: str,
     cited: set[str],
+    *,
+    dead: set[str] | None = None,
     on_strip: object | None = None,
     on_keep: object | None = None,
 ) -> str:
-    """Replace any URL not present in `cited` with an empty string.
+    """Replace any URL not present in `cited`, or known to be dead, with the
+    empty string.
 
-    `cited` holds normalized URLs (trailing slash stripped). `on_strip` is an
-    optional callable invoked with the offending URL each time we strip one,
-    used for telemetry. `on_keep` is an optional callable invoked with the
-    normalized form of every kept URL \u2014 the streaming path uses it to track
-    which allowlist entries the model already cited inline (so the "More
-    sources" appender can list only the *unused* ones).
+    `cited` holds normalized URLs (trailing slash stripped). `dead`, when
+    given, holds normalized URLs the HEAD-check confirmed return 404/410 \u2014
+    those are dropped even if they came from a tool. `on_strip` /
+    `on_keep` are optional callables for telemetry / "More sources"
+    bookkeeping.
     """
+    dead_set = dead if dead is not None else set()
 
     def repl(match: re.Match[str]) -> str:
         raw = match.group(0)
         clean, trail = _strip_url_trailing_punct(raw)
         normalized = clean.rstrip("/")
-        if normalized in cited:
+        if normalized in cited and normalized not in dead_set:
             if callable(on_keep):
                 try:
                     on_keep(normalized)  # type: ignore[misc]
@@ -207,10 +306,15 @@ class _CitationStripper:
     def __init__(
         self,
         cited_urls: set[str] | None = None,
+        dead_urls: set[str] | None = None,
         on_strip_url: object | None = None,
     ) -> None:
         self._buf = ""
         self._cited_urls = cited_urls if cited_urls is not None else set()
+        # Mutated in the background by HEAD-check tasks; the stripper reads
+        # the latest state on every emit so by the final flush (after
+        # `_gather_liveness`) all confirmed-dead URLs are dropped.
+        self._dead_urls = dead_urls if dead_urls is not None else set()
         self._on_strip_url = on_strip_url
         # Normalized URLs the model has already cited inline this turn.
         # Consulted at end of stream to compute the "More sources" tail.
@@ -221,6 +325,7 @@ class _CitationStripper:
         text = _filter_off_allowlist_urls(
             text,
             self._cited_urls,
+            dead=self._dead_urls,
             on_strip=self._on_strip_url,
             on_keep=self.seen_urls.add,
         )
@@ -247,9 +352,10 @@ class _CitationStripper:
 
 
 def _harvest_urls_from_messages(
-    messages: list[ModelMessage], cited_urls: set[str]
+    messages: list[ModelMessage], deps: MenteeDeps
 ) -> None:
-    """Populate `cited_urls` from web_search sources and TextPart annotations.
+    """Populate `deps.cited_urls` (and kick off liveness checks) from
+    web_search sources and TextPart annotations.
 
     OpenAI's built-in web_search returns its source URLs on the
     `BuiltinToolReturnPart.content["sources"]` list (when
@@ -267,7 +373,7 @@ def _harvest_urls_from_messages(
                 if isinstance(content, dict):
                     for src in content.get("sources") or []:
                         if isinstance(src, dict):
-                            _add_url_to_allowlist(cited_urls, src.get("url") or "")
+                            _add_url_to_allowlist(deps, src.get("url") or "")
             elif isinstance(part, TextPart):
                 details = part.provider_details or {}
                 for ann in details.get("annotations") or []:
@@ -275,7 +381,7 @@ def _harvest_urls_from_messages(
                         isinstance(ann, dict)
                         and ann.get("type") == "url_citation"
                     ):
-                        _add_url_to_allowlist(cited_urls, ann.get("url") or "")
+                        _add_url_to_allowlist(deps, ann.get("url") or "")
 
 
 def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
@@ -578,6 +684,13 @@ class MenteeAgent(AgentPort):
             request_limit=settings.agent_request_limit,
             total_tokens_limit=settings.agent_total_tokens_limit,
         )
+        # Reused across turns so HEAD-check connection pooling kicks in for
+        # popular hosts (Wellfound, Indeed, Lever). Process-lifetime client;
+        # FastAPI workers terminate it on shutdown.
+        self._http_client: httpx.AsyncClient = httpx.AsyncClient(
+            timeout=_HEAD_TIMEOUT_S,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
 
     @property
     def pydantic_agent(self) -> Agent[MenteeDeps, str]:
@@ -598,6 +711,7 @@ class MenteeAgent(AgentPort):
             perplexity_enabled=perplexity_enabled,
             budget=self._budget,
             ui_locale=ui_locale,
+            http_client=self._http_client,
         )
 
     async def _handle_openai_error(self, exc: Exception) -> None:
@@ -655,7 +769,10 @@ class MenteeAgent(AgentPort):
                     model_sku=self._settings.agent_model,
                 )
                 _count_builtin_tool_calls(collector, result.all_messages())
-                _harvest_urls_from_messages(result.all_messages(), deps.cited_urls)
+                _harvest_urls_from_messages(result.all_messages(), deps)
+                # Wait for outstanding HEAD checks so the validator can drop
+                # 404s alongside off-allowlist URLs.
+                await _gather_liveness(deps)
                 deduped = _dedup_response_text(result.all_messages())
                 stripped_urls: list[str] = []
                 seen_urls: set[str] = set()
@@ -665,10 +782,12 @@ class MenteeAgent(AgentPort):
                 body = _filter_off_allowlist_urls(
                     cleaned,
                     deps.cited_urls,
+                    dead=deps.dead_urls,
                     on_strip=stripped_urls.append,
                     on_keep=seen_urls.add,
                 )
-                unused = sorted(deps.cited_urls - seen_urls)
+                live_allowlist = deps.cited_urls - deps.dead_urls
+                unused = sorted(live_allowlist - seen_urls)
                 output = body + _format_more_sources(unused)
                 if stripped_urls:
                     logger.warning(
@@ -678,6 +797,7 @@ class MenteeAgent(AgentPort):
                     )
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
                 span.set_attribute("urls_cited", len(deps.cited_urls))
+                span.set_attribute("urls_dead", len(deps.dead_urls))
                 span.set_attribute("urls_unused_appended", len(unused))
                 span.set_attribute("status", "ok")
                 span.set_attribute(
@@ -774,6 +894,7 @@ class MenteeAgent(AgentPort):
                 # checked the allowlist is already populated for this turn.
                 stripper = _CitationStripper(
                     cited_urls=deps.cited_urls,
+                    dead_urls=deps.dead_urls,
                     on_strip_url=stripped_urls.append,
                 )
                 # The OpenAI Responses model sometimes emits two consecutive
@@ -826,7 +947,7 @@ class MenteeAgent(AgentPort):
                                                         if not isinstance(src, dict):
                                                             continue
                                                         _add_url_to_allowlist(
-                                                            deps.cited_urls,
+                                                            deps,
                                                             src.get("url") or "",
                                                         )
                                                 await queue.put(
@@ -888,17 +1009,22 @@ class MenteeAgent(AgentPort):
                         # may finalize after the last text delta arrives.
                         if run.result is not None:
                             _harvest_urls_from_messages(
-                                run.result.all_messages(), deps.cited_urls
+                                run.result.all_messages(), deps
                             )
+                        # Wait for outstanding HEAD checks. By here, tools
+                        # have been firing for several seconds while the
+                        # model generated text, so most checks should be
+                        # done; this gather has a hard 1s budget for any
+                        # stragglers.
+                        await _gather_liveness(deps)
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
                         # Append every allowlist URL the model didn't cite
                         # inline. Lets the user see the full search-tool
                         # result set without bloating the curated reply.
-                        unused = sorted(
-                            deps.cited_urls - stripper.seen_urls
-                        )
+                        live_allowlist = deps.cited_urls - deps.dead_urls
+                        unused = sorted(live_allowlist - stripper.seen_urls)
                         nonlocal_unused_count[0] = len(unused)
                         more = _format_more_sources(unused)
                         if more:
@@ -979,6 +1105,7 @@ class MenteeAgent(AgentPort):
                     )
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
                 span.set_attribute("urls_cited", len(deps.cited_urls))
+                span.set_attribute("urls_dead", len(deps.dead_urls))
                 span.set_attribute(
                     "urls_unused_appended", nonlocal_unused_count[0]
                 )

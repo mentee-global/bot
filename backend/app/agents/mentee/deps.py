@@ -28,3 +28,11 @@ class MenteeDeps:
     # and the streaming harness as searches complete; consulted by the
     # post-output validator to strip URLs the model fabricated.
     cited_urls: set[str] = field(default_factory=set)
+    # Per-run liveness state. `http_client` is an `httpx.AsyncClient`; typed
+    # as `object` to keep this dataclass independent of httpx. As URLs land
+    # in `cited_urls`, a HEAD-check task is spawned and parked in
+    # `liveness_tasks`; tasks that confirm a 404/410 add the URL to
+    # `dead_urls`, which the validator subtracts from the allowlist.
+    http_client: object | None = None
+    liveness_tasks: dict[str, object] = field(default_factory=dict)
+    dead_urls: set[str] = field(default_factory=set)

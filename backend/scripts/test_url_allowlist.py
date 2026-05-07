@@ -18,6 +18,8 @@ import asyncio
 import re
 import sys
 
+import httpx
+
 from app.agents.mentee.agent import build_mentee_agent
 from app.agents.mentee.deps import MenteeDeps
 from app.budget.usage import UsageSummary
@@ -58,8 +60,9 @@ async def main() -> int:
     agent = build_mentee_agent(settings)
 
     # Build a deps the same way MenteeAgent.reply does, but keep a handle so
-    # we can inspect cited_urls after the run.
+    # we can inspect cited_urls / dead_urls after the run.
     collector = UsageSummary()
+    http_client = httpx.AsyncClient(timeout=2.0)
     deps = MenteeDeps(
         user=None,
         settings=settings,
@@ -68,6 +71,7 @@ async def main() -> int:
         perplexity_enabled=True,
         budget=None,
         ui_locale="en",
+        http_client=http_client,
     )
 
     history_msgs = [
@@ -78,55 +82,67 @@ async def main() -> int:
     from app.agents.mentee.agent import (
         _filter_off_allowlist_urls,
         _format_more_sources,
+        _gather_liveness,
         _harvest_urls_from_messages,
         _history_to_messages,
         _strip_citations,
     )
 
     print(f"Prompt: {TURN_USER!r}\n")
-    result = await agent.pydantic_agent.run(
-        TURN_USER,
-        deps=deps,
-        message_history=_history_to_messages(history_msgs, exclude_last=False) or None,
-    )
+    try:
+        result = await agent.pydantic_agent.run(
+            TURN_USER,
+            deps=deps,
+            message_history=_history_to_messages(history_msgs, exclude_last=False) or None,
+        )
 
-    _harvest_urls_from_messages(result.all_messages(), deps.cited_urls)
-    cleaned = _strip_citations(result.output)
-    stripped: list[str] = []
-    seen: set[str] = set()
-    body = _filter_off_allowlist_urls(
-        cleaned,
-        deps.cited_urls,
-        on_strip=stripped.append,
-        on_keep=seen.add,
-    )
-    unused = sorted(deps.cited_urls - seen)
-    final = body + _format_more_sources(unused)
+        _harvest_urls_from_messages(result.all_messages(), deps)
+        await _gather_liveness(deps)
 
-    rendered_urls = [_strip_trail(u) for u in _URL_RE.findall(final)]
-    leaked = [u for u in rendered_urls if u.rstrip("/") not in deps.cited_urls]
+        cleaned = _strip_citations(result.output)
+        stripped: list[str] = []
+        seen: set[str] = set()
+        body = _filter_off_allowlist_urls(
+            cleaned,
+            deps.cited_urls,
+            dead=deps.dead_urls,
+            on_strip=stripped.append,
+            on_keep=seen.add,
+        )
+        live_allow = deps.cited_urls - deps.dead_urls
+        unused = sorted(live_allow - seen)
+        final = body + _format_more_sources(unused)
 
-    print(f"Allowlist size:       {len(deps.cited_urls)}")
-    for u in sorted(deps.cited_urls):
-        print(f"  allow  {u}")
-    print(f"\nURLs cited inline:    {len(seen)}")
-    for u in sorted(seen):
-        print(f"  cited  {u}")
-    print(f"\nURLs appended (More): {len(unused)}")
-    for u in unused:
-        print(f"  more   {u}")
-    print(f"\nStripped (off-allow): {len(stripped)}")
-    for u in stripped:
-        print(f"  drop   {u}")
-    print(f"\nLeaked into final:    {len(leaked)} (must be 0)")
-    if leaked:
-        for u in leaked:
-            print(f"  LEAK  {u}")
-        return 2
+        rendered_urls = [_strip_trail(u) for u in _URL_RE.findall(final)]
+        leaked = [u for u in rendered_urls if u.rstrip("/") not in live_allow]
 
-    print("\n--- final reply ---")
-    print(final)
-    return 0
+        print(f"Allowlist size:       {len(deps.cited_urls)}")
+        for u in sorted(deps.cited_urls):
+            tag = " (DEAD)" if u in deps.dead_urls else ""
+            print(f"  allow  {u}{tag}")
+        print(f"\nDead URLs (404/410):  {len(deps.dead_urls)}")
+        for u in sorted(deps.dead_urls):
+            print(f"  dead   {u}")
+        print(f"\nURLs cited inline:    {len(seen)}")
+        for u in sorted(seen):
+            print(f"  cited  {u}")
+        print(f"\nURLs appended (More): {len(unused)}")
+        for u in unused:
+            print(f"  more   {u}")
+        print(f"\nStripped (off-allow): {len(stripped)}")
+        for u in stripped:
+            print(f"  drop   {u}")
+        print(f"\nLeaked into final:    {len(leaked)} (must be 0)")
+        if leaked:
+            for u in leaked:
+                print(f"  LEAK  {u}")
+            return 2
+
+        print("\n--- final reply ---")
+        print(final)
+        return 0
+    finally:
+        await http_client.aclose()
 
 
 if __name__ == "__main__":

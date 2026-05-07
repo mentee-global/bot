@@ -169,12 +169,13 @@ async def search_perplexity(
 
     # Seed the per-run allowlist so the agent's URL validator knows these are
     # real, tool-returned URLs and won't strip them. Routed through the
-    # agent's filter so marketing PDFs / CDN attachments are excluded.
+    # agent helper so marketing PDFs / CDN attachments are excluded and the
+    # parallel HEAD-check kicks off as each URL lands in the allowlist.
     from app.agents.mentee.agent import _add_url_to_allowlist
 
     for url in result.citations:
         if isinstance(url, str):
-            _add_url_to_allowlist(ctx.deps.cited_urls, url)
+            _add_url_to_allowlist(ctx.deps, url)
 
     return ok(
         {
