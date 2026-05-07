@@ -35,6 +35,7 @@ export interface RatingsListParams {
 	page?: number;
 	min_stars?: number;
 	max_stars?: number;
+	has_comment?: boolean;
 	q?: string;
 }
 
@@ -44,7 +45,9 @@ export interface MessageReactionsParams {
 	q?: string;
 }
 
-function buildQuery(params: Record<string, string | number | undefined>) {
+function buildQuery(
+	params: Record<string, string | number | boolean | undefined>,
+) {
 	const qs = new URLSearchParams();
 	for (const [key, value] of Object.entries(params)) {
 		if (value === undefined || value === "" || value === null) continue;
@@ -128,6 +131,7 @@ export const adminService = {
 				page: params.page,
 				min_stars: params.min_stars,
 				max_stars: params.max_stars,
+				has_comment: params.has_comment,
 				q: params.q,
 			})}`,
 			signal,

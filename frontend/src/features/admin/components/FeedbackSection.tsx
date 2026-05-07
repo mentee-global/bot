@@ -1,6 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import { useState } from "react";
+import {
+	MessageSquareText,
+	Search,
+	ThumbsDown,
+	ThumbsUp,
+	X,
+} from "lucide-react";
+import { useEffect, useId, useState } from "react";
 import {
 	Area,
 	AreaChart,
@@ -20,6 +26,14 @@ import {
 } from "#/components/ui/chart";
 import { Input } from "#/components/ui/input";
 import { Skeleton } from "#/components/ui/Skeleton";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "#/components/ui/select";
+import { Slider } from "#/components/ui/slider";
 import {
 	ChartCard,
 	ChartSkeleton,
@@ -44,10 +58,12 @@ import {
 } from "#/features/admin/hooks/useAdmin";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
 import { cn } from "#/lib/utils";
+import type { CommentFilter, ThumbsFilter } from "#/routes/admin.feedback";
 
 // ---------------------------------------------------------------------------
-// Overview — KPIs + the two summary charts. Always visible at the top of the
-// /admin/feedback page so admins land on the at-a-glance state.
+// Overview — KPIs + the two summary charts. Lives on its own section so
+// admins can deep-link to /admin/feedback?section=overview without having
+// to render either of the (potentially heavy) detail tables.
 // ---------------------------------------------------------------------------
 
 export function FeedbackOverview() {
@@ -298,49 +314,120 @@ function AvgRatingTrendChart({
 }
 
 // ---------------------------------------------------------------------------
-// Session ratings table — every star rating, with star-band filter pills
-// and a debounced search across user, title, and comment.
+// Session ratings
+// ---------------------------------------------------------------------------
+//
+// All filter/page/q state lives in the URL; the parent route owns it and
+// passes it in. We keep the search input in local state so the debounce
+// hook has a stable source — driving it from `q` directly would skip the
+// debounce.
 // ---------------------------------------------------------------------------
 
-type StarFilter = "all" | "low" | "high";
-
-const STAR_FILTERS: { value: StarFilter; label: string }[] = [
+const COMMENT_OPTIONS: { value: CommentFilter; label: string }[] = [
 	{ value: "all", label: "All" },
-	{ value: "low", label: "1–2★" },
-	{ value: "high", label: "4–5★" },
+	{ value: "yes", label: "With comment" },
+	{ value: "no", label: "No comment" },
 ];
 
-function filterToParams(filter: StarFilter): {
-	min_stars?: number;
-	max_stars?: number;
-} {
-	if (filter === "low") return { max_stars: 2 };
-	if (filter === "high") return { min_stars: 4 };
-	return {};
+function commentToParam(filter: CommentFilter): boolean | undefined {
+	if (filter === "yes") return true;
+	if (filter === "no") return false;
+	return undefined;
 }
 
-export function SessionRatingsTable() {
-	const [page, setPage] = useState(1);
-	const [filter, setFilter] = useState<StarFilter>("all");
-	const [searchInput, setSearchInput] = useState("");
+export type SessionRatingsState = {
+	page?: number;
+	q?: string;
+	min?: number;
+	max?: number;
+	comments?: CommentFilter;
+};
+
+export function SessionRatingsTable({
+	page,
+	q,
+	min,
+	max,
+	comments,
+	onChange,
+}: {
+	page: number;
+	q: string;
+	min: number;
+	max: number;
+	comments: CommentFilter;
+	onChange: (next: SessionRatingsState) => void;
+}) {
+	const [searchInput, setSearchInput] = useState(q);
+
+	useEffect(() => {
+		setSearchInput(q);
+	}, [q]);
+
 	const debouncedSearch = useDebouncedValue(searchInput.trim(), 250);
+
+	// Publish the debounced value back into the URL once the user stops
+	// typing. Only `debouncedSearch` and `q` are real triggers — the early
+	// return guards against double-fires when q is already in sync, and
+	// excluding `onChange`/filter values keeps the effect from looping on
+	// every parent re-render (the parent recreates its handlers each render).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+	useEffect(() => {
+		const next = debouncedSearch || undefined;
+		if (next === (q || undefined)) return;
+		onChange({
+			page: undefined,
+			q: next,
+			min,
+			max,
+			comments,
+		});
+	}, [debouncedSearch, q]);
+
 	const query = useAdminRatingsQuery({
 		page,
-		...filterToParams(filter),
+		...(min > 1 ? { min_stars: min } : {}),
+		...(max < 5 ? { max_stars: max } : {}),
+		...(commentToParam(comments) !== undefined
+			? { has_comment: commentToParam(comments) }
+			: {}),
 		...(debouncedSearch ? { q: debouncedSearch } : {}),
 	});
 	const items = query.data?.items ?? [];
 	const total = query.data?.total ?? 0;
 	const pageSize = query.data?.page_size ?? 25;
 
-	const handleFilter = (next: StarFilter) => {
-		setFilter(next);
-		setPage(1);
-	};
+	const setPage = (next: number) =>
+		onChange({ page: next > 1 ? next : undefined, q, min, max, comments });
+	const setRange = (next: [number, number]) =>
+		onChange({
+			page: undefined,
+			q,
+			min: next[0] > 1 ? next[0] : undefined,
+			max: next[1] < 5 ? next[1] : undefined,
+			comments,
+		});
+	const setComments = (next: CommentFilter) =>
+		onChange({
+			page: undefined,
+			q,
+			min,
+			max,
+			comments: next === "all" ? undefined : next,
+		});
 
-	const handleSearch = (next: string) => {
-		setSearchInput(next);
-		setPage(1);
+	const filtersActive =
+		min > 1 || max < 5 || comments !== "all" || debouncedSearch.length > 0;
+
+	const clearFilters = () => {
+		setSearchInput("");
+		onChange({
+			page: undefined,
+			q: undefined,
+			min: undefined,
+			max: undefined,
+			comments: undefined,
+		});
 	};
 
 	return (
@@ -348,17 +435,16 @@ export function SessionRatingsTable() {
 			title="Session ratings"
 			description="Every 1–5 star rating users have left. Click a row to open the conversation."
 		>
-			<TableToolbar
+			<RatingsToolbar
 				searchValue={searchInput}
-				onSearchChange={handleSearch}
-				searchPlaceholder="Search user, title, or comment…"
-				filterPills={
-					<FilterPills
-						value={filter}
-						onChange={handleFilter}
-						options={STAR_FILTERS}
-					/>
-				}
+				onSearchChange={setSearchInput}
+				min={min}
+				max={max}
+				onRangeChange={setRange}
+				comments={comments}
+				onCommentsChange={setComments}
+				filtersActive={filtersActive}
+				onClear={clearFilters}
 			/>
 
 			{query.isPending ? (
@@ -368,9 +454,9 @@ export function SessionRatingsTable() {
 			) : items.length === 0 ? (
 				<EmptyTable
 					message={
-						debouncedSearch
-							? "No ratings match your search."
-							: "No ratings in this range yet."
+						filtersActive
+							? "No ratings match your filters."
+							: "No ratings have been submitted yet."
 					}
 				/>
 			) : (
@@ -403,12 +489,20 @@ function SessionRatingRowItem({ row }: { row: AdminRatingRow }) {
 			>
 				<StarsBadge stars={row.stars} />
 				<div className="min-w-0">
-					<p className="m-0 truncate text-sm font-medium">
-						{row.title || "(untitled conversation)"}
+					<p className="m-0 flex items-center gap-1.5 truncate text-sm font-medium">
+						<span className="truncate">
+							{row.title || "(untitled conversation)"}
+						</span>
+						{row.comment ? (
+							<MessageSquareText
+								className="size-3 shrink-0 text-muted-foreground"
+								aria-label="Has comment"
+							/>
+						) : null}
 					</p>
 					<p className="m-0 truncate text-xs text-muted-foreground">
 						{row.owner_email ?? row.owner_name ?? row.user_id}
-						{row.comment ? <> · "{row.comment}"</> : null}
+						{row.comment ? <> · &ldquo;{row.comment}&rdquo;</> : null}
 					</p>
 				</div>
 				<div className="text-xs text-muted-foreground">
@@ -436,46 +530,200 @@ function StarsBadge({ stars }: { stars: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// Message reactions table — per-message thumbs feedback.
+// Ratings toolbar — search + dual-thumb star slider + comment filter
 // ---------------------------------------------------------------------------
 
-type ThumbFilter = "all" | "up" | "down";
+function RatingsToolbar({
+	searchValue,
+	onSearchChange,
+	min,
+	max,
+	onRangeChange,
+	comments,
+	onCommentsChange,
+	filtersActive,
+	onClear,
+}: {
+	searchValue: string;
+	onSearchChange: (next: string) => void;
+	min: number;
+	max: number;
+	onRangeChange: (next: [number, number]) => void;
+	comments: CommentFilter;
+	onCommentsChange: (next: CommentFilter) => void;
+	filtersActive: boolean;
+	onClear: () => void;
+}) {
+	return (
+		<div className="mb-3 flex min-w-0 flex-col gap-3">
+			<div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+				<SearchField
+					value={searchValue}
+					onChange={onSearchChange}
+					placeholder="Search user, title, or comment…"
+					className="min-w-0 flex-1 lg:max-w-sm"
+				/>
+				<StarRangeSlider min={min} max={max} onChange={onRangeChange} />
+				<div className="flex items-center gap-2">
+					<FilterSelect
+						label="Comments"
+						ariaLabel="Filter by comment presence"
+						value={comments}
+						onChange={onCommentsChange}
+						options={COMMENT_OPTIONS}
+					/>
+					{filtersActive ? <ClearButton onClick={onClear} /> : null}
+				</div>
+			</div>
+		</div>
+	);
+}
 
-const THUMB_FILTERS: { value: ThumbFilter; label: string }[] = [
-	{ value: "all", label: "All" },
-	{ value: "up", label: "Up" },
-	{ value: "down", label: "Down" },
-];
+function StarRangeSlider({
+	min,
+	max,
+	onChange,
+}: {
+	min: number;
+	max: number;
+	onChange: (next: [number, number]) => void;
+}) {
+	const sliderId = useId();
+	// Local mirror of the slider value so the thumbs animate smoothly while
+	// the user drags. We commit to the URL on `onValueCommit` to avoid a
+	// network round-trip per pixel.
+	const [pending, setPending] = useState<[number, number]>([min, max]);
 
-function thumbFilterToParam(filter: ThumbFilter): -1 | 1 | undefined {
+	useEffect(() => {
+		setPending([min, max]);
+	}, [min, max]);
+
+	const isAll = pending[0] === 1 && pending[1] === 5;
+	const summary = isAll
+		? "All stars"
+		: pending[0] === pending[1]
+			? `${pending[0]}★ only`
+			: `${pending[0]}–${pending[1]}★`;
+
+	return (
+		<div className="flex min-w-0 flex-col gap-1 lg:w-64">
+			<div className="flex items-center justify-between gap-2">
+				<label
+					htmlFor={sliderId}
+					className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+				>
+					Stars
+				</label>
+				<span className="font-mono text-xs text-muted-foreground tabular-nums">
+					{summary}
+				</span>
+			</div>
+			<div className="relative flex h-9 items-center px-1.5">
+				<Slider
+					id={sliderId}
+					aria-label="Star rating range"
+					min={1}
+					max={5}
+					step={1}
+					value={pending}
+					minStepsBetweenThumbs={0}
+					onValueChange={(v) => setPending([v[0] ?? 1, v[1] ?? 5])}
+					onValueCommit={(v) => onChange([v[0] ?? 1, v[1] ?? 5])}
+				/>
+			</div>
+			<div className="-mt-0.5 flex justify-between px-1.5 text-[10px] text-muted-foreground tabular-nums">
+				{[1, 2, 3, 4, 5].map((n) => {
+					const inRange = n >= pending[0] && n <= pending[1];
+					return (
+						<button
+							key={n}
+							type="button"
+							onClick={() => {
+								setPending([n, n]);
+								onChange([n, n]);
+							}}
+							aria-label={`Show ${n}-star ratings only`}
+							className={cn(
+								"rounded px-0.5 transition hover:text-[var(--theme-primary)]",
+								inRange ? "font-medium text-[var(--theme-primary)]" : "",
+							)}
+						>
+							{n}★
+						</button>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Message reactions
+// ---------------------------------------------------------------------------
+
+function thumbsToParam(filter: ThumbsFilter): -1 | 1 | undefined {
 	if (filter === "up") return 1;
 	if (filter === "down") return -1;
 	return undefined;
 }
 
-export function MessageReactionsTable() {
-	const [page, setPage] = useState(1);
-	const [filter, setFilter] = useState<ThumbFilter>("all");
-	const [searchInput, setSearchInput] = useState("");
+export type MessageReactionsState = {
+	page?: number;
+	q?: string;
+	rating?: ThumbsFilter;
+};
+
+export function MessageReactionsTable({
+	page,
+	q,
+	rating,
+	onChange,
+}: {
+	page: number;
+	q: string;
+	rating: ThumbsFilter;
+	onChange: (next: MessageReactionsState) => void;
+}) {
+	const [searchInput, setSearchInput] = useState(q);
+
+	useEffect(() => {
+		setSearchInput(q);
+	}, [q]);
+
 	const debouncedSearch = useDebouncedValue(searchInput.trim(), 250);
-	const rating = thumbFilterToParam(filter);
+
+	// See SessionRatingsTable for the rationale on the dep list.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+	useEffect(() => {
+		const next = debouncedSearch || undefined;
+		if (next === (q || undefined)) return;
+		onChange({ page: undefined, q: next, rating });
+	}, [debouncedSearch, q]);
+
+	const ratingParam = thumbsToParam(rating);
 	const query = useAdminMessageReactionsQuery({
 		page,
-		...(rating !== undefined ? { rating } : {}),
+		...(ratingParam !== undefined ? { rating: ratingParam } : {}),
 		...(debouncedSearch ? { q: debouncedSearch } : {}),
 	});
 	const items = query.data?.items ?? [];
 	const total = query.data?.total ?? 0;
 	const pageSize = query.data?.page_size ?? 25;
 
-	const handleFilter = (next: ThumbFilter) => {
-		setFilter(next);
-		setPage(1);
-	};
+	const setPage = (next: number) =>
+		onChange({ page: next > 1 ? next : undefined, q, rating });
+	const setRating = (next: ThumbsFilter) =>
+		onChange({
+			page: undefined,
+			q,
+			rating: next === "all" ? undefined : next,
+		});
 
-	const handleSearch = (next: string) => {
-		setSearchInput(next);
-		setPage(1);
+	const filtersActive = rating !== "all" || debouncedSearch.length > 0;
+
+	const clearFilters = () => {
+		setSearchInput("");
+		onChange({ page: undefined, q: undefined, rating: undefined });
 	};
 
 	return (
@@ -483,17 +731,13 @@ export function MessageReactionsTable() {
 			title="Message reactions"
 			description="Per-message thumbs feedback users have left on assistant replies."
 		>
-			<TableToolbar
+			<ReactionsToolbar
 				searchValue={searchInput}
-				onSearchChange={handleSearch}
-				searchPlaceholder="Search user, message, or thread…"
-				filterPills={
-					<FilterPills
-						value={filter}
-						onChange={handleFilter}
-						options={THUMB_FILTERS}
-					/>
-				}
+				onSearchChange={setSearchInput}
+				rating={rating}
+				onRatingChange={setRating}
+				filtersActive={filtersActive}
+				onClear={clearFilters}
 			/>
 
 			{query.isPending ? (
@@ -503,9 +747,9 @@ export function MessageReactionsTable() {
 			) : items.length === 0 ? (
 				<EmptyTable
 					message={
-						debouncedSearch
-							? "No reactions match your search."
-							: "No reactions in this range yet."
+						filtersActive
+							? "No reactions match your filters."
+							: "No reactions have been submitted yet."
 					}
 				/>
 			) : (
@@ -568,81 +812,183 @@ function MessageReactionRowItem({ row }: { row: AdminMessageReactionRow }) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared toolbar / footer / states
+// Reactions toolbar — search + segmented thumbs filter
 // ---------------------------------------------------------------------------
 
-function TableToolbar({
+function ReactionsToolbar({
 	searchValue,
 	onSearchChange,
-	searchPlaceholder,
-	filterPills,
+	rating,
+	onRatingChange,
+	filtersActive,
+	onClear,
 }: {
 	searchValue: string;
 	onSearchChange: (next: string) => void;
-	searchPlaceholder: string;
-	filterPills: React.ReactNode;
+	rating: ThumbsFilter;
+	onRatingChange: (next: ThumbsFilter) => void;
+	filtersActive: boolean;
+	onClear: () => void;
 }) {
 	return (
-		<div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-			<div className="relative w-full sm:max-w-xs">
-				<Search
-					className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-					aria-hidden="true"
-				/>
-				<Input
-					type="search"
-					value={searchValue}
-					onChange={(e) => onSearchChange(e.target.value)}
-					placeholder={searchPlaceholder}
-					aria-label={searchPlaceholder}
-					className="h-9 pl-8 pr-8 text-sm"
-				/>
-				{searchValue ? (
-					<button
-						type="button"
-						onClick={() => onSearchChange("")}
-						aria-label="Clear search"
-						className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-muted-foreground transition hover:text-[var(--theme-primary)]"
-					>
-						<X className="size-3.5" />
-					</button>
-				) : null}
+		<div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+			<SearchField
+				value={searchValue}
+				onChange={onSearchChange}
+				placeholder="Search user, message, or thread…"
+				className="min-w-0 flex-1 sm:max-w-sm"
+			/>
+			<div className="flex items-center gap-2">
+				<ThumbsSegmented value={rating} onChange={onRatingChange} />
+				{filtersActive ? <ClearButton onClick={onClear} /> : null}
 			</div>
-			{filterPills}
 		</div>
 	);
 }
 
-function FilterPills<T extends string>({
+function ThumbsSegmented({
 	value,
 	onChange,
-	options,
 }: {
-	value: T;
-	onChange: (next: T) => void;
-	options: { value: T; label: string }[];
+	value: ThumbsFilter;
+	onChange: (next: ThumbsFilter) => void;
 }) {
+	const buttons: {
+		value: ThumbsFilter;
+		label: string;
+		icon?: typeof ThumbsUp;
+	}[] = [
+		{ value: "all", label: "All" },
+		{ value: "up", label: "Up", icon: ThumbsUp },
+		{ value: "down", label: "Down", icon: ThumbsDown },
+	];
 	return (
-		<div className="flex w-fit items-center gap-1 rounded-md border border-[var(--theme-border)] bg-card p-0.5">
-			{options.map((opt) => {
-				const active = value === opt.value;
+		<fieldset
+			aria-label="Filter by reaction"
+			className="inline-flex h-9 rounded-md border border-[var(--theme-border)] bg-[var(--theme-bg)] p-0.5 text-xs"
+		>
+			{buttons.map((b) => {
+				const active = value === b.value;
+				const Icon = b.icon;
 				return (
 					<button
-						key={opt.value}
+						key={b.value}
 						type="button"
-						onClick={() => onChange(opt.value)}
+						aria-pressed={active}
+						onClick={() => onChange(b.value)}
 						className={cn(
-							"rounded-sm px-2.5 py-1 text-xs font-medium transition",
+							"inline-flex items-center gap-1 rounded-sm px-2.5 transition",
 							active
 								? "bg-[var(--theme-accent)] text-[var(--theme-on-accent)]"
 								: "text-muted-foreground hover:text-[var(--theme-primary)]",
 						)}
 					>
-						{opt.label}
+						{Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}
+						{b.label}
 					</button>
 				);
 			})}
+		</fieldset>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Shared bits — search input, select wrapper, clear button, footer, states
+// ---------------------------------------------------------------------------
+
+function SearchField({
+	value,
+	onChange,
+	placeholder,
+	className,
+}: {
+	value: string;
+	onChange: (next: string) => void;
+	placeholder: string;
+	className?: string;
+}) {
+	return (
+		<div className={cn("relative", className)}>
+			<Search
+				className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+				aria-hidden="true"
+			/>
+			<Input
+				// Use type="text" rather than "search" so the browser doesn't
+				// render its own clear-X overlapping ours. Style still reads as a
+				// search affordance via the leading icon.
+				type="text"
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				placeholder={placeholder}
+				aria-label={placeholder}
+				className="h-9 w-full pl-8 pr-8 text-sm"
+			/>
+			{value ? (
+				<button
+					type="button"
+					onClick={() => onChange("")}
+					aria-label="Clear search"
+					className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-muted-foreground transition hover:text-[var(--theme-primary)]"
+				>
+					<X className="size-3.5" />
+				</button>
+			) : null}
 		</div>
+	);
+}
+
+function FilterSelect<T extends string>({
+	label,
+	ariaLabel,
+	value,
+	onChange,
+	options,
+}: {
+	label: string;
+	ariaLabel: string;
+	value: T;
+	onChange: (next: T) => void;
+	options: { value: T; label: string }[];
+}) {
+	const id = useId();
+	return (
+		<div className="flex min-w-0 items-center gap-1.5">
+			<label
+				htmlFor={id}
+				className="hidden text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:inline"
+			>
+				{label}
+			</label>
+			<Select value={value} onValueChange={(v) => onChange(v as T)}>
+				<SelectTrigger
+					id={id}
+					aria-label={ariaLabel}
+					className="h-9 min-w-[7.5rem] text-xs"
+				>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{options.map((opt) => (
+						<SelectItem key={opt.value} value={opt.value}>
+							{opt.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
+function ClearButton({ onClick }: { onClick: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-[var(--theme-border)] px-2.5 text-xs text-muted-foreground transition hover:text-[var(--theme-primary)]"
+		>
+			<X className="size-3" /> Clear
+		</button>
 	);
 }
 
@@ -689,7 +1035,7 @@ function TableSkeleton() {
 
 function EmptyTable({ message }: { message: string }) {
 	return (
-		<div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+		<div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
 			{message}
 		</div>
 	);

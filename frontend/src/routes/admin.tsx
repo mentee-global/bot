@@ -664,10 +664,24 @@ function getPageMeta(
 					"Configure when and how often the rating prompt appears for users.",
 			};
 		}
+		if (feedbackSection === "ratings") {
+			return {
+				title: "Feedback",
+				description:
+					"Every star rating users have left, with star and comment filters for triage.",
+			};
+		}
+		if (feedbackSection === "reactions") {
+			return {
+				title: "Feedback",
+				description:
+					"Per-message thumbs feedback users have left on assistant replies.",
+			};
+		}
 		return {
 			title: "Feedback",
 			description:
-				"Review the ratings and reactions users have left across all conversations.",
+				"At-a-glance KPIs and trends for ratings and reactions over the last 30 days.",
 		};
 	}
 	if (pathname.startsWith("/admin/bug-reports")) {
@@ -712,14 +726,14 @@ function useCurrentFeedbackSection(): FeedbackSection {
 			// other admin pages (e.g. /admin/budget) also use `?section=` for
 			// their own sub-tabs and we'd otherwise read those values here.
 			if (!state.location.pathname.startsWith("/admin/feedback")) {
-				return "details" as FeedbackSection;
+				return "overview" as FeedbackSection;
 			}
 			const search = state.location.search as { section?: unknown };
 			const raw = search?.section;
 			return typeof raw === "string" &&
 				(FEEDBACK_SECTIONS as readonly string[]).includes(raw)
 				? (raw as FeedbackSection)
-				: "details";
+				: "overview";
 		},
 	});
 }
