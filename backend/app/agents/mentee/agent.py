@@ -1300,10 +1300,16 @@ class MenteeAgent(AgentPort):
                 logger.exception("mentee agent stream failed, using fallback: %s", exc)
                 if not task.done():
                     task.cancel()
-                text = await fallback_response(history, user, self._settings)
-                if text:
-                    response_length += len(text)
-                    yield TextDelta(text=text)
+                # Only invoke the fallback when the main stream produced no text.
+                # Otherwise the fallback's reply (or its own canned error string)
+                # gets glued onto the partial answer the user already sees,
+                # producing visible mash-ups like "…software/Sorry — I hit an
+                # internal error…".
+                if response_length == 0:
+                    text = await fallback_response(history, user, self._settings)
+                    if text:
+                        response_length += len(text)
+                        yield TextDelta(text=text)
             finally:
                 if stripped_urls:
                     logger.warning(

@@ -55,7 +55,7 @@ async def fallback_response(
             model=settings.agent_model,
             messages=messages,
             timeout=settings.agent_request_timeout_s,
-            max_tokens=600,
+            max_completion_tokens=600,
         )
         text = completion.choices[0].message.content or ""
         return text.strip() or "Sorry — I couldn't produce a reply just now."
