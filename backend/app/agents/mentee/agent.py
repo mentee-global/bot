@@ -97,6 +97,74 @@ _TRACKING_PATH_TOKENS = frozenset(
 _ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
 
 
+# Path leaves the model commonly writes that aren't actually slug-like
+# identifiers — too generic to safely replace with a single full URL.
+_GENERIC_LEAVES = frozenset(
+    {
+        "apply",
+        "careers",
+        "jobs",
+        "home",
+        "page",
+        "index",
+        "main",
+        "about",
+        "contact",
+        "search",
+        "login",
+        "signup",
+        "register",
+        "post",
+        "posts",
+        "list",
+        "view",
+    }
+)
+# Bare slug tokens (`nrtai/`, `praxent/`, etc.). Must not be preceded by
+# URL-internal characters (`/`, `:`, `.`, word) so we never re-edit a
+# segment that's already inside a real URL. Must end with `/` to look
+# like an orphan path stub rather than a regular word.
+_ORPHAN_LEAF_RE = re.compile(
+    r"(?<![:/\w.])([a-z][a-z0-9_-]{3,})/(?![\w])",
+    re.IGNORECASE,
+)
+
+
+def _reconstruct_orphan_paths(text: str, cited_urls: set[str]) -> str:
+    """Replace bare path stubs (`nrtai/`) with the full URL when one of
+    `cited_urls` ends with that slug.
+
+    Defends against a model failure mode where the model writes only the
+    last path segment of a citation (host + earlier path segments lost).
+    Since the search tool's full URL is in `cited_urls`, the slug is
+    enough to round-trip. Skips short/generic leaves to keep false-
+    positive risk near zero.
+    """
+    if not cited_urls:
+        return text
+    by_leaf: dict[str, str] = {}
+    for url in cited_urls:
+        try:
+            from urllib.parse import urlparse
+
+            parts = urlparse(url).path.rstrip("/").split("/")
+            leaf = parts[-1] if parts else ""
+        except Exception:  # noqa: BLE001
+            continue
+        key = leaf.lower()
+        if len(leaf) < 4 or key in _GENERIC_LEAVES:
+            continue
+        by_leaf.setdefault(key, url)
+    if not by_leaf:
+        return text
+
+    def repl(match: re.Match[str]) -> str:
+        slug = match.group(1).lower()
+        return by_leaf.get(slug, match.group(0))
+
+    return _ORPHAN_LEAF_RE.sub(repl, text)
+
+
 def _is_garbage_rel_path(path: str) -> bool:
     """True if the path of a `[host](path)` citation is too degenerate to
     expand into a real URL — empty, a tracking-only fragment, or a single
@@ -350,7 +418,7 @@ def _absolutize_dot_urls(text: str) -> str:
     return _DOT_URL_RE.sub(repl, text)
 
 
-def _strip_citations(text: str) -> str:
+def _strip_citations(text: str, cited_urls: set[str] | None = None) -> str:
     # PUA pairs first so their inner cite/turn tokens go with them.
     text = _PUA_CITATION_RE.sub("", text)
     text = _CITATION_MARKER_RE.sub("", text)
@@ -362,6 +430,11 @@ def _strip_citations(text: str) -> str:
     text = _absolutize_dot_urls(text)
     text = _MD_LINK_RE.sub(r"\2", text)
     text = _ORPHAN_CITE_RE.sub(r"\1", text)
+    # Last: try to reconnect bare path stubs (`nrtai/`) to the full URL
+    # the search tool returned. Runs after the markdown-link unwrapping
+    # so we never re-edit a slug already inside a real URL.
+    if cited_urls:
+        text = _reconstruct_orphan_paths(text, cited_urls)
     return text
 
 
@@ -428,7 +501,7 @@ class _CitationStripper:
         self._on_strip_url = on_strip_url
 
     def _post_process(self, text: str) -> str:
-        text = _strip_citations(text)
+        text = _strip_citations(text, self._cited_urls)
         text = _filter_off_allowlist_urls(
             text,
             self._cited_urls,
@@ -887,7 +960,8 @@ class MenteeAgent(AgentPort):
                 deduped = _dedup_response_text(result.all_messages())
                 stripped_urls: list[str] = []
                 cleaned = _strip_citations(
-                    deduped if deduped is not None else result.output
+                    deduped if deduped is not None else result.output,
+                    deps.cited_urls,
                 )
                 body = _filter_off_allowlist_urls(
                     cleaned,

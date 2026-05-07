@@ -74,6 +74,56 @@ function absolutizeDotUrls(md: string): string {
 	);
 }
 
+// Generic path leaves we never reconstruct from, even if a cited URL
+// happens to end with one — too easy to false-match prose like "apply/".
+const GENERIC_LEAVES = new Set([
+	"apply",
+	"careers",
+	"jobs",
+	"home",
+	"page",
+	"index",
+	"main",
+	"about",
+	"contact",
+	"search",
+	"login",
+	"signup",
+	"register",
+	"post",
+	"posts",
+	"list",
+	"view",
+]);
+const ORPHAN_LEAF_RE = /(?<![:/\w.])([a-z][a-z0-9_-]{3,})\/(?![\w])/gi;
+
+// When the model writes only the trailing slug of a citation
+// (`nrtai/`) — losing the host — try to round-trip it via any URL
+// already present in the body that ends with the same leaf segment.
+function reconstructOrphanPaths(md: string): string {
+	const urlRe = /\bhttps?:\/\/[^\s)\]]+/gi;
+	const byLeaf = new Map<string, string>();
+	for (const m of md.matchAll(urlRe)) {
+		const url = m[0].replace(/[.,;:!?)\]]+$/, "");
+		try {
+			const u = new URL(url);
+			const segs = u.pathname.replace(/\/+$/, "").split("/");
+			const leaf = segs[segs.length - 1] ?? "";
+			const key = leaf.toLowerCase();
+			if (leaf.length >= 4 && !GENERIC_LEAVES.has(key) && !byLeaf.has(key)) {
+				byLeaf.set(key, url);
+			}
+		} catch {
+			// malformed URL — skip
+		}
+	}
+	if (byLeaf.size === 0) return md;
+	return md.replace(ORPHAN_LEAF_RE, (match, slug: string) => {
+		const url = byLeaf.get(slug.toLowerCase());
+		return url ?? match;
+	});
+}
+
 // Curated TLDs so we don't autolink things like "v1.2.3" or "file.tar.gz".
 const COMMON_TLDS =
 	"com|org|net|edu|gov|io|co|ai|app|dev|info|uk|au|ca|de|fr|es|it|nz|jp|in|br|mx|ar|ch|nl|se|no|dk|fi|pt|ie|be|at|pl|cz|za|sg|hk|kr";
@@ -123,7 +173,7 @@ function sanitize(body: string): string {
 	const trailerless = stripSourcesTrailer(body);
 	const cleaned = trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
 	return autolinkBareDomains(
-		absolutizeDotUrls(expandRelativeCitations(cleaned)),
+		reconstructOrphanPaths(absolutizeDotUrls(expandRelativeCitations(cleaned))),
 	);
 }
 
