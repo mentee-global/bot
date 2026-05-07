@@ -182,12 +182,17 @@ async def _check_url_alive_and_record(
         return
 
 
-def _add_url_to_allowlist(deps: MenteeDeps, url: str) -> None:
+def _add_url_to_allowlist(
+    deps: MenteeDeps, url: str, *, title: str | None = None
+) -> None:
     """Insert `url` into the per-run allowlist if it's a user-facing page,
-    and kick off a parallel HEAD-check when the deps carry an http client."""
+    record an optional `title`, and kick off a parallel HEAD-check when the
+    deps carry an http client."""
     if not _is_user_facing_url(url):
         return
     normalized = url.rstrip("/")
+    if title and normalized not in deps.url_titles:
+        deps.url_titles[normalized] = title.strip()
     if normalized in deps.cited_urls:
         return
     deps.cited_urls.add(normalized)
@@ -199,6 +204,41 @@ def _add_url_to_allowlist(deps: MenteeDeps, url: str) -> None:
         deps.liveness_tasks[normalized] = asyncio.create_task(
             _check_url_alive_and_record(client, normalized, deps.dead_urls)
         )
+
+
+# Trailer marker — must match what the frontend strips and parses. Kept
+# deliberately specific so we don't accidentally collide with model output.
+_SOURCES_TRAILER_PREFIX = "<!-- mentee-sources: "
+_SOURCES_TRAILER_SUFFIX = " -->"
+
+
+def _format_sources_trailer(
+    cited_urls: set[str],
+    dead_urls: set[str],
+    url_titles: dict[str, str],
+) -> str:
+    """Render the per-message URL→title sidecar as an HTML comment.
+
+    Lets the frontend SOURCES bar show real page titles next to pill
+    icons (instead of just the hostname, which makes two URLs from the
+    same site look identical). Only emits entries for live, allowlisted
+    URLs that have a known title — Perplexity citations have no title and
+    are skipped, so the frontend falls back to hostname for those.
+    """
+    import json
+
+    payload: dict[str, str] = {}
+    for url in cited_urls:
+        if url in dead_urls:
+            continue
+        title = url_titles.get(url)
+        if not title:
+            continue
+        payload[url] = title
+    if not payload:
+        return ""
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return f"\n\n{_SOURCES_TRAILER_PREFIX}{body}{_SOURCES_TRAILER_SUFFIX}"
 
 
 async def _gather_liveness(deps: MenteeDeps) -> None:
@@ -349,7 +389,12 @@ def _harvest_urls_from_messages(
                         isinstance(ann, dict)
                         and ann.get("type") == "url_citation"
                     ):
-                        _add_url_to_allowlist(deps, ann.get("url") or "")
+                        title = ann.get("title")
+                        _add_url_to_allowlist(
+                            deps,
+                            ann.get("url") or "",
+                            title=title if isinstance(title, str) else None,
+                        )
 
 
 def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
@@ -746,11 +791,14 @@ class MenteeAgent(AgentPort):
                 cleaned = _strip_citations(
                     deduped if deduped is not None else result.output
                 )
-                output = _filter_off_allowlist_urls(
+                body = _filter_off_allowlist_urls(
                     cleaned,
                     deps.cited_urls,
                     dead=deps.dead_urls,
                     on_strip=stripped_urls.append,
+                )
+                output = body + _format_sources_trailer(
+                    deps.cited_urls, deps.dead_urls, deps.url_titles
                 )
                 if stripped_urls:
                     logger.warning(
@@ -761,6 +809,7 @@ class MenteeAgent(AgentPort):
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
                 span.set_attribute("urls_cited", len(deps.cited_urls))
                 span.set_attribute("urls_dead", len(deps.dead_urls))
+                span.set_attribute("urls_titled", len(deps.url_titles))
                 span.set_attribute("status", "ok")
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
@@ -979,6 +1028,11 @@ class MenteeAgent(AgentPort):
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
+                        trailer = _format_sources_trailer(
+                            deps.cited_urls, deps.dead_urls, deps.url_titles
+                        )
+                        if trailer:
+                            await queue.put(TextDelta(text=trailer))
                         if run.result is not None:
                             try:
                                 _fill_openai_usage(
@@ -1056,6 +1110,7 @@ class MenteeAgent(AgentPort):
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
                 span.set_attribute("urls_cited", len(deps.cited_urls))
                 span.set_attribute("urls_dead", len(deps.dead_urls))
+                span.set_attribute("urls_titled", len(deps.url_titles))
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
                 )

@@ -36,3 +36,9 @@ class MenteeDeps:
     http_client: object | None = None
     liveness_tasks: dict[str, object] = field(default_factory=dict)
     dead_urls: set[str] = field(default_factory=set)
+    # Optional human-readable title per cited URL, harvested from OpenAI
+    # web_search `url_citation` annotations. Surfaced to the frontend as
+    # the SOURCES bar pill label so two URLs sharing a host are
+    # distinguishable. Perplexity citations don't carry titles, so URLs
+    # may be absent — the pill falls back to hostname.
+    url_titles: dict[str, str] = field(default_factory=dict)

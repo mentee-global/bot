@@ -13,6 +13,12 @@ import { m } from "#/paraglide/messages";
 const PUA_CITATION = /[\uE000-\uF8FF][^\uE000-\uF8FF]*[\uE000-\uF8FF]/g;
 const STRAY_PUA = /[\uE000-\uF8FF]/g;
 
+// Backend appends a `<!-- mentee-sources: {url:title,...} -->` trailer
+// after the final flush so the SOURCES bar can show titles instead of
+// hostnames. Match it once at the end of the body \u2014 non-greedy in case
+// JSON contains "-->" sequences (it shouldn't, but defensive).
+const SOURCES_TRAILER_RE = /\n*<!-- mentee-sources: (\{.*?\}) -->\s*$/;
+
 // Curated TLDs so we don't autolink things like "v1.2.3" or "file.tar.gz".
 const COMMON_TLDS =
 	"com|org|net|edu|gov|io|co|ai|app|dev|info|uk|au|ca|de|fr|es|it|nz|jp|in|br|mx|ar|ch|nl|se|no|dk|fi|pt|ie|be|at|pl|cz|za|sg|hk|kr";
@@ -34,21 +40,53 @@ function autolinkBareDomains(md: string): string {
 	);
 }
 
+function stripSourcesTrailer(body: string): string {
+	return body.replace(SOURCES_TRAILER_RE, "");
+}
+
+function parseSourcesTrailer(body: string): Record<string, string> {
+	const m = body.match(SOURCES_TRAILER_RE);
+	if (!m) return {};
+	try {
+		const parsed = JSON.parse(m[1]) as unknown;
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			const out: Record<string, string> = {};
+			for (const [url, title] of Object.entries(parsed)) {
+				if (typeof title === "string" && title.trim()) {
+					out[url] = title.trim();
+				}
+			}
+			return out;
+		}
+	} catch {
+		// malformed JSON — silently fall back to hostname-only pills
+	}
+	return {};
+}
+
 function sanitize(body: string): string {
-	const cleaned = body.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
+	const trailerless = stripSourcesTrailer(body);
+	const cleaned = trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
 	return autolinkBareDomains(cleaned);
 }
 
 export function stripChatBody(body: string): string {
-	return body.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
+	return stripSourcesTrailer(body)
+		.replace(PUA_CITATION, "")
+		.replace(STRAY_PUA, "");
 }
 
 interface Source {
 	url: string;
 	hostname: string;
+	/** Page title from web_search annotations, when available. */
+	title?: string;
 }
 
-function extractSources(body: string): Source[] {
+function extractSources(
+	body: string,
+	titles: Record<string, string>,
+): Source[] {
 	const found = new Map<string, Source>();
 	const urlRe = /\bhttps?:\/\/[^\s)\]]+/gi;
 	for (const match of body.matchAll(urlRe)) {
@@ -57,7 +95,9 @@ function extractSources(body: string): Source[] {
 		try {
 			const u = new URL(raw);
 			const hostname = u.hostname.replace(/^www\./, "");
-			found.set(raw, { url: raw, hostname });
+			// Trailer keys are stored without trailing slash; match either form.
+			const title = titles[raw] ?? titles[raw.replace(/\/$/, "")] ?? undefined;
+			found.set(raw, { url: raw, hostname, title });
 		} catch {
 			// malformed URL — skip
 		}
@@ -129,11 +169,12 @@ interface MessageBodyProps {
 
 function MessageBodyImpl({ body, streaming }: MessageBodyProps) {
 	const clean = useMemo(() => sanitize(body), [body]);
+	const titles = useMemo(() => parseSourcesTrailer(body), [body]);
 	// Suppress sources mid-stream — URLs arrive character by character and
 	// the list would flicker.
 	const sources = useMemo(
-		() => (streaming ? [] : extractSources(clean)),
-		[clean, streaming],
+		() => (streaming ? [] : extractSources(clean, titles)),
+		[clean, titles, streaming],
 	);
 
 	return (
@@ -161,27 +202,37 @@ function SourceBar({ sources }: { sources: Source[] }) {
 		<div className="mt-3 border-t border-[var(--theme-border)] pt-2">
 			<p className="island-kicker m-0 mb-1.5">Sources</p>
 			<ul className="m-0 flex flex-wrap gap-1.5 p-0">
-				{sources.map((s) => (
-					<li key={s.url} className="list-none">
-						<a
-							href={s.url}
-							target="_blank"
-							rel="noreferrer noopener"
-							className="inline-flex items-center gap-1.5 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--theme-secondary)] no-underline transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-primary)]"
-						>
-							<img
-								src={`https://www.google.com/s2/favicons?domain=${s.hostname}&sz=32`}
-								alt=""
-								width={12}
-								height={12}
-								className="rounded-sm"
-								loading="lazy"
-							/>
-							<span className="truncate max-w-[180px]">{s.hostname}</span>
-							<ExternalLink aria-hidden="true" className="size-3 opacity-60" />
-						</a>
-					</li>
-				))}
+				{sources.map((s) => {
+					// Prefer the page title (richer, distinguishes two URLs from
+					// the same site) and use the hostname as the tooltip so the
+					// underlying domain is still visible on hover.
+					const label = s.title ?? s.hostname;
+					return (
+						<li key={s.url} className="list-none">
+							<a
+								href={s.url}
+								target="_blank"
+								rel="noreferrer noopener"
+								title={s.title ? s.hostname : undefined}
+								className="inline-flex items-center gap-1.5 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--theme-secondary)] no-underline transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-primary)]"
+							>
+								<img
+									src={`https://www.google.com/s2/favicons?domain=${s.hostname}&sz=32`}
+									alt=""
+									width={12}
+									height={12}
+									className="rounded-sm"
+									loading="lazy"
+								/>
+								<span className="truncate max-w-[220px]">{label}</span>
+								<ExternalLink
+									aria-hidden="true"
+									className="size-3 opacity-60"
+								/>
+							</a>
+						</li>
+					);
+				})}
 			</ul>
 		</div>
 	);
