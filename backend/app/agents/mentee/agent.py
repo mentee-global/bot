@@ -124,11 +124,6 @@ _NON_USER_FACING_EXTS = (
     ".mp4",
     ".mov",
 )
-# Cap on the appended "More sources" list so we don't dump 20 near-duplicate
-# URLs from the same employer/aggregator into the user's reply.
-_MORE_SOURCES_MAX = 8
-
-
 def _is_user_facing_url(url: str) -> bool:
     """Return False for asset URLs (PDFs, images, archives) that no one
     would want to click from a chat-bot reply, even if a search tool
@@ -238,16 +233,14 @@ def _filter_off_allowlist_urls(
     *,
     dead: set[str] | None = None,
     on_strip: object | None = None,
-    on_keep: object | None = None,
 ) -> str:
     """Replace any URL not present in `cited`, or known to be dead, with the
     empty string.
 
     `cited` holds normalized URLs (trailing slash stripped). `dead`, when
     given, holds normalized URLs the HEAD-check confirmed return 404/410 \u2014
-    those are dropped even if they came from a tool. `on_strip` /
-    `on_keep` are optional callables for telemetry / "More sources"
-    bookkeeping.
+    those are dropped even if they came from a tool. `on_strip` is an
+    optional telemetry callable invoked once per stripped URL.
     """
     dead_set = dead if dead is not None else set()
 
@@ -256,11 +249,6 @@ def _filter_off_allowlist_urls(
         clean, trail = _strip_url_trailing_punct(raw)
         normalized = clean.rstrip("/")
         if normalized in cited and normalized not in dead_set:
-            if callable(on_keep):
-                try:
-                    on_keep(normalized)  # type: ignore[misc]
-                except Exception:  # noqa: BLE001 \u2014 telemetry must not break output
-                    pass
             return raw
         if callable(on_strip):
             try:
@@ -272,23 +260,6 @@ def _filter_off_allowlist_urls(
         return trail
 
     return _URL_RE.sub(repl, text)
-
-
-def _format_more_sources(unused: list[str]) -> str:
-    """Render the appended "More sources" section.
-
-    The system prompt forbids the *model* from writing a Sources section
-    (the chat UI auto-renders one from inline URLs). We append our own list
-    of *unused* allowlist URLs after the model finishes so users can see
-    every page a search tool returned, not only the model's curated picks.
-    Capped at `_MORE_SOURCES_MAX` to keep the tail readable.
-    Returns an empty string when there's nothing to append.
-    """
-    if not unused:
-        return ""
-    capped = unused[:_MORE_SOURCES_MAX]
-    bullets = "\n".join(f"- {url}" for url in capped)
-    return f"\n\n**More sources**:\n{bullets}"
 
 
 class _CitationStripper:
@@ -317,9 +288,6 @@ class _CitationStripper:
         # `_gather_liveness`) all confirmed-dead URLs are dropped.
         self._dead_urls = dead_urls if dead_urls is not None else set()
         self._on_strip_url = on_strip_url
-        # Normalized URLs the model has already cited inline this turn.
-        # Consulted at end of stream to compute the "More sources" tail.
-        self.seen_urls: set[str] = set()
 
     def _post_process(self, text: str) -> str:
         text = _strip_citations(text)
@@ -328,7 +296,6 @@ class _CitationStripper:
             self._cited_urls,
             dead=self._dead_urls,
             on_strip=self._on_strip_url,
-            on_keep=self.seen_urls.add,
         )
         return text
 
@@ -776,20 +743,15 @@ class MenteeAgent(AgentPort):
                 await _gather_liveness(deps)
                 deduped = _dedup_response_text(result.all_messages())
                 stripped_urls: list[str] = []
-                seen_urls: set[str] = set()
                 cleaned = _strip_citations(
                     deduped if deduped is not None else result.output
                 )
-                body = _filter_off_allowlist_urls(
+                output = _filter_off_allowlist_urls(
                     cleaned,
                     deps.cited_urls,
                     dead=deps.dead_urls,
                     on_strip=stripped_urls.append,
-                    on_keep=seen_urls.add,
                 )
-                live_allowlist = deps.cited_urls - deps.dead_urls
-                unused = sorted(live_allowlist - seen_urls)
-                output = body + _format_more_sources(unused)
                 if stripped_urls:
                     logger.warning(
                         "agent.url_off_allowlist count=%d urls=%s",
@@ -799,7 +761,6 @@ class MenteeAgent(AgentPort):
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
                 span.set_attribute("urls_cited", len(deps.cited_urls))
                 span.set_attribute("urls_dead", len(deps.dead_urls))
-                span.set_attribute("urls_unused_appended", len(unused))
                 span.set_attribute("status", "ok")
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
@@ -884,9 +845,6 @@ class MenteeAgent(AgentPort):
             queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
             response_length = 0
             stripped_urls: list[str] = []
-            # Single-element list used as a 1-cell mailbox so the inner
-            # `drive()` coroutine can publish the count without `nonlocal`.
-            nonlocal_unused_count = [0]
             deps = self._deps(user, collector, perplexity_enabled, ui_locale)
 
             async def drive() -> None:
@@ -1021,15 +979,6 @@ class MenteeAgent(AgentPort):
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
-                        # Append every allowlist URL the model didn't cite
-                        # inline. Lets the user see the full search-tool
-                        # result set without bloating the curated reply.
-                        live_allowlist = deps.cited_urls - deps.dead_urls
-                        unused = sorted(live_allowlist - stripper.seen_urls)
-                        nonlocal_unused_count[0] = len(unused)
-                        more = _format_more_sources(unused)
-                        if more:
-                            await queue.put(TextDelta(text=more))
                         if run.result is not None:
                             try:
                                 _fill_openai_usage(
@@ -1107,9 +1056,6 @@ class MenteeAgent(AgentPort):
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
                 span.set_attribute("urls_cited", len(deps.cited_urls))
                 span.set_attribute("urls_dead", len(deps.dead_urls))
-                span.set_attribute(
-                    "urls_unused_appended", nonlocal_unused_count[0]
-                )
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
                 )
