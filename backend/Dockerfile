@@ -20,11 +20,14 @@ ENV UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv
 
 # Resolve and install deps before copying source so editing app code
-# doesn't bust this layer. --no-install-project because pyproject.toml
-# has no [build-system] (we manage a venv, not a publishable package).
+# doesn't bust this layer (Docker layer cache between builds covers
+# re-runs as long as pyproject.toml/uv.lock are unchanged). No BuildKit
+# cache mount: Railway's metal builder rejects mounts whose id lacks
+# its internal cacheKey prefix, and the layer cache alone is enough for
+# the common case. --no-install-project because pyproject.toml has no
+# [build-system] (we manage a venv, not a publishable package).
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,id=mentee-bot-uv-cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev
 
 COPY alembic.ini ./
 COPY app ./app
