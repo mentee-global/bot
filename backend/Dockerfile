@@ -23,7 +23,7 @@ ENV UV_LINK_MODE=copy \
 # doesn't bust this layer. --no-install-project because pyproject.toml
 # has no [build-system] (we manage a venv, not a publishable package).
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=mentee-bot-uv-cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 COPY alembic.ini ./
