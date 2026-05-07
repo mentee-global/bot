@@ -141,7 +141,7 @@ export function ChatMessage({
 					isUser
 						? hasError
 							? "border border-[var(--theme-danger)] bg-[var(--theme-danger)]/10 text-[var(--theme-primary)]"
-							: "bg-[var(--theme-primary)] text-[var(--theme-bg)]"
+							: "bg-[var(--theme-primary)] text-[var(--theme-bg)] selection:bg-[var(--theme-bg)] selection:text-[var(--theme-primary)]"
 						: "border border-[var(--theme-border)] bg-[var(--theme-surface)] text-[var(--theme-primary)]",
 				)}
 				title={formatFullTimestamp(message.created_at)}
