@@ -15,6 +15,7 @@ import type {
 	ToolEvent,
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
+import { bumpInteractionCount } from "#/features/chat/hooks/useSessionRatingTrigger";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
 import { track } from "#/lib/analytics";
 import { ApiError } from "#/lib/api/errors";
@@ -84,6 +85,7 @@ export function useStreamMessage(
 					(queryClient.getQueryData<Thread>(cacheKey)?.messages.length ?? 0) ===
 					0,
 			});
+			bumpInteractionCount();
 
 			const controller = new AbortController();
 			abortRef.current = controller;

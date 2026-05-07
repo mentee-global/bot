@@ -12,13 +12,19 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.db_models import UserRecord
 from app.db.engine import async_session_factory
 from app.domain.enums import MessageRole
-from app.domain.models import Message, Thread
-from app.services.db_models import MessageRatingRecord, MessageRecord, ThreadRecord
+from app.domain.models import Message, Thread, ThreadRating
+from app.services.db_models import (
+    MessageRatingRecord,
+    MessageRecord,
+    ThreadRatingRecord,
+    ThreadRecord,
+)
 from app.services.thread_store import (
     MessageNotFoundError,
     ThreadNotFoundError,
@@ -400,6 +406,87 @@ class PostgresThreadStore(ThreadStore):
                 existing.updated_at = now
                 session.add(existing)
             await session.commit()
+
+    async def upsert_thread_rating(
+        self,
+        thread_id: str,
+        user_id: str,
+        *,
+        stars: int,
+        comment: str | None,
+    ) -> ThreadRating:
+        tid = _as_uuid(thread_id)
+        uid = _as_uuid(user_id)
+        async with self._factory() as session:
+            owner = (
+                await session.execute(
+                    select(ThreadRecord.user_id).where(ThreadRecord.id == tid)
+                )
+            ).scalar_one_or_none()
+            if owner is None or owner != uid:
+                raise ThreadNotFoundError(thread_id)
+
+            now = _now()
+            stmt = (
+                pg_insert(ThreadRatingRecord)
+                .values(
+                    thread_id=tid,
+                    user_id=uid,
+                    stars=stars,
+                    comment=comment,
+                    created_at=now,
+                    updated_at=now,
+                )
+                .on_conflict_do_update(
+                    index_elements=["thread_id"],
+                    set_={
+                        "stars": stars,
+                        "comment": comment,
+                        "user_id": uid,
+                        "updated_at": now,
+                    },
+                )
+                .returning(ThreadRatingRecord)
+            )
+            row = (await session.execute(stmt)).scalar_one()
+            await session.commit()
+            return ThreadRating(
+                thread_id=str(row.thread_id),
+                stars=int(row.stars),
+                comment=row.comment,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+
+    async def get_thread_rating(
+        self, thread_id: str, user_id: str
+    ) -> ThreadRating | None:
+        tid = _as_uuid(thread_id)
+        uid = _as_uuid(user_id)
+        async with self._factory() as session:
+            owner = (
+                await session.execute(
+                    select(ThreadRecord.user_id).where(ThreadRecord.id == tid)
+                )
+            ).scalar_one_or_none()
+            if owner is None or owner != uid:
+                raise ThreadNotFoundError(thread_id)
+            row = (
+                await session.execute(
+                    select(ThreadRatingRecord).where(
+                        ThreadRatingRecord.thread_id == tid
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            return ThreadRating(
+                thread_id=str(row.thread_id),
+                stars=int(row.stars),
+                comment=row.comment,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
 
     async def count_messages_for_threads(
         self, thread_ids: Sequence[str]

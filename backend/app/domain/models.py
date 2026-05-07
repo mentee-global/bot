@@ -36,6 +36,36 @@ class Thread(BaseModel):
     updated_at: datetime = Field(default_factory=_now)
 
 
+class ThreadRating(BaseModel):
+    thread_id: str
+    stars: int  # 1..5
+    comment: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FeedbackTriggerConfig(BaseModel):
+    """Admin-controlled cadence for the in-chat session rating prompt.
+
+    `mode` selects which gating logic the frontend trigger hook uses:
+    - "interactions": every N user messages (lifetime, browser-scoped).
+    - "time": time elapsed since first activity (first ask) and last shown.
+    - "hybrid": fires when EITHER interaction or time threshold is met.
+    """
+
+    enabled: bool
+    mode: str  # "interactions" | "time" | "hybrid"
+    interactions_first: int
+    interactions_repeat: int
+    time_first_minutes: int
+    time_repeat_minutes: int
+    # 0 = rated threads stay locked forever; >0 = re-ask after N more user
+    # messages in the same thread since the rating timestamp.
+    re_rate_after_messages: int = 0
+    updated_at: datetime
+    updated_by_user_id: str | None = None
+
+
 class MenteeEducation(BaseModel):
     level: str
     school: str

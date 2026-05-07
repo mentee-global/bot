@@ -27,6 +27,11 @@ interface MessageListProps {
 	onCopyThread?: () => void;
 	findQuery?: string;
 	findActiveIndex?: number;
+	/** Optional slot rendered after the last message (and any suggestion row)
+	 * but before the scroll sentinel. Used by the session rating card so it
+	 * sits inside the auto-scroll region without disrupting the pin-to-bottom
+	 * IntersectionObserver. */
+	slotAfterMessages?: React.ReactNode;
 }
 
 export function MessageList({
@@ -41,6 +46,7 @@ export function MessageList({
 	onCopyThread,
 	findQuery = "",
 	findActiveIndex = 0,
+	slotAfterMessages,
 }: MessageListProps) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const sentinelRef = useRef<HTMLDivElement>(null);
@@ -173,6 +179,7 @@ export function MessageList({
 					Mentor is typing…
 				</div>
 			) : null}
+			{slotAfterMessages}
 			<div ref={sentinelRef} />
 			{!isPinnedToBottom ? (
 				<button

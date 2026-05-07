@@ -5,7 +5,7 @@ from app.agents.events import TextDelta, ToolEnd, ToolStart
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
 from app.domain.enums import MessageRole
-from app.domain.models import Message, Thread, User
+from app.domain.models import Message, Thread, ThreadRating, User
 from app.services.thread_store import ThreadStore
 
 _TITLE_MAX_LEN = 80
@@ -221,3 +221,25 @@ class MessageService:
         MessageNotFoundError otherwise.
         """
         await self.store.set_message_rating(message_id, user_id, rating)
+
+    async def rate_thread(
+        self,
+        user_id: str,
+        thread_id: str,
+        *,
+        stars: int,
+        comment: str | None,
+    ) -> ThreadRating:
+        """Set the per-conversation 1–5 star rating for a thread the user owns.
+
+        Idempotent overwrite. The store raises ThreadNotFoundError when the
+        thread is missing or owned by another user.
+        """
+        return await self.store.upsert_thread_rating(
+            thread_id, user_id, stars=stars, comment=comment
+        )
+
+    async def get_thread_rating(
+        self, user_id: str, thread_id: str
+    ) -> ThreadRating | None:
+        return await self.store.get_thread_rating(thread_id, user_id)

@@ -15,6 +15,7 @@ from app.budget.service import BudgetService
 from app.core.config import Settings, settings
 from app.domain.models import User
 from app.reports.service import ReportsService
+from app.services.feedback_config_service import FeedbackConfigService
 from app.services.message_service import MessageService
 from app.services.pg_thread_store import PostgresThreadStore
 from app.services.thread_store import InMemoryThreadStore, ThreadStore
@@ -43,6 +44,7 @@ _budget = BudgetService()
 _agent: AgentPort = _build_agent(settings, _budget)
 _service = MessageService(store=_store, agent=_agent, budget=_budget)
 _reports = ReportsService(budget=_budget, settings=settings)
+_feedback_config = FeedbackConfigService()
 
 _http: httpx.AsyncClient | None = None
 _oauth_client: MenteeOAuthClient | None = None
@@ -110,6 +112,10 @@ def get_budget_service() -> BudgetService:
 
 def get_reports_service() -> ReportsService:
     return _reports
+
+
+def get_feedback_config_service() -> FeedbackConfigService:
+    return _feedback_config
 
 
 async def _resolve_session(

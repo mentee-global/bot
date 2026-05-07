@@ -16,6 +16,7 @@ import {
 	MessageSquare,
 	Moon,
 	Shield,
+	Star,
 	Sun,
 	Users as UsersIcon,
 	Wallet,
@@ -77,6 +78,11 @@ import {
 	useLogoutMutation,
 	useSession,
 } from "#/features/auth/hooks/useSession";
+import {
+	FEEDBACK_SECTIONS,
+	type FeedbackSection,
+	feedbackSectionLabel,
+} from "#/routes/admin.feedback";
 
 export const Route = createFileRoute("/admin")({
 	component: AdminLayout,
@@ -152,10 +158,12 @@ function budgetSectionLabel(section: BudgetSection): string {
 function AdminSidebar({ user }: { user: User }) {
 	const { pathname } = useLocation();
 	const currentSection = useCurrentBudgetSection();
+	const currentFeedbackSection = useCurrentFeedbackSection();
 	const activityActive = pathname.startsWith("/admin/activity");
 	const usersActive = pathname.startsWith("/admin/users");
 	const budgetActive = pathname.startsWith("/admin/budget");
 	const metricsActive = pathname.startsWith("/admin/metrics");
+	const feedbackActive = pathname.startsWith("/admin/feedback");
 	const bugReportsActive = pathname.startsWith("/admin/bug-reports");
 	const creditRequestsActive = pathname.startsWith("/admin/credit-requests");
 
@@ -203,11 +211,7 @@ function AdminSidebar({ user }: { user: User }) {
 						</SidebarMenuItem>
 
 						<SidebarMenuItem>
-							<SidebarMenuButton
-								asChild
-								tooltip="Users"
-								isActive={usersActive}
-							>
+							<SidebarMenuButton asChild tooltip="Users" isActive={usersActive}>
 								<Link to="/admin/users">
 									<UsersIcon />
 									<span>Users</span>
@@ -227,6 +231,43 @@ function AdminSidebar({ user }: { user: User }) {
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
+
+						<Collapsible
+							asChild
+							defaultOpen={feedbackActive}
+							className="group/collapsible"
+						>
+							<SidebarMenuItem>
+								<CollapsibleTrigger asChild>
+									<SidebarMenuButton
+										tooltip="Feedback"
+										isActive={feedbackActive}
+									>
+										<Star />
+										<span>Feedback</span>
+										<ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+									</SidebarMenuButton>
+								</CollapsibleTrigger>
+								<CollapsibleContent>
+									<SidebarMenuSub>
+										{FEEDBACK_SECTIONS.map((section) => (
+											<SidebarMenuSubItem key={section}>
+												<SidebarMenuSubButton
+													asChild
+													isActive={
+														feedbackActive && currentFeedbackSection === section
+													}
+												>
+													<Link to="/admin/feedback" search={{ section }}>
+														<span>{feedbackSectionLabel(section)}</span>
+													</Link>
+												</SidebarMenuSubButton>
+											</SidebarMenuSubItem>
+										))}
+									</SidebarMenuSub>
+								</CollapsibleContent>
+							</SidebarMenuItem>
+						</Collapsible>
 
 						<SidebarMenuItem>
 							<SidebarMenuButton
@@ -261,10 +302,7 @@ function AdminSidebar({ user }: { user: User }) {
 						>
 							<SidebarMenuItem>
 								<CollapsibleTrigger asChild>
-									<SidebarMenuButton
-										tooltip="Budget"
-										isActive={budgetActive}
-									>
+									<SidebarMenuButton tooltip="Budget" isActive={budgetActive}>
 										<Wallet />
 										<span>Budget</span>
 										<ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
@@ -467,7 +505,8 @@ function AdminTopBar() {
 function AdminBreadcrumb() {
 	const { pathname } = useLocation();
 	const currentSection = useCurrentBudgetSection();
-	const crumbs = buildCrumbs(pathname, currentSection);
+	const currentFeedbackSection = useCurrentFeedbackSection();
+	const crumbs = buildCrumbs(pathname, currentSection, currentFeedbackSection);
 
 	return (
 		<Breadcrumb>
@@ -506,7 +545,12 @@ function AdminBreadcrumb() {
 function PageTitle() {
 	const { pathname } = useLocation();
 	const currentSection = useCurrentBudgetSection();
-	const { title, description } = getPageMeta(pathname, currentSection);
+	const currentFeedbackSection = useCurrentFeedbackSection();
+	const { title, description } = getPageMeta(
+		pathname,
+		currentSection,
+		currentFeedbackSection,
+	);
 
 	return (
 		<div className="flex flex-col gap-1">
@@ -530,7 +574,11 @@ type Crumb = {
 	search?: Record<string, string>;
 };
 
-function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
+function buildCrumbs(
+	pathname: string,
+	section: BudgetSection,
+	feedbackSection: FeedbackSection,
+): Crumb[] {
 	const root: Crumb = {
 		label: "Admin",
 		href: "/admin/activity",
@@ -559,6 +607,14 @@ function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 		return [root, { label: "Metrics" }];
 	}
 
+	if (pathname.startsWith("/admin/feedback")) {
+		return [
+			root,
+			{ label: "Feedback", href: "/admin/feedback" },
+			{ label: feedbackSectionLabel(feedbackSection) },
+		];
+	}
+
 	if (pathname.startsWith("/admin/bug-reports")) {
 		return [root, { label: "Bug reports" }];
 	}
@@ -581,6 +637,7 @@ function buildCrumbs(pathname: string, section: BudgetSection): Crumb[] {
 function getPageMeta(
 	pathname: string,
 	section: BudgetSection,
+	feedbackSection: FeedbackSection,
 ): { title: string; description?: string } {
 	if (pathname.startsWith("/admin/activity")) {
 		const rest = pathname.slice("/admin/activity".length).replace(/^\//, "");
@@ -595,7 +652,22 @@ function getPageMeta(
 	if (pathname.startsWith("/admin/metrics")) {
 		return {
 			title: "Metrics",
-			description: "Activity over the selected window. All counts are UTC-day buckets.",
+			description:
+				"Activity over the selected window. All counts are UTC-day buckets.",
+		};
+	}
+	if (pathname.startsWith("/admin/feedback")) {
+		if (feedbackSection === "configuration") {
+			return {
+				title: "Feedback",
+				description:
+					"Configure when and how often the rating prompt appears for users.",
+			};
+		}
+		return {
+			title: "Feedback",
+			description:
+				"Review the ratings and reactions users have left across all conversations.",
 		};
 	}
 	if (pathname.startsWith("/admin/bug-reports")) {
@@ -607,7 +679,8 @@ function getPageMeta(
 	if (pathname.startsWith("/admin/credit-requests")) {
 		return {
 			title: "Credit requests",
-			description: "Users asking for more credits. Grant from here to update their quota.",
+			description:
+				"Users asking for more credits. Grant from here to update their quota.",
 		};
 	}
 	if (pathname.startsWith("/admin/budget")) {
@@ -628,6 +701,25 @@ function useCurrentBudgetSection(): BudgetSection {
 				(BUDGET_SECTIONS as readonly string[]).includes(raw)
 				? (raw as BudgetSection)
 				: "overview";
+		},
+	});
+}
+
+function useCurrentFeedbackSection(): FeedbackSection {
+	return useRouterState({
+		select: (state) => {
+			// Only read `section` while the user is on the feedback route —
+			// other admin pages (e.g. /admin/budget) also use `?section=` for
+			// their own sub-tabs and we'd otherwise read those values here.
+			if (!state.location.pathname.startsWith("/admin/feedback")) {
+				return "details" as FeedbackSection;
+			}
+			const search = state.location.search as { section?: unknown };
+			const raw = search?.section;
+			return typeof raw === "string" &&
+				(FEEDBACK_SECTIONS as readonly string[]).includes(raw)
+				? (raw as FeedbackSection)
+				: "details";
 		},
 	});
 }

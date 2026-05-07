@@ -14,15 +14,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select
 
 from app.api.deps import (
     get_budget_service,
+    get_feedback_config_service,
     get_message_service,
     get_session_store,
     require_admin,
@@ -32,8 +33,17 @@ from app.auth.session_store import SessionStore
 from app.budget.db_models import MessageUsage
 from app.budget.service import BudgetService
 from app.db.engine import async_session_factory
-from app.domain.models import Message, User
-from app.services.db_models import MessageRecord, ThreadRecord
+from app.domain.models import FeedbackTriggerConfig, Message, User
+from app.services.db_models import (
+    MessageRatingRecord,
+    MessageRecord,
+    ThreadRatingRecord,
+    ThreadRecord,
+)
+from app.services.feedback_config_service import (
+    FeedbackConfigError,
+    FeedbackConfigService,
+)
 from app.services.message_service import MessageService
 from app.services.thread_store import ThreadNotFoundError
 
@@ -184,6 +194,93 @@ class AdminMetricsThreadLengthBucket(BaseModel):
     threads: int
 
 
+class AdminMetricsStarBucket(BaseModel):
+    stars: int  # 1..5
+    count: int
+
+
+class AdminMetricsRatingPoint(BaseModel):
+    date: str  # ISO date "YYYY-MM-DD" (UTC)
+    avg_stars: float | None
+    count: int
+
+
+class AdminMetricsFeedback(BaseModel):
+    """Feedback aggregates over the metrics window.
+
+    `star_distribution` is the per-conversation 1–5 rating histogram.
+    `thumbs_*` rolls up `message_ratings` (per-message ±1) — note this is
+    the first admin-side aggregate of `message_ratings`; the user-scoped
+    LEFT JOIN in chat reads stays untouched. Aggregates only, no per-user
+    surfacing.
+    """
+
+    star_distribution: list[AdminMetricsStarBucket]
+    avg_rating_series: list[AdminMetricsRatingPoint]
+    avg_rating_period: float | None
+    total_ratings_period: int
+    thumbs_up_period: int
+    thumbs_down_period: int
+    thumbs_up_rate: float | None  # up / (up + down); null if no thumbs
+
+
+class AdminRatingRow(BaseModel):
+    thread_id: str
+    title: str | None
+    user_id: str
+    owner_email: str | None = None
+    owner_name: str | None = None
+    stars: int
+    comment: str | None
+    rated_at: datetime
+
+
+class AdminRatingsResponse(BaseModel):
+    items: list[AdminRatingRow]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdminMessageReactionRow(BaseModel):
+    message_id: str
+    thread_id: str
+    thread_title: str | None
+    user_id: str
+    owner_email: str | None = None
+    owner_name: str | None = None
+    rating: int  # -1 (down) or 1 (up)
+    # Truncated server-side to keep payloads small; admin can click through to
+    # the full thread for context.
+    message_preview: str
+    rated_at: datetime
+
+
+class AdminMessageReactionsResponse(BaseModel):
+    items: list[AdminMessageReactionRow]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdminTriggerConfigUpdate(BaseModel):
+    """Wire format for `PUT /api/admin/config/feedback-trigger`.
+
+    Pydantic enforces the same bounds as the DB CHECK constraints so
+    validation errors come back as clean 422s instead of CHECK violations.
+    """
+
+    enabled: bool
+    mode: Literal["interactions", "time", "hybrid"]
+    interactions_first: int = Field(ge=1, le=1000)
+    interactions_repeat: int = Field(ge=1, le=1000)
+    time_first_minutes: int = Field(ge=1, le=525_600)  # max ~1 year
+    time_repeat_minutes: int = Field(ge=1, le=525_600)
+    # 0 = rated threads stay locked forever; >0 = re-ask after that many
+    # in-thread user messages since the rating timestamp.
+    re_rate_after_messages: int = Field(ge=0, le=1000)
+
+
 class AdminMetricsResponse(BaseModel):
     range_days: int
     series: list[AdminMetricsPoint]
@@ -203,6 +300,7 @@ class AdminMetricsResponse(BaseModel):
     input_tokens_period: int
     output_tokens_period: int
     requests_period: int
+    feedback: AdminMetricsFeedback
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +538,48 @@ async def get_metrics(
         )
     )
 
+    # Feedback aggregates. All four queries run against unfiltered tables
+    # (no user_id) — admin-side aggregates only, never surfaced per-user.
+    rating_day = func.date_trunc("day", ThreadRatingRecord.created_at)
+    star_distribution_stmt = (
+        select(ThreadRatingRecord.stars, func.count())
+        .where(
+            ThreadRatingRecord.created_at >= start,
+            ThreadRatingRecord.created_at < end_exclusive,
+        )
+        .group_by(ThreadRatingRecord.stars)
+    )
+    avg_rating_series_stmt = (
+        select(
+            rating_day.label("d"),
+            func.avg(ThreadRatingRecord.stars),
+            func.count(),
+        )
+        .where(
+            ThreadRatingRecord.created_at >= start,
+            ThreadRatingRecord.created_at < end_exclusive,
+        )
+        .group_by(rating_day)
+    )
+    rating_totals_stmt = (
+        select(
+            func.coalesce(func.avg(ThreadRatingRecord.stars), 0),
+            func.count(),
+        )
+        .where(
+            ThreadRatingRecord.created_at >= start,
+            ThreadRatingRecord.created_at < end_exclusive,
+        )
+    )
+    thumbs_stmt = (
+        select(MessageRatingRecord.rating, func.count())
+        .where(
+            MessageRatingRecord.created_at >= start,
+            MessageRatingRecord.created_at < end_exclusive,
+        )
+        .group_by(MessageRatingRecord.rating)
+    )
+
     # Each query runs on its own session — async SQLAlchemy sessions are not
     # safe for concurrent `execute()` calls (raises IllegalStateChangeError),
     # so we mirror the `_scalar` helper's one-session-per-query pattern and
@@ -464,6 +604,10 @@ async def get_metrics(
         messages_total_n,
         messages_24h_n,
         active_users_n,
+        star_distribution_rows,
+        avg_rating_series_rows,
+        rating_totals_rows,
+        thumbs_rows,
     ) = await asyncio.gather(
         _rows(user_stmt),
         _rows(thread_stmt),
@@ -479,6 +623,10 @@ async def get_metrics(
         _scalar(totals_messages),
         _scalar(totals_messages_24h),
         _scalar(active_users_stmt),
+        _rows(star_distribution_stmt),
+        _rows(avg_rating_series_stmt),
+        _rows(rating_totals_stmt),
+        _rows(thumbs_stmt),
     )
 
     user_buckets = {_bucket_key(d): int(n or 0) for d, n in user_rows}
@@ -577,6 +725,15 @@ async def get_metrics(
         else 0.0
     )
 
+    feedback = _build_feedback(
+        days=days,
+        start=start,
+        star_distribution_rows=star_distribution_rows,
+        avg_rating_series_rows=avg_rating_series_rows,
+        rating_totals_rows=rating_totals_rows,
+        thumbs_rows=thumbs_rows,
+    )
+
     return AdminMetricsResponse(
         range_days=days,
         series=series,
@@ -601,6 +758,7 @@ async def get_metrics(
         input_tokens_period=in_tok_period,
         output_tokens_period=out_tok_period,
         requests_period=req_period,
+        feedback=feedback,
     )
 
 
@@ -629,6 +787,72 @@ def _bucket_thread_lengths(
                 out[idx].threads += 1
                 break
     return out
+
+
+def _build_feedback(  # type: ignore[no-untyped-def]
+    *,
+    days: int,
+    start: datetime,
+    star_distribution_rows,
+    avg_rating_series_rows,
+    rating_totals_rows,
+    thumbs_rows,
+) -> AdminMetricsFeedback:
+    # Distribution: emit all 5 buckets so the chart renders even when empty.
+    dist_counts: dict[int, int] = {
+        int(stars): int(n or 0) for stars, n in star_distribution_rows
+    }
+    star_distribution = [
+        AdminMetricsStarBucket(stars=s, count=dist_counts.get(s, 0))
+        for s in range(1, 6)
+    ]
+
+    # Daily series: zero-fill missing days; avg_stars stays None on empty days
+    # so the line chart can skip rather than dive to 0.
+    series_buckets: dict[str, tuple[float | None, int]] = {
+        _bucket_key(d): (
+            float(avg) if avg is not None else None,
+            int(n or 0),
+        )
+        for d, avg, n in avg_rating_series_rows
+    }
+    avg_rating_series: list[AdminMetricsRatingPoint] = []
+    for i in range(days):
+        day = start + timedelta(days=i)
+        key = day.strftime("%Y-%m-%d")
+        avg, n = series_buckets.get(key, (None, 0))
+        avg_rating_series.append(
+            AdminMetricsRatingPoint(date=key, avg_stars=avg, count=n)
+        )
+
+    # Period totals — DataFusion returns one row even on empty tables.
+    if rating_totals_rows:
+        total_avg, total_count = rating_totals_rows[0]
+        total_count_int = int(total_count or 0)
+        avg_rating_period = (
+            round(float(total_avg), 2) if total_count_int > 0 else None
+        )
+    else:
+        total_count_int = 0
+        avg_rating_period = None
+
+    thumbs_buckets: dict[int, int] = {
+        int(rating): int(n or 0) for rating, n in thumbs_rows
+    }
+    up = thumbs_buckets.get(1, 0)
+    down = thumbs_buckets.get(-1, 0)
+    denom = up + down
+    thumbs_up_rate = round(up / denom, 4) if denom > 0 else None
+
+    return AdminMetricsFeedback(
+        star_distribution=star_distribution,
+        avg_rating_series=avg_rating_series,
+        avg_rating_period=avg_rating_period,
+        total_ratings_period=total_count_int,
+        thumbs_up_period=up,
+        thumbs_down_period=down,
+        thumbs_up_rate=thumbs_up_rate,
+    )
 
 
 def _bucket_key(value: object) -> str:
@@ -846,6 +1070,289 @@ async def export_thread(
         page=None,
         page_size=None,
     )
+
+
+@router.get(
+    "/feedback/ratings", response_model=AdminRatingsResponse
+)
+async def list_ratings(
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
+    page: Annotated[int | None, Query(ge=1)] = None,
+    min_stars: Annotated[int | None, Query(ge=1, le=5)] = None,
+    max_stars: Annotated[int | None, Query(ge=1, le=5)] = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
+) -> AdminRatingsResponse:
+    """Paginated list of session star ratings, newest first.
+
+    Optional `min_stars` / `max_stars` filters carve out a band — the admin
+    UI uses `max_stars=2` to surface a low-rated triage view from the same
+    endpoint. `q` is a substring search across thread title, comment, and
+    owner email/name. Pagination is independent of the metrics window:
+    admins can scroll through every rating without changing the date range
+    above.
+    """
+    page_num = _normalize_page(page)
+    offset = (page_num - 1) * _PAGE_SIZE
+
+    where_clauses = []
+    if min_stars is not None:
+        where_clauses.append(ThreadRatingRecord.stars >= min_stars)
+    if max_stars is not None:
+        where_clauses.append(ThreadRatingRecord.stars <= max_stars)
+    needle = q.strip() if q else None
+    if needle:
+        like = f"%{needle.lower()}%"
+        owner_exists = (
+            select(UserRecord.id)
+            .where(UserRecord.id == ThreadRecord.user_id)
+            .where(
+                or_(
+                    UserRecord.email.ilike(like),
+                    UserRecord.name.ilike(like),
+                )
+            )
+            .limit(1)
+        )
+        where_clauses.append(
+            or_(
+                ThreadRecord.title.ilike(like),
+                ThreadRatingRecord.comment.ilike(like),
+                owner_exists.exists(),
+            )
+        )
+
+    rows_stmt = (
+        select(
+            ThreadRatingRecord.thread_id,
+            ThreadRatingRecord.stars,
+            ThreadRatingRecord.comment,
+            ThreadRatingRecord.updated_at,
+            ThreadRecord.title,
+            ThreadRecord.user_id,
+        )
+        .join(ThreadRecord, ThreadRecord.id == ThreadRatingRecord.thread_id)
+        .order_by(ThreadRatingRecord.updated_at.desc())
+        .limit(_PAGE_SIZE)
+        .offset(offset)
+    )
+    # The total query needs the same join when `q` is set so the title /
+    # owner clauses resolve. Mirroring is cheap and keeps the count honest.
+    total_stmt = (
+        select(func.count())
+        .select_from(ThreadRatingRecord)
+        .join(ThreadRecord, ThreadRecord.id == ThreadRatingRecord.thread_id)
+    )
+    for clause in where_clauses:
+        rows_stmt = rows_stmt.where(clause)
+        total_stmt = total_stmt.where(clause)
+
+    async def _rows_local(stmt) -> list[tuple]:  # type: ignore[no-untyped-def]
+        async with async_session_factory() as session:
+            return list((await session.execute(stmt)).all())
+
+    rows, total = await asyncio.gather(
+        _rows_local(rows_stmt),
+        _scalar(total_stmt),
+    )
+    user_ids = [str(r[5]) for r in rows]
+    owners = await _resolve_owners(sessions, user_ids)
+    items = [
+        AdminRatingRow(
+            thread_id=str(thread_id),
+            title=title,
+            user_id=str(user_id),
+            owner_email=(owners.get(str(user_id), (None, None)) or (None, None))[0],
+            owner_name=(owners.get(str(user_id), (None, None)) or (None, None))[1],
+            stars=int(stars),
+            comment=comment,
+            rated_at=updated_at,
+        )
+        for thread_id, stars, comment, updated_at, title, user_id in rows
+    ]
+    return AdminRatingsResponse(
+        items=items,
+        total=total,
+        page=page_num,
+        page_size=_PAGE_SIZE,
+    )
+
+
+_REACTION_PREVIEW_LEN = 140
+
+
+@router.get(
+    "/feedback/message-reactions",
+    response_model=AdminMessageReactionsResponse,
+)
+async def list_message_reactions(
+    sessions: Annotated[SessionStore, Depends(get_session_store)],
+    page: Annotated[int | None, Query(ge=1)] = None,
+    rating: Annotated[int | None, Query(ge=-1, le=1)] = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
+) -> AdminMessageReactionsResponse:
+    """Paginated list of per-message thumbs ratings, newest first.
+
+    Joins through messages → threads to surface the user, the message
+    preview, and the thread title. `rating` filter lets the admin look at
+    just thumbs-up (`1`) or thumbs-down (`-1`); `0` is rejected by Query
+    bounds since the column itself is constrained to ±1. `q` searches
+    thread title, message body, and owner email/name.
+    """
+    page_num = _normalize_page(page)
+    offset = (page_num - 1) * _PAGE_SIZE
+
+    where_clauses = []
+    if rating is not None and rating != 0:
+        where_clauses.append(MessageRatingRecord.rating == rating)
+    needle = q.strip() if q else None
+    if needle:
+        like = f"%{needle.lower()}%"
+        owner_exists = (
+            select(UserRecord.id)
+            .where(UserRecord.id == MessageRatingRecord.user_id)
+            .where(
+                or_(
+                    UserRecord.email.ilike(like),
+                    UserRecord.name.ilike(like),
+                )
+            )
+            .limit(1)
+        )
+        where_clauses.append(
+            or_(
+                ThreadRecord.title.ilike(like),
+                MessageRecord.body.ilike(like),
+                owner_exists.exists(),
+            )
+        )
+
+    rows_stmt = (
+        select(
+            MessageRatingRecord.message_id,
+            MessageRatingRecord.user_id,
+            MessageRatingRecord.rating,
+            MessageRatingRecord.updated_at,
+            MessageRecord.body,
+            MessageRecord.thread_id,
+            ThreadRecord.title,
+        )
+        .join(MessageRecord, MessageRecord.id == MessageRatingRecord.message_id)
+        .join(ThreadRecord, ThreadRecord.id == MessageRecord.thread_id)
+        .order_by(MessageRatingRecord.updated_at.desc())
+        .limit(_PAGE_SIZE)
+        .offset(offset)
+    )
+    # Same join chain on the count for `q` clauses to resolve; without `q`
+    # this is still correct and barely more expensive than a plain count.
+    total_stmt = (
+        select(func.count())
+        .select_from(MessageRatingRecord)
+        .join(MessageRecord, MessageRecord.id == MessageRatingRecord.message_id)
+        .join(ThreadRecord, ThreadRecord.id == MessageRecord.thread_id)
+    )
+    for clause in where_clauses:
+        rows_stmt = rows_stmt.where(clause)
+        total_stmt = total_stmt.where(clause)
+
+    async def _rows_local(stmt) -> list[tuple]:  # type: ignore[no-untyped-def]
+        async with async_session_factory() as session:
+            return list((await session.execute(stmt)).all())
+
+    rows, total = await asyncio.gather(
+        _rows_local(rows_stmt),
+        _scalar(total_stmt),
+    )
+    user_ids = [str(r[1]) for r in rows]
+    owners = await _resolve_owners(sessions, user_ids)
+    items = [
+        AdminMessageReactionRow(
+            message_id=str(message_id),
+            thread_id=str(thread_id),
+            thread_title=thread_title,
+            user_id=str(user_id),
+            owner_email=(owners.get(str(user_id), (None, None)) or (None, None))[0],
+            owner_name=(owners.get(str(user_id), (None, None)) or (None, None))[1],
+            rating=int(rating_value),
+            message_preview=_truncate(body, _REACTION_PREVIEW_LEN),
+            rated_at=updated_at,
+        )
+        for (
+            message_id,
+            user_id,
+            rating_value,
+            updated_at,
+            body,
+            thread_id,
+            thread_title,
+        ) in rows
+    ]
+    return AdminMessageReactionsResponse(
+        items=items,
+        total=total,
+        page=page_num,
+        page_size=_PAGE_SIZE,
+    )
+
+
+def _truncate(text: str, n: int) -> str:
+    if len(text) <= n:
+        return text
+    return text[: n - 1].rstrip() + "…"
+
+
+@router.get(
+    "/config/feedback-trigger", response_model=FeedbackTriggerConfig
+)
+async def get_feedback_trigger_config(
+    service: Annotated[
+        FeedbackConfigService, Depends(get_feedback_config_service)
+    ],
+) -> FeedbackTriggerConfig:
+    """Read the current cadence config for the in-chat session rating prompt."""
+    return await service.get()
+
+
+@router.put(
+    "/config/feedback-trigger", response_model=FeedbackTriggerConfig
+)
+async def update_feedback_trigger_config(
+    payload: AdminTriggerConfigUpdate,
+    actor: Annotated[User, Depends(require_admin)],
+    service: Annotated[
+        FeedbackConfigService, Depends(get_feedback_config_service)
+    ],
+) -> FeedbackTriggerConfig:
+    """Update the cadence config. Logged at WARNING for an audit trail."""
+    try:
+        updated = await service.update(
+            actor_id=actor.id,
+            enabled=payload.enabled,
+            mode=payload.mode,
+            interactions_first=payload.interactions_first,
+            interactions_repeat=payload.interactions_repeat,
+            time_first_minutes=payload.time_first_minutes,
+            time_repeat_minutes=payload.time_repeat_minutes,
+            re_rate_after_messages=payload.re_rate_after_messages,
+        )
+    except FeedbackConfigError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
+        ) from err
+    logger.warning(
+        "admin update_feedback_trigger_config: actor=%s mode=%s enabled=%s "
+        "interactions_first=%d interactions_repeat=%d "
+        "time_first_minutes=%d time_repeat_minutes=%d "
+        "re_rate_after_messages=%d",
+        actor.email,
+        payload.mode,
+        payload.enabled,
+        payload.interactions_first,
+        payload.interactions_repeat,
+        payload.time_first_minutes,
+        payload.time_repeat_minutes,
+        payload.re_rate_after_messages,
+    )
+    return updated
 
 
 # ---------------------------------------------------------------------------

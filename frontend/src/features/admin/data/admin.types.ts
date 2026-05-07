@@ -1,5 +1,21 @@
 import type { UserRole } from "#/features/auth/data/auth.types";
-import type { Message } from "#/features/chat/data/chat.types";
+import type {
+	FeedbackTriggerConfig,
+	FeedbackTriggerMode,
+	Message,
+} from "#/features/chat/data/chat.types";
+
+export type { FeedbackTriggerConfig, FeedbackTriggerMode };
+
+export interface UpdateFeedbackTriggerConfigPayload {
+	enabled: boolean;
+	mode: FeedbackTriggerMode;
+	interactions_first: number;
+	interactions_repeat: number;
+	time_first_minutes: number;
+	time_repeat_minutes: number;
+	re_rate_after_messages: number;
+}
 
 export interface AdminUserSummary {
 	user_id: string;
@@ -113,6 +129,65 @@ export interface AdminMetricsThreadLengthBucket {
 	threads: number;
 }
 
+export interface AdminMetricsStarBucket {
+	stars: number;
+	count: number;
+}
+
+export interface AdminMetricsRatingPoint {
+	date: string;
+	avg_stars: number | null;
+	count: number;
+}
+
+export interface AdminMetricsFeedback {
+	star_distribution: AdminMetricsStarBucket[];
+	avg_rating_series: AdminMetricsRatingPoint[];
+	avg_rating_period: number | null;
+	total_ratings_period: number;
+	thumbs_up_period: number;
+	thumbs_down_period: number;
+	thumbs_up_rate: number | null;
+}
+
+export interface AdminRatingRow {
+	thread_id: string;
+	title: string | null;
+	user_id: string;
+	owner_email: string | null;
+	owner_name: string | null;
+	stars: number;
+	comment: string | null;
+	rated_at: string;
+}
+
+export interface AdminRatingsResponse {
+	items: AdminRatingRow[];
+	total: number;
+	page: number;
+	page_size: number;
+}
+
+export interface AdminMessageReactionRow {
+	message_id: string;
+	thread_id: string;
+	thread_title: string | null;
+	user_id: string;
+	owner_email: string | null;
+	owner_name: string | null;
+	/** -1 (down) or 1 (up). */
+	rating: -1 | 1;
+	message_preview: string;
+	rated_at: string;
+}
+
+export interface AdminMessageReactionsResponse {
+	items: AdminMessageReactionRow[];
+	total: number;
+	page: number;
+	page_size: number;
+}
+
 export interface AdminMetricsResponse {
 	range_days: number;
 	series: AdminMetricsPoint[];
@@ -132,6 +207,7 @@ export interface AdminMetricsResponse {
 	input_tokens_period: number;
 	output_tokens_period: number;
 	requests_period: number;
+	feedback: AdminMetricsFeedback;
 }
 
 export interface AdminSessionRow {

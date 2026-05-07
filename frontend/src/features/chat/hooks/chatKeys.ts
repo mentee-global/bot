@@ -9,4 +9,8 @@ export const chatKeys = {
 		threadId
 			? ([...chatKeys.all, "thread", threadId] as const)
 			: ([...chatKeys.all, "thread"] as const),
+	threadRating: (threadId: string) =>
+		[...chatKeys.all, "thread-rating", threadId] as const,
+	feedbackTriggerConfig: () =>
+		[...chatKeys.all, "feedback-trigger-config"] as const,
 };

@@ -9,7 +9,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_user, get_message_service, require_session
+from app.api.deps import (
+    get_current_user,
+    get_feedback_config_service,
+    get_message_service,
+    require_session,
+)
 from app.budget.service import (
     BudgetError,
     GlobalBudgetExhaustedError,
@@ -18,7 +23,14 @@ from app.budget.service import (
 from app.core import posthog_client
 from app.core.observability import user_attrs
 from app.core.rate_limit import limiter
-from app.domain.models import MenteeProfile, Message, User
+from app.domain.models import (
+    FeedbackTriggerConfig,
+    MenteeProfile,
+    Message,
+    ThreadRating,
+    User,
+)
+from app.services.feedback_config_service import FeedbackConfigService
 from app.services.message_service import MessageService
 from app.services.thread_store import MessageNotFoundError, ThreadNotFoundError
 
@@ -113,6 +125,24 @@ class RateMessageRequest(BaseModel):
     """
 
     rating: Literal[-1, 0, 1]
+
+
+class RateThreadRequest(BaseModel):
+    """Wire format for per-conversation star feedback. Stars are 1..5; the
+    optional comment is bounded at 200 chars (DB CHECK + Pydantic).
+    """
+
+    stars: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=200)
+
+
+class RateThreadResponse(BaseModel):
+    ok: bool = True
+    rating: ThreadRating
+
+
+class GetThreadRatingResponse(BaseModel):
+    rating: ThreadRating | None = None
 
 
 @router.post("/messages", response_model=SendMessageResponse)
@@ -496,6 +526,80 @@ async def rate_message(
     return {"ok": True}
 
 
+@router.post(
+    "/threads/{thread_id}/rating", response_model=RateThreadResponse
+)
+@limiter.limit("60/minute")
+async def rate_thread(
+    request: Request,
+    thread_id: str,
+    payload: RateThreadRequest,
+    _session_id: Annotated[str, Depends(require_session)],
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> RateThreadResponse:
+    """Submit (or overwrite) the 1–5 star rating for a thread the caller owns.
+
+    Idempotent: re-posting overwrites stars + comment. Surfaced as the
+    in-chat session rating card (see `useSessionRatingTrigger` on the
+    frontend); failures revert via a Sonner toast.
+    """
+    with logfire.span(
+        "chat.rate_thread",
+        **user_attrs(user),
+        thread_id=thread_id,
+        stars=payload.stars,
+        comment_length=len(payload.comment) if payload.comment else 0,
+    ) as span:
+        try:
+            rating = await service.rate_thread(
+                user_id=user.id,
+                thread_id=thread_id,
+                stars=payload.stars,
+                comment=payload.comment,
+            )
+        except ThreadNotFoundError as err:
+            span.set_attribute("status", "not_found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thread not found",
+            ) from err
+        span.set_attribute("status", "ok")
+    posthog_client.capture(
+        user,
+        "server.chat.thread_rated",
+        {
+            "thread_id": thread_id,
+            "stars": payload.stars,
+            "comment_length": len(payload.comment) if payload.comment else 0,
+        },
+    )
+    return RateThreadResponse(rating=rating)
+
+
+@router.get(
+    "/threads/{thread_id}/rating", response_model=GetThreadRatingResponse
+)
+async def get_thread_rating(
+    thread_id: str,
+    _session_id: Annotated[str, Depends(require_session)],
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> GetThreadRatingResponse:
+    """Read the caller's session rating for a thread, or null if not rated.
+
+    Used by the frontend to suppress the rating card on threads the user
+    has already rated from another device (localStorage doesn't sync).
+    """
+    try:
+        rating = await service.get_thread_rating(user.id, thread_id)
+    except ThreadNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
+        ) from err
+    return GetThreadRatingResponse(rating=rating)
+
+
 @router.get("/thread", response_model=ThreadResponse)
 async def get_thread(
     _session_id: Annotated[str, Depends(require_session)],
@@ -506,3 +610,21 @@ async def get_thread(
     return ThreadResponse(
         thread_id=thread.id, title=thread.title, messages=thread.messages
     )
+
+
+@router.get(
+    "/feedback-trigger-config", response_model=FeedbackTriggerConfig
+)
+async def get_feedback_trigger_config(
+    _session_id: Annotated[str, Depends(require_session)],
+    config_service: Annotated[
+        FeedbackConfigService, Depends(get_feedback_config_service)
+    ],
+) -> FeedbackTriggerConfig:
+    """Read-only view of the cadence config for any logged-in user.
+
+    Driven by the same singleton row admins edit at
+    `/api/admin/config/feedback-trigger`. The frontend trigger hook calls
+    this so updates propagate without a redeploy.
+    """
+    return await config_service.get()

@@ -12,6 +12,7 @@ import type {
 	Thread,
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
+import { bumpInteractionCount } from "#/features/chat/hooks/useSessionRatingTrigger";
 
 export { useStreamMessage } from "#/features/chat/hooks/useStreamMessage";
 
@@ -101,8 +102,13 @@ export function useSendMessageMutation(
 	const persona = useActivePersona();
 
 	return useMutation<SendMessageResponse, Error, string>({
-		mutationFn: (body) =>
-			chatService.sendMessage(body, threadId ?? undefined, persona),
+		mutationFn: (body) => {
+			// Bump the lifetime interaction counter — drives the session rating
+			// card cadence (see `useSessionRatingTrigger`). The streaming path
+			// bumps in its own hook; this is the non-streaming fallback.
+			bumpInteractionCount();
+			return chatService.sendMessage(body, threadId ?? undefined, persona);
+		},
 		onSuccess: (response) => {
 			queryClient.setQueryData<Thread>(
 				chatKeys.thread(response.thread_id),

@@ -1,8 +1,12 @@
 import type { PersonaPayload } from "#/features/admin/data/persona.types";
 import type {
+	FeedbackTriggerConfig,
+	GetThreadRatingResponse,
+	RateThreadResponse,
 	SendMessageResponse,
 	Thread,
 	ThreadListResponse,
+	ThreadStars,
 } from "#/features/chat/data/chat.types";
 import { api } from "#/lib/api/client";
 import { getLocale } from "#/paraglide/runtime";
@@ -45,5 +49,25 @@ export const chatService = {
 		api.post<{ ok: true }>(
 			`/api/chat/messages/${encodeURIComponent(messageId)}/rating`,
 			{ rating },
+		),
+	/** Submit (or overwrite) the per-conversation 1–5 star rating. */
+	rateThread: (
+		threadId: string,
+		body: { stars: ThreadStars; comment?: string | null },
+	) =>
+		api.post<RateThreadResponse>(
+			`/api/chat/threads/${encodeURIComponent(threadId)}/rating`,
+			body,
+		),
+	getThreadRating: (threadId: string, signal?: AbortSignal) =>
+		api.get<GetThreadRatingResponse>(
+			`/api/chat/threads/${encodeURIComponent(threadId)}/rating`,
+			signal,
+		),
+	/** User-facing read of the admin-controlled rating-prompt cadence config. */
+	getFeedbackTriggerConfig: (signal?: AbortSignal) =>
+		api.get<FeedbackTriggerConfig>(
+			"/api/chat/feedback-trigger-config",
+			signal,
 		),
 };

@@ -1,12 +1,16 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import type {
 	AdminForceLogoutResponse,
+	AdminMessageReactionsResponse,
 	AdminMetricsResponse,
+	AdminRatingsResponse,
 	AdminStatsResponse,
 	AdminThreadListResponse,
 	AdminThreadResponse,
 	AdminUserListResponse,
 	AdminUserSessionsResponse,
+	FeedbackTriggerConfig,
+	UpdateFeedbackTriggerConfigPayload,
 } from "#/features/admin/data/admin.types";
 import { api } from "#/lib/api/client";
 
@@ -25,6 +29,19 @@ export interface MetricsParams {
 	days?: number;
 	from?: string;
 	to?: string;
+}
+
+export interface RatingsListParams {
+	page?: number;
+	min_stars?: number;
+	max_stars?: number;
+	q?: string;
+}
+
+export interface MessageReactionsParams {
+	page?: number;
+	rating?: -1 | 1;
+	q?: string;
 }
 
 function buildQuery(params: Record<string, string | number | undefined>) {
@@ -105,6 +122,40 @@ export const adminService = {
 		api.post<AdminForceLogoutResponse>(
 			`/api/admin/users/${encodeURIComponent(userId)}/force-logout`,
 		),
+	listRatings: (params: RatingsListParams = {}, signal?: AbortSignal) =>
+		api.get<AdminRatingsResponse>(
+			`/api/admin/feedback/ratings${buildQuery({
+				page: params.page,
+				min_stars: params.min_stars,
+				max_stars: params.max_stars,
+				q: params.q,
+			})}`,
+			signal,
+		),
+	listMessageReactions: (
+		params: MessageReactionsParams = {},
+		signal?: AbortSignal,
+	) =>
+		api.get<AdminMessageReactionsResponse>(
+			`/api/admin/feedback/message-reactions${buildQuery({
+				page: params.page,
+				rating: params.rating,
+				q: params.q,
+			})}`,
+			signal,
+		),
+	getTriggerConfig: (signal?: AbortSignal) =>
+		api.get<FeedbackTriggerConfig>(
+			"/api/admin/config/feedback-trigger",
+			signal,
+		),
+	updateTriggerConfig: (payload: UpdateFeedbackTriggerConfigPayload) =>
+		// Typed payloads satisfy `Record<string, unknown>` structurally but
+		// lack the index signature TS expects — cast at the boundary.
+		api.put<FeedbackTriggerConfig>(
+			"/api/admin/config/feedback-trigger",
+			payload as unknown as Record<string, unknown>,
+		),
 };
 
 export const adminKeys = {
@@ -122,6 +173,11 @@ export const adminKeys = {
 	stats: () => [...adminKeys.all, "stats"] as const,
 	metrics: (params: MetricsParams = {}) =>
 		[...adminKeys.all, "metrics", params] as const,
+	ratings: (params: RatingsListParams = {}) =>
+		[...adminKeys.all, "ratings", params] as const,
+	messageReactions: (params: MessageReactionsParams = {}) =>
+		[...adminKeys.all, "messageReactions", params] as const,
+	triggerConfig: () => [...adminKeys.all, "triggerConfig"] as const,
 };
 
 export const adminUsersQueryOptions = (params: UserListParams = {}) =>
@@ -191,3 +247,27 @@ export const adminMetricsQueryOptions = (params: MetricsParams = {}) =>
 		staleTime: 30 * 1000,
 		placeholderData: keepPreviousData,
 	});
+
+export const adminRatingsQueryOptions = (params: RatingsListParams = {}) =>
+	queryOptions({
+		queryKey: adminKeys.ratings(params),
+		queryFn: ({ signal }) => adminService.listRatings(params, signal),
+		staleTime: 30 * 1000,
+		placeholderData: keepPreviousData,
+	});
+
+export const adminMessageReactionsQueryOptions = (
+	params: MessageReactionsParams = {},
+) =>
+	queryOptions({
+		queryKey: adminKeys.messageReactions(params),
+		queryFn: ({ signal }) => adminService.listMessageReactions(params, signal),
+		staleTime: 30 * 1000,
+		placeholderData: keepPreviousData,
+	});
+
+export const adminTriggerConfigQueryOptions = queryOptions({
+	queryKey: adminKeys.triggerConfig(),
+	queryFn: ({ signal }) => adminService.getTriggerConfig(signal),
+	staleTime: 60 * 1000,
+});

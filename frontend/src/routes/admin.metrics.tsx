@@ -126,10 +126,7 @@ function MetricsRoute() {
 			/>
 
 			{metrics.isError ? (
-				<ErrorState
-					error={metrics.error}
-					onRetry={() => metrics.refetch()}
-				/>
+				<ErrorState error={metrics.error} onRetry={() => metrics.refetch()} />
 			) : (
 				<>
 					<KpiGrid data={data} loading={loading} />
@@ -384,11 +381,14 @@ function KpiGrid({
 	);
 }
 
-type KpiFormat = "decimal" | "usd_micros" | "compact" | undefined;
+type KpiFormat = "decimal" | "usd_micros" | "compact" | "percent" | undefined;
 type KpiTile = {
 	label: string;
 	value: number | undefined;
 	format?: KpiFormat;
+	/** Escape hatch for tiles whose display isn't a plain number (e.g. "X / Y").
+	 * When set it overrides `value`/`format`. */
+	renderValue?: () => string;
 };
 
 function formatKpi(value: number | undefined, mode: KpiFormat): string {
@@ -396,6 +396,7 @@ function formatKpi(value: number | undefined, mode: KpiFormat): string {
 	if (mode === "decimal") return value.toFixed(2);
 	if (mode === "usd_micros") return formatUsdMicros(value);
 	if (mode === "compact") return formatCompact(value);
+	if (mode === "percent") return `${value.toFixed(0)}%`;
 	return value.toLocaleString();
 }
 
@@ -556,10 +557,7 @@ function UsersChart({
 	);
 
 	return (
-		<ChartCard
-			title="User signups"
-			description="New accounts created per day."
-		>
+		<ChartCard title="User signups" description="New accounts created per day.">
 			{loading || !data ? (
 				<ChartSkeleton />
 			) : data.series.every((p) => p.users === 0) ? (

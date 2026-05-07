@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from app.domain.models import Message, Thread
+from app.domain.models import Message, Thread, ThreadRating
 
 
 class ThreadNotFoundError(Exception):
@@ -150,6 +150,31 @@ class ThreadStore(ABC):
         assistant message, or belongs to a thread the user doesn't own.
         """
 
+    @abstractmethod
+    async def upsert_thread_rating(
+        self,
+        thread_id: str,
+        user_id: str,
+        *,
+        stars: int,
+        comment: str | None,
+    ) -> ThreadRating:
+        """Upsert the per-conversation star rating for a thread the user owns.
+
+        Idempotent: posting again overwrites stars + comment and bumps
+        `updated_at`. Raises ThreadNotFoundError when the thread is missing
+        or owned by a different user.
+        """
+
+    @abstractmethod
+    async def get_thread_rating(
+        self, thread_id: str, user_id: str
+    ) -> ThreadRating | None:
+        """Return the user's per-conversation rating for a thread they own,
+        or None if not yet rated. Raises ThreadNotFoundError when the thread
+        is missing or owned by a different user.
+        """
+
 
 class InMemoryThreadStore(ThreadStore):
     """Process-local store. Used in tests and for dev loops where we
@@ -160,6 +185,9 @@ class InMemoryThreadStore(ThreadStore):
         self._threads_by_id: dict[str, Thread] = {}
         # (message_id, user_id) -> rating (-1 or 1). Cleared rows are deleted.
         self._ratings: dict[tuple[str, str], int] = {}
+        # thread_id -> per-conversation star rating. Owner is the thread's
+        # `user_id`; we don't key on user because threads have a single owner.
+        self._thread_ratings: dict[str, ThreadRating] = {}
 
     async def list_threads(
         self,
@@ -326,6 +354,37 @@ class InMemoryThreadStore(ThreadStore):
         else:
             self._ratings[key] = rating
             target.rating = rating
+
+    async def upsert_thread_rating(
+        self,
+        thread_id: str,
+        user_id: str,
+        *,
+        stars: int,
+        comment: str | None,
+    ) -> ThreadRating:
+        thread = self._threads_by_id.get(thread_id)
+        if thread is None or thread.user_id != user_id:
+            raise ThreadNotFoundError(thread_id)
+        now = datetime.now(UTC)
+        existing = self._thread_ratings.get(thread_id)
+        rating = ThreadRating(
+            thread_id=thread_id,
+            stars=stars,
+            comment=comment,
+            created_at=existing.created_at if existing else now,
+            updated_at=now,
+        )
+        self._thread_ratings[thread_id] = rating
+        return rating
+
+    async def get_thread_rating(
+        self, thread_id: str, user_id: str
+    ) -> ThreadRating | None:
+        thread = self._threads_by_id.get(thread_id)
+        if thread is None or thread.user_id != user_id:
+            raise ThreadNotFoundError(thread_id)
+        return self._thread_ratings.get(thread_id)
 
 
 def _filter_sort_strip(

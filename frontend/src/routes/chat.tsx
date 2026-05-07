@@ -36,6 +36,7 @@ import { ConfirmDeleteThreadDialog } from "#/features/chat/components/ConfirmDel
 import { stripChatBody } from "#/features/chat/components/MessageBody";
 import { MessageList } from "#/features/chat/components/MessageList";
 import { RenameThreadDialog } from "#/features/chat/components/RenameThreadDialog";
+import { SessionRatingCard } from "#/features/chat/components/SessionRatingCard";
 import { ShortcutsDialog } from "#/features/chat/components/ShortcutsDialog";
 import { ThreadSidebar } from "#/features/chat/components/ThreadSidebar";
 import type {
@@ -53,7 +54,15 @@ import {
 	useThreadsQuery,
 } from "#/features/chat/hooks/useChat";
 import { clearAllDrafts } from "#/features/chat/hooks/useDraftsStore";
+import {
+	useFeedbackTriggerConfigQuery,
+	useThreadRatingQuery,
+} from "#/features/chat/hooks/useFeedback";
 import { usePinnedThreads } from "#/features/chat/hooks/usePinnedThreads";
+import {
+	clearSessionRatingState,
+	useSessionRatingTrigger,
+} from "#/features/chat/hooks/useSessionRatingTrigger";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
 // Feature commented out — "Request more credits" CTA is hidden from users.
 // To reactivate: uncomment this import, the `showRequestCredits` prop on
@@ -260,6 +269,7 @@ function ChatView({
 
 	const handleLogout = useCallback(() => {
 		clearAllDrafts();
+		clearSessionRatingState();
 		logout.mutate();
 	}, [logout]);
 
@@ -441,6 +451,16 @@ function ChatView({
 	const threadsLoading = threads.isPending;
 	const threadLoading = thread.isPending && activeThreadId !== null;
 
+	const persistedRating = useThreadRatingQuery(activeThreadId);
+	const triggerConfig = useFeedbackTriggerConfigQuery();
+	const ratingTrigger = useSessionRatingTrigger({
+		threadId: activeThreadId,
+		messages,
+		isStreaming: send.isPending,
+		persistedRating: persistedRating.data ?? null,
+		config: triggerConfig.data ?? null,
+	});
+
 	return (
 		<>
 			<ThreadSidebar
@@ -565,6 +585,17 @@ function ChatView({
 							canSend={!send.isPending && !block}
 							findQuery={findOpen ? findQuery : ""}
 							findActiveIndex={findActiveIndex}
+							slotAfterMessages={
+								ratingTrigger.isVisible && activeThreadId ? (
+									<SessionRatingCard
+										threadId={activeThreadId}
+										assistantTurns={ratingTrigger.assistantTurns}
+										shownAt={ratingTrigger.shownAt}
+										onRated={ratingTrigger.markRated}
+										onDismiss={ratingTrigger.dismiss}
+									/>
+								) : null
+							}
 						/>
 					)}
 				</div>

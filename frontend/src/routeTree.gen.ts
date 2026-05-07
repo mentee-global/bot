@@ -16,6 +16,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AuthErrorRouteImport } from './routes/auth.error'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminMetricsRouteImport } from './routes/admin.metrics'
+import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
 import { Route as AdminCreditRequestsRouteImport } from './routes/admin.credit-requests'
 import { Route as AdminBugReportsRouteImport } from './routes/admin.bug-reports'
 import { Route as AdminBudgetRouteImport } from './routes/admin.budget'
@@ -58,6 +59,11 @@ const AdminUsersRoute = AdminUsersRouteImport.update({
 const AdminMetricsRoute = AdminMetricsRouteImport.update({
   id: '/metrics',
   path: '/metrics',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminFeedbackRoute = AdminFeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminCreditRequestsRoute = AdminCreditRequestsRouteImport.update({
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/admin/budget': typeof AdminBudgetRoute
   '/admin/bug-reports': typeof AdminBugReportsRoute
   '/admin/credit-requests': typeof AdminCreditRequestsRoute
+  '/admin/feedback': typeof AdminFeedbackRoute
   '/admin/metrics': typeof AdminMetricsRoute
   '/admin/users': typeof AdminUsersRouteWithChildren
   '/auth/error': typeof AuthErrorRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/admin/budget': typeof AdminBudgetRoute
   '/admin/bug-reports': typeof AdminBugReportsRoute
   '/admin/credit-requests': typeof AdminCreditRequestsRoute
+  '/admin/feedback': typeof AdminFeedbackRoute
   '/admin/metrics': typeof AdminMetricsRoute
   '/auth/error': typeof AuthErrorRoute
   '/admin': typeof AdminIndexRoute
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/admin/budget': typeof AdminBudgetRoute
   '/admin/bug-reports': typeof AdminBugReportsRoute
   '/admin/credit-requests': typeof AdminCreditRequestsRoute
+  '/admin/feedback': typeof AdminFeedbackRoute
   '/admin/metrics': typeof AdminMetricsRoute
   '/admin/users': typeof AdminUsersRouteWithChildren
   '/auth/error': typeof AuthErrorRoute
@@ -160,6 +169,7 @@ export interface FileRouteTypes {
     | '/admin/budget'
     | '/admin/bug-reports'
     | '/admin/credit-requests'
+    | '/admin/feedback'
     | '/admin/metrics'
     | '/admin/users'
     | '/auth/error'
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/admin/budget'
     | '/admin/bug-reports'
     | '/admin/credit-requests'
+    | '/admin/feedback'
     | '/admin/metrics'
     | '/auth/error'
     | '/admin'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/admin/budget'
     | '/admin/bug-reports'
     | '/admin/credit-requests'
+    | '/admin/feedback'
     | '/admin/metrics'
     | '/admin/users'
     | '/auth/error'
@@ -257,6 +269,13 @@ declare module '@tanstack/react-router' {
       path: '/metrics'
       fullPath: '/admin/metrics'
       preLoaderRoute: typeof AdminMetricsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/feedback': {
+      id: '/admin/feedback'
+      path: '/feedback'
+      fullPath: '/admin/feedback'
+      preLoaderRoute: typeof AdminFeedbackRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/credit-requests': {
@@ -351,6 +370,7 @@ interface AdminRouteChildren {
   AdminBudgetRoute: typeof AdminBudgetRoute
   AdminBugReportsRoute: typeof AdminBugReportsRoute
   AdminCreditRequestsRoute: typeof AdminCreditRequestsRoute
+  AdminFeedbackRoute: typeof AdminFeedbackRoute
   AdminMetricsRoute: typeof AdminMetricsRoute
   AdminUsersRoute: typeof AdminUsersRouteWithChildren
   AdminIndexRoute: typeof AdminIndexRoute
@@ -361,6 +381,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminBudgetRoute: AdminBudgetRoute,
   AdminBugReportsRoute: AdminBugReportsRoute,
   AdminCreditRequestsRoute: AdminCreditRequestsRoute,
+  AdminFeedbackRoute: AdminFeedbackRoute,
   AdminMetricsRoute: AdminMetricsRoute,
   AdminUsersRoute: AdminUsersRouteWithChildren,
   AdminIndexRoute: AdminIndexRoute,

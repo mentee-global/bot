@@ -2,17 +2,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	adminAllThreadsQueryOptions,
 	adminKeys,
+	adminMessageReactionsQueryOptions,
 	adminMetricsQueryOptions,
+	adminRatingsQueryOptions,
 	adminService,
 	adminStatsQueryOptions,
 	adminThreadQueryOptions,
+	adminTriggerConfigQueryOptions,
 	adminUserSessionsQueryOptions,
 	adminUsersQueryOptions,
 	adminUserThreadsQueryOptions,
+	type MessageReactionsParams,
 	type MetricsParams,
+	type RatingsListParams,
 	type ThreadListParams,
 	type UserListParams,
 } from "#/features/admin/data/admin.service";
+import type {
+	FeedbackTriggerConfig,
+	UpdateFeedbackTriggerConfigPayload,
+} from "#/features/admin/data/admin.types";
+import { chatKeys } from "#/features/chat/hooks/chatKeys";
 
 export function useAdminUsersQuery(params: UserListParams = {}) {
 	return useQuery(adminUsersQueryOptions(params));
@@ -46,6 +56,39 @@ export function useAdminStatsQuery() {
 
 export function useAdminMetricsQuery(params: MetricsParams = {}) {
 	return useQuery(adminMetricsQueryOptions(params));
+}
+
+export function useAdminRatingsQuery(params: RatingsListParams = {}) {
+	return useQuery(adminRatingsQueryOptions(params));
+}
+
+export function useAdminMessageReactionsQuery(
+	params: MessageReactionsParams = {},
+) {
+	return useQuery(adminMessageReactionsQueryOptions(params));
+}
+
+export function useAdminTriggerConfigQuery() {
+	return useQuery(adminTriggerConfigQueryOptions);
+}
+
+export function useUpdateTriggerConfigMutation() {
+	const queryClient = useQueryClient();
+	return useMutation<
+		FeedbackTriggerConfig,
+		Error,
+		UpdateFeedbackTriggerConfigPayload
+	>({
+		mutationFn: (payload) => adminService.updateTriggerConfig(payload),
+		onSuccess: (data) => {
+			// Prime both the admin-side cache (the form sees the new values
+			// immediately) AND the user-side cache that the chat trigger hook
+			// reads (so the new cadence applies in any open chat tab on this
+			// browser without a manual refetch).
+			queryClient.setQueryData(adminKeys.triggerConfig(), data);
+			queryClient.setQueryData(chatKeys.feedbackTriggerConfig(), data);
+		},
+	});
 }
 
 export function useDeleteThreadMutation() {

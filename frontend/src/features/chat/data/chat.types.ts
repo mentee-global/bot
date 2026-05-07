@@ -76,3 +76,38 @@ export interface SendMessageResponse {
 	user_message: Message;
 	assistant_message: Message;
 }
+
+export type ThreadStars = 1 | 2 | 3 | 4 | 5;
+
+export interface ThreadRating {
+	thread_id: string;
+	stars: number;
+	comment: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface RateThreadResponse {
+	ok: true;
+	rating: ThreadRating;
+}
+
+export interface GetThreadRatingResponse {
+	rating: ThreadRating | null;
+}
+
+export type FeedbackTriggerMode = "interactions" | "time" | "hybrid";
+
+export interface FeedbackTriggerConfig {
+	enabled: boolean;
+	mode: FeedbackTriggerMode;
+	interactions_first: number;
+	interactions_repeat: number;
+	time_first_minutes: number;
+	time_repeat_minutes: number;
+	/** 0 = rated threads stay locked forever; >0 = re-ask after that many
+	 * additional in-thread user messages since the rating timestamp. */
+	re_rate_after_messages: number;
+	updated_at: string;
+	updated_by_user_id: string | null;
+}
