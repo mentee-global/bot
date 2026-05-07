@@ -29,7 +29,10 @@ from pydantic_ai.messages import (
     ToolCallPart,
     UserPromptPart,
 )
-from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.models.openai import (
+    OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
+)
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.usage import UsageLimits
 
@@ -54,15 +57,72 @@ logger = logging.getLogger(__name__)
 
 
 # web_search emits citation tokens wrapped in private-use Unicode markers
-# (e.g. `\ue200cite\ue202turn0search0\ue201`). The URL mapping lives in
-# separate annotation events pydantic-ai drops unless
-# `openai_include_raw_annotations=True`, so the inner text is noise.
+# (e.g. `\ue200cite\ue202turn0search0\ue201`). With
+# `openai_include_raw_annotations=True` the URL mapping arrives as a
+# `url_citation` annotation on the TextPart, but the inner marker text is
+# still noise we strip from the rendered reply.
 _PUA_CITATION_RE = re.compile(r"[\ue200-\ue2ff][^\ue200-\ue2ff]*[\ue200-\ue2ff]")
 _CITATION_MARKER_RE = re.compile(r"(?:cite)?turn\d+search\d+(?:(?:cite)?turn\d+search\d+)*")
 _STRAY_PUA_RE = re.compile(r"[\ue200-\ue2ff]")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
 # Only match "cite" when it trails a URL, to avoid mauling prose uses.
 _ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
+# URL extraction. Stops at whitespace or any of the "obviously not part of a URL"
+# characters; trailing punctuation is stripped via _strip_url_trailing_punct.
+_URL_RE = re.compile(r'https?://[^\s<>"\)\]]+')
+_URL_TRAIL_PUNCT = ".,;:!?"
+
+
+def _strip_url_trailing_punct(url: str) -> tuple[str, str]:
+    """Split a regex-matched URL into (clean_url, trailing_punct)."""
+    trail = ""
+    while url and url[-1] in _URL_TRAIL_PUNCT:
+        trail = url[-1] + trail
+        url = url[:-1]
+    return url, trail
+
+
+# Extensions that signal "this is a downloadable asset, not a page a user
+# would click from a chat reply" — search tools sometimes return marketing
+# PDFs or CDN attachments that we don't want surfaced as sources.
+_NON_USER_FACING_EXTS = (
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".zip",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".mp4",
+    ".mov",
+)
+# Cap on the appended "More sources" list so we don't dump 20 near-duplicate
+# URLs from the same employer/aggregator into the user's reply.
+_MORE_SOURCES_MAX = 8
+
+
+def _is_user_facing_url(url: str) -> bool:
+    """Return False for asset URLs (PDFs, images, archives) that no one
+    would want to click from a chat-bot reply, even if a search tool
+    returned them as a source."""
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return False
+    # `?query` and `#fragment` shouldn't fool the extension match.
+    bare = url.split("?", 1)[0].split("#", 1)[0].lower()
+    return not bare.endswith(_NON_USER_FACING_EXTS)
+
+
+def _add_url_to_allowlist(allowlist: set[str], url: str) -> None:
+    """Insert `url` into the per-run allowlist if it's a user-facing page."""
+    if not _is_user_facing_url(url):
+        return
+    allowlist.add(url.rstrip("/"))
 
 
 def _strip_citations(text: str) -> str:
@@ -75,14 +135,96 @@ def _strip_citations(text: str) -> str:
     return text
 
 
+def _filter_off_allowlist_urls(
+    text: str,
+    cited: set[str],
+    on_strip: object | None = None,
+    on_keep: object | None = None,
+) -> str:
+    """Replace any URL not present in `cited` with an empty string.
+
+    `cited` holds normalized URLs (trailing slash stripped). `on_strip` is an
+    optional callable invoked with the offending URL each time we strip one,
+    used for telemetry. `on_keep` is an optional callable invoked with the
+    normalized form of every kept URL \u2014 the streaming path uses it to track
+    which allowlist entries the model already cited inline (so the "More
+    sources" appender can list only the *unused* ones).
+    """
+
+    def repl(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        clean, trail = _strip_url_trailing_punct(raw)
+        normalized = clean.rstrip("/")
+        if normalized in cited:
+            if callable(on_keep):
+                try:
+                    on_keep(normalized)  # type: ignore[misc]
+                except Exception:  # noqa: BLE001 \u2014 telemetry must not break output
+                    pass
+            return raw
+        if callable(on_strip):
+            try:
+                on_strip(clean)  # type: ignore[misc]
+            except Exception:  # noqa: BLE001 \u2014 telemetry must not break output
+                pass
+        # Drop the URL but preserve the trailing punctuation so the surrounding
+        # prose ("\u2026visit." vs "\u2026visit") still reads naturally.
+        return trail
+
+    return _URL_RE.sub(repl, text)
+
+
+def _format_more_sources(unused: list[str]) -> str:
+    """Render the appended "More sources" section.
+
+    The system prompt forbids the *model* from writing a Sources section
+    (the chat UI auto-renders one from inline URLs). We append our own list
+    of *unused* allowlist URLs after the model finishes so users can see
+    every page a search tool returned, not only the model's curated picks.
+    Capped at `_MORE_SOURCES_MAX` to keep the tail readable.
+    Returns an empty string when there's nothing to append.
+    """
+    if not unused:
+        return ""
+    capped = unused[:_MORE_SOURCES_MAX]
+    bullets = "\n".join(f"- {url}" for url in capped)
+    return f"\n\n**More sources**:\n{bullets}"
+
+
 class _CitationStripper:
     """Streaming-safe stripper that buffers a tail so markers split across
-    deltas still get matched."""
+    deltas still get matched.
+
+    Also enforces the per-run URL allowlist (`cited_urls`): when a URL appears
+    in the emit chunk, it is kept iff present in the allowlist; otherwise it
+    is dropped. The buffer's `_SAFE_TAIL` (256 chars) is generous enough to
+    contain any reasonable URL, so a URL straddling two deltas is always seen
+    whole at validation time.
+    """
 
     _SAFE_TAIL = 256
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        cited_urls: set[str] | None = None,
+        on_strip_url: object | None = None,
+    ) -> None:
         self._buf = ""
+        self._cited_urls = cited_urls if cited_urls is not None else set()
+        self._on_strip_url = on_strip_url
+        # Normalized URLs the model has already cited inline this turn.
+        # Consulted at end of stream to compute the "More sources" tail.
+        self.seen_urls: set[str] = set()
+
+    def _post_process(self, text: str) -> str:
+        text = _strip_citations(text)
+        text = _filter_off_allowlist_urls(
+            text,
+            self._cited_urls,
+            on_strip=self._on_strip_url,
+            on_keep=self.seen_urls.add,
+        )
+        return text
 
     def feed(self, delta: str) -> str:
         self._buf += delta
@@ -96,12 +238,44 @@ class _CitationStripper:
             return ""
         emitable = self._buf[:cut_end]
         self._buf = self._buf[cut_end:]
-        return _strip_citations(emitable)
+        return self._post_process(emitable)
 
     def flush(self) -> str:
-        out = _strip_citations(self._buf)
+        out = self._post_process(self._buf)
         self._buf = ""
         return out
+
+
+def _harvest_urls_from_messages(
+    messages: list[ModelMessage], cited_urls: set[str]
+) -> None:
+    """Populate `cited_urls` from web_search sources and TextPart annotations.
+
+    OpenAI's built-in web_search returns its source URLs on the
+    `BuiltinToolReturnPart.content["sources"]` list (when
+    `openai_include_web_search_sources=True`) and as `url_citation`
+    annotations on each TextPart's `provider_details["annotations"]` (when
+    `openai_include_raw_annotations=True`). We consult both because the
+    streaming and non-streaming paths both surface them.
+    """
+    for msg in messages:
+        if not isinstance(msg, ModelResponse):
+            continue
+        for part in msg.parts:
+            if isinstance(part, BuiltinToolReturnPart):
+                content = part.content
+                if isinstance(content, dict):
+                    for src in content.get("sources") or []:
+                        if isinstance(src, dict):
+                            _add_url_to_allowlist(cited_urls, src.get("url") or "")
+            elif isinstance(part, TextPart):
+                details = part.provider_details or {}
+                for ann in details.get("annotations") or []:
+                    if (
+                        isinstance(ann, dict)
+                        and ann.get("type") == "url_citation"
+                    ):
+                        _add_url_to_allowlist(cited_urls, ann.get("url") or "")
 
 
 def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
@@ -130,6 +304,16 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
         # parallel and reconcile their source lists.
         tools.append(search_perplexity)
 
+    # Surface web_search URL citations as structured data so we can build a
+    # per-run allowlist and refuse to render any URL the model fabricates.
+    # Without these flags pydantic-ai drops the annotations and we'd be
+    # trusting the model to render URLs from memory — which is exactly how
+    # the `jobs.lever.co/...` 404s reached production.
+    model_settings = OpenAIResponsesModelSettings(
+        openai_include_raw_annotations=True,
+        openai_include_web_search_sources=True,
+    )
+
     agent: Agent[MenteeDeps, str] = Agent(
         model,
         deps_type=MenteeDeps,
@@ -138,6 +322,7 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
         instrument=True,
         tools=tools,
         builtin_tools=builtin_tools,
+        model_settings=model_settings,
     )
 
     @agent.instructions
@@ -455,10 +640,11 @@ class MenteeAgent(AgentPort):
             perplexity_enabled=perplexity_enabled,
             ui_locale=ui_locale,
         ) as span:
+            deps = self._deps(user, collector, perplexity_enabled, ui_locale)
             try:
                 result = await self._agent.run(
                     user_message.body,
-                    deps=self._deps(user, collector, perplexity_enabled, ui_locale),
+                    deps=deps,
                     message_history=_history_to_messages(history, exclude_last=True)
                     or None,
                     usage_limits=self._usage_limits,
@@ -469,10 +655,30 @@ class MenteeAgent(AgentPort):
                     model_sku=self._settings.agent_model,
                 )
                 _count_builtin_tool_calls(collector, result.all_messages())
+                _harvest_urls_from_messages(result.all_messages(), deps.cited_urls)
                 deduped = _dedup_response_text(result.all_messages())
-                output = _strip_citations(
+                stripped_urls: list[str] = []
+                seen_urls: set[str] = set()
+                cleaned = _strip_citations(
                     deduped if deduped is not None else result.output
                 )
+                body = _filter_off_allowlist_urls(
+                    cleaned,
+                    deps.cited_urls,
+                    on_strip=stripped_urls.append,
+                    on_keep=seen_urls.add,
+                )
+                unused = sorted(deps.cited_urls - seen_urls)
+                output = body + _format_more_sources(unused)
+                if stripped_urls:
+                    logger.warning(
+                        "agent.url_off_allowlist count=%d urls=%s",
+                        len(stripped_urls),
+                        stripped_urls[:10],
+                    )
+                span.set_attribute("urls_off_allowlist", len(stripped_urls))
+                span.set_attribute("urls_cited", len(deps.cited_urls))
+                span.set_attribute("urls_unused_appended", len(unused))
                 span.set_attribute("status", "ok")
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
@@ -556,9 +762,20 @@ class MenteeAgent(AgentPort):
         ) as span:
             queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
             response_length = 0
+            stripped_urls: list[str] = []
+            # Single-element list used as a 1-cell mailbox so the inner
+            # `drive()` coroutine can publish the count without `nonlocal`.
+            nonlocal_unused_count = [0]
+            deps = self._deps(user, collector, perplexity_enabled, ui_locale)
 
             async def drive() -> None:
-                stripper = _CitationStripper()
+                # The stripper reads `deps.cited_urls` at emit time. Tools fire
+                # before the final TextPart streams, so by the time URLs are
+                # checked the allowlist is already populated for this turn.
+                stripper = _CitationStripper(
+                    cited_urls=deps.cited_urls,
+                    on_strip_url=stripped_urls.append,
+                )
                 # The OpenAI Responses model sometimes emits two consecutive
                 # TextParts with near-identical content in one turn. Track which
                 # text part index we accepted; reject any subsequent text part
@@ -568,7 +785,7 @@ class MenteeAgent(AgentPort):
                 try:
                     async with self._agent.iter(
                         user_message.body,
-                        deps=self._deps(user, collector, perplexity_enabled, ui_locale),
+                        deps=deps,
                         message_history=_history_to_messages(history, exclude_last=True)
                         or None,
                         usage_limits=self._usage_limits,
@@ -596,6 +813,22 @@ class MenteeAgent(AgentPort):
                                                     )
                                                 )
                                             elif isinstance(part, BuiltinToolReturnPart):
+                                                # Harvest web_search source URLs into the
+                                                # per-run allowlist so the stripper keeps
+                                                # them when the model writes them inline.
+                                                if (
+                                                    part.tool_name == "web_search"
+                                                    and isinstance(part.content, dict)
+                                                ):
+                                                    for src in (
+                                                        part.content.get("sources") or []
+                                                    ):
+                                                        if not isinstance(src, dict):
+                                                            continue
+                                                        _add_url_to_allowlist(
+                                                            deps.cited_urls,
+                                                            src.get("url") or "",
+                                                        )
                                                 await queue.put(
                                                     ToolEnd(
                                                         tool_call_id=part.tool_call_id,
@@ -650,9 +883,26 @@ class MenteeAgent(AgentPort):
                                                     or "success",
                                                 )
                                             )
+                        # Pull any TextPart annotations into the allowlist
+                        # before flushing the stripper's tail — annotations
+                        # may finalize after the last text delta arrives.
+                        if run.result is not None:
+                            _harvest_urls_from_messages(
+                                run.result.all_messages(), deps.cited_urls
+                            )
                         tail = stripper.flush()
                         if tail:
                             await queue.put(TextDelta(text=tail))
+                        # Append every allowlist URL the model didn't cite
+                        # inline. Lets the user see the full search-tool
+                        # result set without bloating the curated reply.
+                        unused = sorted(
+                            deps.cited_urls - stripper.seen_urls
+                        )
+                        nonlocal_unused_count[0] = len(unused)
+                        more = _format_more_sources(unused)
+                        if more:
+                            await queue.put(TextDelta(text=more))
                         if run.result is not None:
                             try:
                                 _fill_openai_usage(
@@ -721,6 +971,17 @@ class MenteeAgent(AgentPort):
                     response_length += len(text)
                     yield TextDelta(text=text)
             finally:
+                if stripped_urls:
+                    logger.warning(
+                        "agent.url_off_allowlist count=%d urls=%s",
+                        len(stripped_urls),
+                        stripped_urls[:10],
+                    )
+                span.set_attribute("urls_off_allowlist", len(stripped_urls))
+                span.set_attribute("urls_cited", len(deps.cited_urls))
+                span.set_attribute(
+                    "urls_unused_appended", nonlocal_unused_count[0]
+                )
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
                 )

@@ -23,3 +23,8 @@ class MenteeDeps:
     # "pt", "ar"). Surfaces in the per-turn profile block as the strongest
     # signal for reply language, beating the user's stored preferred_language.
     ui_locale: str | None = None
+    # Per-run allowlist of URLs returned by grounded-search tools (Perplexity
+    # citations, OpenAI web_search sources/annotations). Populated by tools
+    # and the streaming harness as searches complete; consulted by the
+    # post-output validator to strip URLs the model fabricated.
+    cited_urls: set[str] = field(default_factory=set)

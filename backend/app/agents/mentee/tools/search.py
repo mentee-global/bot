@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from perplexity import APIConnectionError, APIStatusError, APITimeoutError
 from pydantic_ai import RunContext
@@ -20,6 +21,29 @@ from app.agents.mentee.tools.schemas import insufficient_context, ok
 from app.budget.provider_errors import build_reason, is_insufficient_funds
 
 logger = logging.getLogger(__name__)
+
+_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
+
+
+def _inline_citations(answer: str, citations: list[str]) -> str:
+    """Replace `[N]` markers in Perplexity's prose with the URL itself.
+
+    Perplexity returns text with `[1][2][5]` markers and a separate
+    `citations` array. Asking the LLM to map markers back to URLs leaks
+    fabricated URLs (the model reconstructs from priors instead of copying),
+    so we inline the URL right next to the claim it supports. Out-of-range
+    markers are left intact.
+    """
+    if not citations:
+        return answer
+
+    def sub(match: re.Match[str]) -> str:
+        idx = int(match.group(1))
+        if 1 <= idx <= len(citations):
+            return f" ({citations[idx - 1]})"
+        return match.group(0)
+
+    return _CITATION_MARKER_RE.sub(sub, answer)
 
 _SCHOLARSHIP_SYSTEM = (
     "You are a scholarship research assistant. Return 3 to 6 real, currently "
@@ -143,11 +167,20 @@ async def search_perplexity(
     if ctx.deps.usage.perplexity_model_sku is None:
         ctx.deps.usage.perplexity_model_sku = settings.perplexity_model
 
+    # Seed the per-run allowlist so the agent's URL validator knows these are
+    # real, tool-returned URLs and won't strip them. Routed through the
+    # agent's filter so marketing PDFs / CDN attachments are excluded.
+    from app.agents.mentee.agent import _add_url_to_allowlist
+
+    for url in result.citations:
+        if isinstance(url, str):
+            _add_url_to_allowlist(ctx.deps.cited_urls, url)
+
     return ok(
         {
             "source": "perplexity",
             "intent": intent,
-            "answer": result.answer,
+            "answer": _inline_citations(result.answer, result.citations),
             "citations": result.citations,
         }
     )
