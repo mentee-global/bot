@@ -55,7 +55,10 @@ import {
 import { clearAllDrafts } from "#/features/chat/hooks/useDraftsStore";
 import { usePinnedThreads } from "#/features/chat/hooks/usePinnedThreads";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
-import { RequestCreditsButton } from "#/features/reports/components/RequestCreditsButton";
+// Feature commented out — "Request more credits" CTA is hidden from users.
+// To reactivate: uncomment this import, the `showRequestCredits` prop on
+// ChatBlockedBanner, and the `<RequestCreditsButton />` render below.
+// import { RequestCreditsButton } from "#/features/reports/components/RequestCreditsButton";
 import { track } from "#/lib/analytics";
 import { formatFullTimestamp } from "#/lib/datetime";
 import { useDebouncedValue } from "#/lib/useDebouncedValue";
@@ -568,7 +571,9 @@ function ChatView({
 				{block ? (
 					<ChatBlockedBanner
 						block={block}
-						showRequestCredits={block.kind === "out_of_credits"}
+						// Feature commented out — was: block.kind === "out_of_credits".
+						// To reactivate, restore the original expression.
+						showRequestCredits={false}
 					/>
 				) : null}
 				<ChatInput
@@ -661,9 +666,11 @@ function useChatBlockState(me: MeResponse | undefined): ChatBlock | null {
 
 function ChatBlockedBanner({
 	block,
-	showRequestCredits,
+	showRequestCredits: _showRequestCredits,
 }: {
 	block: ChatBlock;
+	// Kept on the prop signature so reactivating the feature is a one-line change
+	// at the call site. Feature commented out.
 	showRequestCredits: boolean;
 }) {
 	const Icon = block.kind === "paused" ? PauseCircle : AlertTriangle;
@@ -677,7 +684,9 @@ function ChatBlockedBanner({
 				<div className="min-w-0 text-sm">
 					<p className="m-0 font-semibold">{block.title}</p>
 					<p className="m-0 text-[var(--theme-danger)]/90">{block.body}</p>
-					{showRequestCredits ? <RequestCreditsButton /> : null}
+					{/* Feature commented out — uncomment to restore CTA:
+					{_showRequestCredits ? <RequestCreditsButton /> : null}
+					*/}
 				</div>
 			</div>
 		</output>
