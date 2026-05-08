@@ -56,6 +56,13 @@ export interface BudgetConfigHistory {
 	changes: BudgetConfigChange[];
 }
 
+export interface RoleSpend {
+	openai_spend_micros: number;
+	perplexity_spend_micros: number;
+	web_search_spend_micros: number;
+	total_spend_micros: number;
+}
+
 export interface GlobalSpend {
 	period_start: string;
 	openai_spend_micros: number;
@@ -68,6 +75,11 @@ export interface GlobalSpend {
 	perplexity_degraded_at: string | null;
 	hard_stop_reason: string | null;
 	hard_stopped_at: string | null;
+	// Live ledger split by user role since `period_start`. Computed from
+	// `message_usage` (excluding test rows). Can disagree slightly with the
+	// cached `*_spend_micros` headline if those drift.
+	admin_spend: RoleSpend;
+	mentee_spend: RoleSpend;
 }
 
 export interface ProviderSpend {

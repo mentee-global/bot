@@ -27,6 +27,7 @@ import type {
 	BudgetConfigChange,
 	BudgetConfigPatch,
 	GlobalSpend,
+	RoleSpend,
 } from "#/features/budget/data/budget.types";
 import {
 	useBudgetConfigHistoryQuery,
@@ -302,6 +303,30 @@ function OverviewTab() {
 				</div>
 			</div>
 
+			<div className="flex flex-col gap-2">
+				<div className="flex items-baseline justify-between gap-3">
+					<h3 className="m-0 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						Estimated spend by role
+						<InfoTooltip title="What's this?">
+							<p className="m-0">
+								Splits this month's spend between admin accounts (yours and
+								other staff) and regular mentee accounts. Useful to see how much
+								of the bill comes from real users versus internal testing and
+								demos.
+							</p>
+							<p className="m-0 mt-2">
+								Computed live from per-turn records. Test interactions from
+								local dev environments are excluded.
+							</p>
+						</InfoTooltip>
+					</h3>
+				</div>
+				<div className="grid gap-4 sm:grid-cols-2">
+					<RoleSpendCard label="Mentees" spend={s.mentee_spend} />
+					<RoleSpendCard label="Admins" spend={s.admin_spend} />
+				</div>
+			</div>
+
 			<ProvidersCard />
 
 			<Card>
@@ -329,6 +354,43 @@ function OverviewTab() {
 				</CardContent>
 			</Card>
 		</section>
+	);
+}
+
+function RoleSpendCard({ label, spend }: { label: string; spend: RoleSpend }) {
+	return (
+		<Card>
+			<CardContent className="flex flex-col gap-3">
+				<div className="flex items-baseline justify-between gap-3">
+					<p className="m-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						{label}
+					</p>
+					<p className="m-0 text-lg font-semibold tabular-nums">
+						{formatMicros(spend.total_spend_micros)}
+					</p>
+				</div>
+				<dl className="m-0 flex flex-col gap-1 text-xs text-muted-foreground">
+					<div className="flex justify-between gap-3">
+						<dt>ChatGPT</dt>
+						<dd className="tabular-nums">
+							{formatMicros(spend.openai_spend_micros)}
+						</dd>
+					</div>
+					<div className="flex justify-between gap-3">
+						<dt>Research assistant</dt>
+						<dd className="tabular-nums">
+							{formatMicros(spend.perplexity_spend_micros)}
+						</dd>
+					</div>
+					<div className="flex justify-between gap-3">
+						<dt>Web search</dt>
+						<dd className="tabular-nums">
+							{formatMicros(spend.web_search_spend_micros)}
+						</dd>
+					</div>
+				</dl>
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -1169,10 +1231,7 @@ function ChangeHistoryCard({
 						rows={4}
 					/>
 				) : history.isError ? (
-					<ErrorState
-						error={history.error}
-						onRetry={() => history.refetch()}
-					/>
+					<ErrorState error={history.error} onRetry={() => history.refetch()} />
 				) : filtered.length === 0 ? (
 					<p className="m-0 text-xs text-muted-foreground">
 						No changes yet. Saved edits will appear here with the reason you

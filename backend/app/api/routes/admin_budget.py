@@ -87,6 +87,13 @@ class BudgetConfigHistoryResponse(BaseModel):
     changes: list[BudgetConfigChangeResponse]
 
 
+class RoleSpendResponse(BaseModel):
+    openai_spend_micros: int
+    perplexity_spend_micros: int
+    web_search_spend_micros: int
+    total_spend_micros: int
+
+
 class GlobalSpendResponse(BaseModel):
     period_start: datetime
     openai_spend_micros: int
@@ -99,6 +106,11 @@ class GlobalSpendResponse(BaseModel):
     perplexity_degraded_at: datetime | None = None
     hard_stop_reason: str | None = None
     hard_stopped_at: datetime | None = None
+    # Live ledger split by user role since `period_start`. Computed from
+    # `message_usage` (excluding test rows), so it can disagree with the
+    # cached `*_spend_micros` headline if those ever drift.
+    admin_spend: RoleSpendResponse
+    mentee_spend: RoleSpendResponse
 
 
 class FlagsUpdate(BaseModel):
@@ -255,7 +267,16 @@ async def get_config_history(
     )
 
 
-def _snap_to_response(snap) -> GlobalSpendResponse:  # type: ignore[no-untyped-def]
+def _role_to_response(r) -> RoleSpendResponse:  # type: ignore[no-untyped-def]
+    return RoleSpendResponse(
+        openai_spend_micros=r.openai_spend_micros,
+        perplexity_spend_micros=r.perplexity_spend_micros,
+        web_search_spend_micros=r.web_search_spend_micros,
+        total_spend_micros=r.total_spend_micros,
+    )
+
+
+def _snap_to_response(snap, split) -> GlobalSpendResponse:  # type: ignore[no-untyped-def]
     return GlobalSpendResponse(
         period_start=snap.period_start,
         openai_spend_micros=snap.openai_spend_micros,
@@ -268,6 +289,8 @@ def _snap_to_response(snap) -> GlobalSpendResponse:  # type: ignore[no-untyped-d
         perplexity_degraded_at=snap.perplexity_degraded_at,
         hard_stop_reason=snap.hard_stop_reason,
         hard_stopped_at=snap.hard_stopped_at,
+        admin_spend=_role_to_response(split.admin),
+        mentee_spend=_role_to_response(split.mentee),
     )
 
 
@@ -275,8 +298,11 @@ def _snap_to_response(snap) -> GlobalSpendResponse:  # type: ignore[no-untyped-d
 async def get_global_state(
     budget: Annotated[BudgetService, Depends(get_budget_service)],
 ) -> GlobalSpendResponse:
-    snap = await budget.get_global_snapshot()
-    return _snap_to_response(snap)
+    snap, split = await asyncio.gather(
+        budget.get_global_snapshot(),
+        budget.get_role_spend_split(),
+    )
+    return _snap_to_response(snap, split)
 
 
 @router.patch("/flags", response_model=GlobalSpendResponse)
@@ -294,13 +320,14 @@ async def update_flags(
         perplexity_degrade_reason=reason if payload.perplexity_degraded else None,
         hard_stop_reason=reason if payload.hard_stopped else None,
     )
+    split = await budget.get_role_spend_split()
     logger.warning(
         "admin budget_flags: actor=%s degraded=%s hard_stopped=%s",
         actor.email,
         payload.perplexity_degraded,
         payload.hard_stopped,
     )
-    return _snap_to_response(snap)
+    return _snap_to_response(snap, split)
 
 
 # ---------------------------------------------------------------------------

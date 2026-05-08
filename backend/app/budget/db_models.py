@@ -73,6 +73,10 @@ class MessageUsage(SQLModel, table=True):
     request_count: int = Field(default=1)
     cost_usd_micros: int = Field(default=0)
     credits_charged: int = Field(default=0)
+    # True when written by a non-prod instance that shares the DB with prod
+    # (e.g. a local dev box). Excluded from global counters, the role split,
+    # and credit debits — see `BudgetService.record_turn`.
+    is_test: bool = Field(default=False)
     created_at: datetime = Field(sa_type=DateTime(timezone=True))
 
 

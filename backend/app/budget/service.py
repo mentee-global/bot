@@ -29,6 +29,7 @@ from uuid import UUID
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.auth.db_models import UserRecord
 from app.budget.db_models import (
     BudgetConfig,
     BudgetConfigChangeLog,
@@ -38,6 +39,7 @@ from app.budget.db_models import (
 )
 from app.budget.pricing import compute_cost, micros_to_credits
 from app.budget.usage import UsageSummary
+from app.core.config import settings
 from app.db.engine import async_session_factory
 from app.domain.models import User
 
@@ -157,6 +159,34 @@ class GlobalSpendSnapshot:
     perplexity_degraded_at: datetime | None
     hard_stop_reason: str | None
     hard_stopped_at: datetime | None
+
+
+@dataclass(frozen=True)
+class RoleSpend:
+    """Per-role view of `message_usage` since the global period anchor.
+
+    Computed live from the ledger (excluding `is_test=True` rows) so it never
+    drifts the way the cached counters on `global_budget_state` can.
+    """
+
+    openai_spend_micros: int
+    perplexity_spend_micros: int
+    web_search_spend_micros: int
+
+    @property
+    def total_spend_micros(self) -> int:
+        return (
+            self.openai_spend_micros
+            + self.perplexity_spend_micros
+            + self.web_search_spend_micros
+        )
+
+
+@dataclass(frozen=True)
+class RoleSpendSplit:
+    period_start: datetime
+    admin: RoleSpend
+    mentee: RoleSpend
 
 
 def _next_period_start(period_start: datetime) -> datetime:
@@ -327,6 +357,52 @@ class BudgetService:
             hard_stopped_at=state.hard_stopped_at,
         )
 
+    async def get_role_spend_split(self) -> RoleSpendSplit:
+        """Sum `message_usage.cost_usd_micros` since the global period anchor,
+        bucketed by user role and provider. Excludes `is_test=True` rows so
+        local-dev traffic doesn't show up in the Overview's role split."""
+        async with self._factory() as session:
+            state = await self._load_global_state(session)
+            await session.commit()
+            period = state.period_start
+
+            rows = (
+                await session.execute(
+                    select(
+                        UserRecord.role,
+                        MessageUsage.model,
+                        func.coalesce(func.sum(MessageUsage.cost_usd_micros), 0),
+                    )
+                    .join(UserRecord, UserRecord.id == MessageUsage.user_id)
+                    .where(MessageUsage.created_at >= period)
+                    .where(MessageUsage.is_test.is_(False))
+                    .group_by(UserRecord.role, MessageUsage.model)
+                )
+            ).all()
+
+        # Bucket by (role, model). Anything that isn't "admin" rolls up under
+        # "mentee" so a future role rename (e.g. "user", "student") still
+        # shows up as non-admin spend without a code change.
+        admin_buckets = {"openai": 0, "perplexity": 0, "web_search": 0}
+        mentee_buckets = {"openai": 0, "perplexity": 0, "web_search": 0}
+        for role, model, micros in rows:
+            target = admin_buckets if role == "admin" else mentee_buckets
+            if model in target:
+                target[model] += int(micros)
+        return RoleSpendSplit(
+            period_start=period,
+            admin=RoleSpend(
+                openai_spend_micros=admin_buckets["openai"],
+                perplexity_spend_micros=admin_buckets["perplexity"],
+                web_search_spend_micros=admin_buckets["web_search"],
+            ),
+            mentee=RoleSpend(
+                openai_spend_micros=mentee_buckets["openai"],
+                perplexity_spend_micros=mentee_buckets["perplexity"],
+                web_search_spend_micros=mentee_buckets["web_search"],
+            ),
+        )
+
     async def override_flags(
         self,
         *,
@@ -495,6 +571,10 @@ class BudgetService:
         uid = _as_uuid(user.id)
         tid = _as_uuid(thread_id) if thread_id else None
         mid = _as_uuid(message_id) if message_id else None
+        # Non-prod instances share the prod Postgres. Flag rows from those
+        # instances so the global Overview, role split, and credit debits
+        # ignore local-dev traffic.
+        is_test = not settings.is_prod
         async with self._factory() as session:
             cfg = await self._load_config(session)
             state = await self._load_global_state(session)
@@ -519,6 +599,7 @@ class BudgetService:
                         request_count=1,
                         cost_usd_micros=breakdown.openai_micros,
                         credits_charged=0,
+                        is_test=is_test,
                         created_at=now,
                     )
                 )
@@ -537,6 +618,7 @@ class BudgetService:
                         request_count=len(usage.perplexity_calls),
                         cost_usd_micros=breakdown.perplexity_micros,
                         credits_charged=0,
+                        is_test=is_test,
                         created_at=now,
                     )
                 )
@@ -555,12 +637,13 @@ class BudgetService:
                         request_count=usage.web_search_calls,
                         cost_usd_micros=breakdown.web_search_micros,
                         credits_charged=0,
+                        is_test=is_test,
                         created_at=now,
                     )
                 )
 
             credits_charged = 0
-            if user.role != "admin":
+            if not is_test and user.role != "admin":
                 credits_charged = micros_to_credits(
                     breakdown.total_micros, cfg.credit_usd_value_micros
                 )
@@ -580,11 +663,12 @@ class BudgetService:
             for r in rows:
                 session.add(r)
 
-            state.openai_spend_micros += breakdown.openai_micros
-            state.perplexity_spend_micros += breakdown.perplexity_micros
-            state.web_search_spend_micros += breakdown.web_search_micros
-            state.updated_at = now
-            session.add(state)
+            if not is_test:
+                state.openai_spend_micros += breakdown.openai_micros
+                state.perplexity_spend_micros += breakdown.perplexity_micros
+                state.web_search_spend_micros += breakdown.web_search_micros
+                state.updated_at = now
+                session.add(state)
 
             await session.commit()
             return credits_charged
