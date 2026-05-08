@@ -63,19 +63,19 @@
 }
 
 .dark {
-  --theme-bg: #0a0a0a;
-  --theme-surface: #171717;
-  --theme-surface-elevated: #1f1f1f;
+  --theme-bg: #0c0c0e;
+  --theme-surface: #1c1c1f;
+  --theme-surface-elevated: #26262a;
   --theme-primary: #fafafa;
   --theme-secondary: #d4d4d4;
   --theme-muted: #a3a3a3;
-  --theme-border: #262626;
-  --theme-border-strong: #404040;
+  --theme-border: #2e2e33;
+  --theme-border-strong: #404048;
   --theme-accent: #f5d676;
   --theme-accent-hover: #fbe58f;
   --theme-accent-soft: rgba(228, 187, 79, 0.12);
   --theme-accent-ring: rgba(228, 187, 79, 0.45);
-  --theme-header-bg: rgba(10, 10, 10, 0.85);
+  --theme-header-bg: rgba(12, 12, 14, 0.85);
   --theme-on-accent: #0a0a0a;
   --theme-danger: #f87171;
   --theme-danger-fg: #0a0a0a;
