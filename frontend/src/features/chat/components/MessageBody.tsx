@@ -311,7 +311,7 @@ const components: Components = {
 			href={href}
 			target="_blank"
 			rel="noreferrer noopener"
-			className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+			className="text-[var(--theme-primary)] underline decoration-dotted underline-offset-2 hover:decoration-solid hover:text-[var(--theme-accent)]"
 		>
 			{children}
 		</a>
@@ -378,7 +378,7 @@ function MessageBodyImpl({ body, streaming }: MessageBodyProps) {
 
 	return (
 		<div>
-			<div className="prose prose-sm max-w-none text-[var(--theme-primary)] prose-p:my-2 prose-p:leading-relaxed prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1 prose-pre:my-2 prose-pre:bg-[var(--theme-bg)] prose-pre:border prose-pre:border-[var(--theme-border)] prose-code:before:content-none prose-code:after:content-none prose-strong:text-[var(--theme-primary)]">
+			<div className="prose prose-sm max-w-none text-[var(--theme-primary)] prose-p:my-2 prose-p:leading-relaxed prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-li:text-[var(--theme-primary)] prose-headings:mt-3 prose-headings:mb-1 prose-headings:text-[var(--theme-primary)] prose-pre:my-2 prose-pre:bg-[var(--theme-bg)] prose-pre:border prose-pre:border-[var(--theme-border)] prose-pre:text-[var(--theme-primary)] prose-code:before:content-none prose-code:after:content-none prose-code:text-[var(--theme-primary)] prose-strong:text-[var(--theme-primary)] prose-blockquote:text-[var(--theme-secondary)] prose-blockquote:border-[var(--theme-border)] prose-hr:border-[var(--theme-border)]">
 				<ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
 					{clean}
 				</ReactMarkdown>

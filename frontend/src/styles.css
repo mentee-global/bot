@@ -158,8 +158,8 @@ a:hover {
 code {
   font-family: 'SFMono-Regular', ui-monospace, monospace;
   font-size: 0.9em;
-  border: 1px solid var(--theme-border);
-  background: var(--theme-surface);
+  border: 1px solid var(--theme-border-strong);
+  background: var(--theme-surface-elevated);
   color: var(--theme-primary);
   border-radius: 6px;
   padding: 2px 6px;
