@@ -1,0 +1,26 @@
+# pnpm 11 configuration.
+#
+# pnpm 11 no longer reads the `pnpm` field of package.json; settings live here
+# (single-project repos use pnpm-workspace.yaml without a `packages` list).
+#
+# Supply-chain protections (minimumReleaseAge=1440, blockExoticSubdeps=true,
+# strictDepBuilds=true, verifyDepsBeforeRun=install) are pnpm 11 defaults —
+# kept implicit. See https://pnpm.io/blog/releases/11.0 if you need to opt out
+# or tune the 24h release-age cooldown for an emergency security upgrade.
+
+allowBuilds:
+  # Native binary builds (Rust/Go bundlers). Required for `pnpm run build`.
+  esbuild: true
+  lightningcss: true
+
+  # Transitive deps flagged by `strictDepBuilds`. Blocked because their
+  # postinstall scripts are not required for runtime in this project:
+  #   - core-js (via posthog-js): donation/opencollective banner only.
+  #   - msw (via @vitest/mocker + shadcn): copies mockServiceWorker.js to
+  #     public/; we don't run MSW in tests.
+  #   - protobufjs (via posthog-js → @opentelemetry/otlp-transformer): wires
+  #     the protobufjs CLI; runtime exports are pre-bundled.
+  # Flip to `true` (case by case) if you start using MSW or the protobufjs CLI.
+  core-js: false
+  msw: false
+  protobufjs: false

@@ -87,16 +87,29 @@ skills:
 ## Commands
 
 ```bash
-npm run dev        # vite dev on port 3001
-npm run build
-npm run preview
-npm run test       # vitest run (single pass; append filename/pattern to target one test)
-npm run lint       # biome lint
-npm run format     # biome format
-npm run check      # biome check (lint + format)
+pnpm dev           # vite dev on port 3001
+pnpm build
+pnpm preview
+pnpm test          # vitest run (single pass; append filename/pattern to target one test)
+pnpm lint          # biome lint
+pnpm format        # biome format
+pnpm check         # biome check (lint + format)
 ```
 
 Shadcn components: `pnpm dlx shadcn@latest add <component>` (per `.cursorrules`).
+
+## Package manager
+
+`pnpm@11.1.1`, pinned via `packageManager` in `package.json` and activated by corepack in CI/Docker. **Do not use `npm` or `yarn` here** — the lockfile is `pnpm-lock.yaml`.
+
+pnpm-specific config lives in `pnpm-workspace.yaml` (pnpm 11 no longer reads the `pnpm` field from `package.json`). Supply-chain hardening is on by default:
+
+- `minimumReleaseAge: 1440` — newly published versions wait 24h before resolving (mitigates fast-moving npm supply-chain compromises).
+- `blockExoticSubdeps: true` — transitive deps must come from the registry, not git/tarball.
+- `strictDepBuilds: true` + `allowBuilds: { esbuild, lightningcss }` — only the two native-binary deps may execute install scripts; everything else is sandboxed.
+- `verifyDepsBeforeRun: install` — `pnpm run` auto-installs if the lockfile drifts from `node_modules`.
+
+For an emergency security fix that needs a sub-24h release, add the package to `minimumReleaseAgeExclude` in `pnpm-workspace.yaml`.
 
 ## Architecture Notes
 
