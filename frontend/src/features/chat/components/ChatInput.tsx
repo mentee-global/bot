@@ -50,6 +50,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 		const { value: draftValue, setDraft, clearDraft } = useDraft(threadId);
 		const [text, setText] = useState(draftValue);
 		const [isComposing, setIsComposing] = useState(false);
+		const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 		useImperativeHandle(ref, () => ({
@@ -73,6 +74,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			if (!isSending && !disabledReason) textareaRef.current?.focus();
 		}, [isSending, disabledReason]);
 
+		// On touch devices the on-screen keyboard's Enter has no Shift modifier,
+		// so we can't distinguish "send" from "newline" via the key event. Treat
+		// coarse-pointer devices as mobile: Enter inserts a newline; users send
+		// by tapping the button.
+		useEffect(() => {
+			const mq = window.matchMedia("(pointer: coarse)");
+			setIsCoarsePointer(mq.matches);
+			const handler = (e: MediaQueryListEvent) =>
+				setIsCoarsePointer(e.matches);
+			mq.addEventListener("change", handler);
+			return () => mq.removeEventListener("change", handler);
+		}, []);
+
 		const isBlocked = disabledReason !== null && disabledReason !== "";
 
 		const handleSubmit = (e?: FormEvent) => {
@@ -95,6 +109,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			// IME safety — submitting while composing eats the pending character.
 			if (isComposing || e.nativeEvent.isComposing) return;
 			if (e.shiftKey) return; // Shift+Enter → newline
+			if (isCoarsePointer) return; // Touch keyboards: Enter → newline
 			e.preventDefault();
 			handleSubmit();
 		};
