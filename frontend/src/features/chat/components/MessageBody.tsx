@@ -407,26 +407,28 @@ function SourceBar({ sources }: { sources: Source[] }) {
 					// underlying domain is still visible on hover.
 					const label = s.title ?? s.hostname;
 					return (
-						<li key={s.url} className="list-none">
+						<li key={s.url} className="min-w-0 list-none">
 							<a
 								href={s.url}
 								target="_blank"
 								rel="noreferrer noopener"
 								title={s.title ? s.hostname : undefined}
-								className="inline-flex items-center gap-1.5 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--theme-secondary)] no-underline transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-primary)]"
+								className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--theme-secondary)] no-underline transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-primary)]"
 							>
 								<img
 									src={`https://www.google.com/s2/favicons?domain=${s.hostname}&sz=32`}
 									alt=""
 									width={12}
 									height={12}
-									className="rounded-sm"
+									className="shrink-0 rounded-sm"
 									loading="lazy"
 								/>
-								<span className="truncate max-w-[220px]">{label}</span>
+								<span className="min-w-0 truncate max-w-[140px] sm:max-w-[220px]">
+									{label}
+								</span>
 								<ExternalLink
 									aria-hidden="true"
-									className="size-3 opacity-60"
+									className="size-3 shrink-0 opacity-60"
 								/>
 							</a>
 						</li>

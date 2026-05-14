@@ -491,9 +491,14 @@ function ChatView({
 						<Menu size={18} />
 					</button>
 					<div className="min-w-0 flex-1">
-						<p className="island-kicker m-0">{m.chat_kicker()}</p>
-						<p className="m-0 truncate text-sm text-[var(--theme-secondary)]">
-							{m.chat_signed_in_as({ name: userName })}
+						<p className="island-kicker m-0 hidden sm:block">
+							{m.chat_kicker()}
+						</p>
+						<p className="m-0 truncate text-sm font-medium text-[var(--theme-primary)] sm:font-normal sm:text-[var(--theme-secondary)]">
+							<span className="sm:hidden">{userName}</span>
+							<span className="hidden sm:inline">
+								{m.chat_signed_in_as({ name: userName })}
+							</span>
 						</p>
 					</div>
 					<div className="shrink-0">
@@ -552,52 +557,54 @@ function ChatView({
 					/>
 				) : null}
 				<div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
-					{isAdmin ? (
-						<PersonaActiveBanner onEdit={() => setPersonaSheetOpen(true)} />
-					) : null}
-					{threadLoading ? (
-						<MessageListSkeleton />
-					) : isEmptyThread ? (
-						<ChatWelcome
-							userName={userName}
-							recentThreads={threads.data?.threads ?? []}
-							onPickStarter={(prompt) => {
-								if (block) return;
-								track("chat.starter_picked", { kind: "starter" });
-								send.mutate(prompt);
-							}}
-							onContinue={(threadId) => {
-								track("chat.starter_picked", { kind: "continue" });
-								handleSelect(threadId);
-							}}
-							disabled={block !== null}
-						/>
-					) : (
-						<MessageList
-							messages={messages}
-							isReplying={send.isPending}
-							onRetryLast={handleRetry}
-							onEditMessage={handleEditMessage}
-							onRetryFailed={handleRetryFailed}
-							onPickSuggestion={handlePickSuggestion}
-							onExportThread={handleExportThread}
-							onCopyThread={handleCopyThread}
-							canSend={!send.isPending && !block}
-							findQuery={findOpen ? findQuery : ""}
-							findActiveIndex={findActiveIndex}
-							slotAfterMessages={
-								ratingTrigger.isVisible && activeThreadId ? (
-									<SessionRatingCard
-										threadId={activeThreadId}
-										assistantTurns={ratingTrigger.assistantTurns}
-										shownAt={ratingTrigger.shownAt}
-										onRated={ratingTrigger.markRated}
-										onDismiss={ratingTrigger.dismiss}
-									/>
-								) : null
-							}
-						/>
-					)}
+					<div className="mx-auto w-full max-w-3xl lg:max-w-4xl">
+						{isAdmin ? (
+							<PersonaActiveBanner onEdit={() => setPersonaSheetOpen(true)} />
+						) : null}
+						{threadLoading ? (
+							<MessageListSkeleton />
+						) : isEmptyThread ? (
+							<ChatWelcome
+								userName={userName}
+								recentThreads={threads.data?.threads ?? []}
+								onPickStarter={(prompt) => {
+									if (block) return;
+									track("chat.starter_picked", { kind: "starter" });
+									send.mutate(prompt);
+								}}
+								onContinue={(threadId) => {
+									track("chat.starter_picked", { kind: "continue" });
+									handleSelect(threadId);
+								}}
+								disabled={block !== null}
+							/>
+						) : (
+							<MessageList
+								messages={messages}
+								isReplying={send.isPending}
+								onRetryLast={handleRetry}
+								onEditMessage={handleEditMessage}
+								onRetryFailed={handleRetryFailed}
+								onPickSuggestion={handlePickSuggestion}
+								onExportThread={handleExportThread}
+								onCopyThread={handleCopyThread}
+								canSend={!send.isPending && !block}
+								findQuery={findOpen ? findQuery : ""}
+								findActiveIndex={findActiveIndex}
+								slotAfterMessages={
+									ratingTrigger.isVisible && activeThreadId ? (
+										<SessionRatingCard
+											threadId={activeThreadId}
+											assistantTurns={ratingTrigger.assistantTurns}
+											shownAt={ratingTrigger.shownAt}
+											onRated={ratingTrigger.markRated}
+											onDismiss={ratingTrigger.dismiss}
+										/>
+									) : null
+								}
+							/>
+						)}
+					</div>
 				</div>
 				{block ? (
 					<ChatBlockedBanner
