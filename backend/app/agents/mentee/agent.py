@@ -102,8 +102,8 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
     # populated when `openai_include_raw_annotations=True`. Both flags
     # on: the model gets per-URL titles for the SOURCES bar AND keeps
     # the structured fallback list. The PUA citation markers OpenAI
-    # injects in text are stripped server-side by `_PUA_CITATION_RE` /
-    # `_STRAY_PUA_RE` regardless of these flags — pydantic-ai 1.84.1
+    # injects in text are stripped server-side by `_strip_citations`
+    # in `citations.py` regardless of these flags — pydantic-ai 1.84.1
     # passes them through verbatim.
     model_settings = OpenAIResponsesModelSettings(
         openai_include_web_search_sources=True,
