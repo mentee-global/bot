@@ -451,9 +451,7 @@ def _drop_redundant_slug_before_url(text: str) -> str:
         return match.group(0)
 
     return _REDUNDANT_SLUG_BEFORE_URL_RE.sub(repl, text)
-def _strip_citations(
-    text: str, cited_urls: Collection[str] | None = None  # noqa: ARG001
-) -> str:
+def _strip_citations(text: str) -> str:
     r"""Pre-allowlist cleanup of model-emitted text.
 
     Five passes, ordered so each can rely on what the earlier passes
@@ -474,8 +472,6 @@ def _strip_citations(
        not clickable — strip and let the SOURCES bar carry the link.
 
     Allowlist enforcement happens after, in `_filter_off_allowlist_urls`.
-    `cited_urls` is kept in the signature for back-compat with call sites
-    but the body no longer reads it.
     """
     text = _PUA_CITATION_RE.sub("", text)
     text = _STRAY_PUA_RE.sub("", text)
@@ -601,7 +597,7 @@ class _CitationStripper:
         self._on_strip_url = on_strip_url
 
     def _post_process(self, text: str) -> str:
-        text = _strip_citations(text, self._cited_urls)
+        text = _strip_citations(text)
         text = _filter_off_allowlist_urls(
             text,
             self._cited_urls,
@@ -1146,7 +1142,6 @@ class MenteeAgent(AgentPort):
                 cited_keys = deps.citations.keys()
                 cleaned = _strip_citations(
                     deduped if deduped is not None else result.output,
-                    cited_keys,
                 )
                 body = _filter_off_allowlist_urls(
                     cleaned,

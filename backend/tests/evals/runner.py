@@ -126,7 +126,6 @@ async def run_mentee(inputs: MenteeInput) -> MenteeOutput:
     cited_keys = deps.citations.keys()
     cleaned = _strip_citations(
         deduped if deduped is not None else result.output,
-        cited_keys,
     )
     body = _filter_off_allowlist_urls(cleaned, cited_keys)
     body = body + _format_sources_trailer(deps.citations, body)
