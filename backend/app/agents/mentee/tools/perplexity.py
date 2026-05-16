@@ -12,8 +12,16 @@ so every Perplexity call shows up as a span without extra wiring.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from perplexity import AsyncPerplexity
+
+# Perplexity Sonar's native server-side recency filter. `month` is the default
+# for mentee questions (most queries are scholarships/programs/visa rules that
+# don't change daily). `week` is the right pick for news and deadlines that
+# might have moved recently. `day`/`hour` are for breaking news. `year` is
+# the longest-lookback option for stable long-tail facts.
+PerplexityRecency = Literal["hour", "day", "week", "month", "year"]
 
 
 @dataclass(slots=True, frozen=True)
@@ -31,19 +39,23 @@ async def call_perplexity(
     user_prompt: str,
     model: str = "sonar-pro",
     timeout_s: float = 25.0,
+    recency: PerplexityRecency | None = "month",
 ) -> PerplexityAnswer:
     """Run a single grounded Perplexity query. Raises the SDK's typed errors
     (`APIStatusError`, `APITimeoutError`, `APIConnectionError`) on failure —
     callers map those to their own error envelopes.
     """
+    kwargs: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    if recency is not None:
+        kwargs["search_recency_filter"] = recency
     async with AsyncPerplexity(api_key=api_key, timeout=timeout_s) as client:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
+        response = await client.chat.completions.create(**kwargs)
 
     answer = ""
     if response.choices:

@@ -12,6 +12,8 @@ template and flag it so the model can add caveats.
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.agents.mentee.tools.schemas import insufficient_context, ok
 
 _CORE_SKILLS: dict[str, list[str]] = {
@@ -97,12 +99,20 @@ def _normalize(s: str) -> str:
 def analyze_career_path(
     target_role: str,
     current_skills: list[str],
-    constraints: dict[str, str] | None = None,
+    constraints: dict[str, Any] | None = None,
 ) -> str:
     """Return a structured skill-gap plan for the given target role.
 
-    Returns `insufficient_context` JSON if the inputs are empty. Always returns
-    a JSON string; the model reads it and composes the human-readable reply.
+    `constraints` is intentionally typed as `dict[str, Any]` so the model
+    can pass mixed-type values without tripping pydantic-ai validation
+    retries. Only two keys are actually read: `hours_per_week: int` and
+    `deadline_months: int`. Any other key (`needs_sponsorship`, `roles`,
+    `budget`, …) is silently ignored — pass them if useful for your own
+    bookkeeping, but they have no effect on the returned plan.
+
+    Returns `insufficient_context` JSON if the inputs are empty. Always
+    returns a JSON string; the model reads it and composes the
+    human-readable reply.
     """
     if not target_role or not target_role.strip():
         return insufficient_context(

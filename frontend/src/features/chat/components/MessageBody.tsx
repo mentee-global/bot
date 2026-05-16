@@ -7,158 +7,19 @@ import { toast } from "sonner";
 import { track } from "#/lib/analytics";
 import { m } from "#/paraglide/messages";
 
-// OpenAI Responses API wraps inline citations in PUA delimiters (e.g.
-// `\uE200cite\uE202turn0search0\uE201`); we don't yet have the annotation
-// map to render them as real links, so strip them.
-const PUA_CITATION = /[\uE000-\uF8FF][^\uE000-\uF8FF]*[\uE000-\uF8FF]/g;
-const STRAY_PUA = /[\uE000-\uF8FF]/g;
+// OpenAI Responses API can leak Unicode PUA citation wrappers
+// (`citeturn0search0`) when the server-side strip
+// misses one. Most messages arrive clean from the backend; this is a
+// defense-in-depth pass for older persisted bodies and any future
+// regression.
+const PUA_CITATION = /[-][^-]*[-]/g;
+const STRAY_PUA = /[-]/g;
 
 // Backend appends a `<!-- mentee-sources: {url:title,...} -->` trailer
 // after the final flush so the SOURCES bar can show titles instead of
-// hostnames. Match it once at the end of the body \u2014 non-greedy in case
+// hostnames. Match it once at the end of the body — non-greedy in case
 // JSON contains "-->" sequences (it shouldn't, but defensive).
 const SOURCES_TRAILER_RE = /\n*<!-- mentee-sources: (\{.*?\}) -->\s*$/;
-
-// OpenAI web_search emits inline citations as `[host](relative-path)`
-// markdown links \u2014 clicking those resolves the href against the current
-// chat URL and 404s. The backend expands them on new messages, but
-// already-persisted bodies still contain the broken form, so we run
-// the same expansion at render time. Empty paths and tracking-only
-// fragments (`source=openai`, `openai`, etc.) get dropped \u2014 they're
-// stale references the model couldn't link anywhere useful.
-const RELATIVE_CITE_RE =
-	/\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]\((?!https?:|mailto:|#)([^\s)]*)\)/gi;
-const TRACKING_PATH_TOKENS = new Set([
-	"openai",
-	"utm_source",
-	"utm_medium",
-	"utm_campaign",
-	"source",
-]);
-// Bare-but-broken pseudo-URLs (`.greenhouse.io/praxent/jobs/\u2026`) \u2014 the
-// leading char is captured so we don't false-match prose like
-// "version 2.5.10/path".
-const DOT_URL_RE =
-	/(^|[\s(])\.([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\/(\S+)/gim;
-
-function isGarbageRelPath(path: string): boolean {
-	const trimmed = path.replace(/^\/+/, "").trim();
-	if (!trimmed) return true;
-	if (trimmed.includes("/")) return false;
-	const before = trimmed.split("?")[0];
-	if (!before) return true;
-	const lower = before.toLowerCase();
-	if (TRACKING_PATH_TOKENS.has(lower)) return true;
-	if (lower.includes("=")) return true;
-	if (before.length < 4 && !/\d/.test(before)) return true;
-	return false;
-}
-
-// Path slots that begin with `.<domain>/` are OpenAI shorthand for "the
-// link-text host's parent domain". Strip the prefix so we don't end up
-// building `https://gradschool.cornell.edu/.cornell.edu/academics/…`.
-const PATH_DOT_DOMAIN_PREFIX_RE = /^\.[a-z0-9-]+(?:\.[a-z0-9-]+)*\//i;
-
-function expandRelativeCitations(md: string): string {
-	const rewritten = md.replace(
-		RELATIVE_CITE_RE,
-		(_match, host: string, path: string) => {
-			if (isGarbageRelPath(path)) return "";
-			const cleaned = path
-				.replace(PATH_DOT_DOMAIN_PREFIX_RE, "")
-				.replace(/^\/+/, "");
-			return `[${host}](https://${host}/${cleaned})`;
-		},
-	);
-	// Drop empty `()` parens left behind when we strip a garbage citation.
-	return rewritten.replace(/ ?\(\s*\)/g, "");
-}
-
-// Insert a space when the model glues two URLs together without a
-// separator (`https://platzi.com/https://platzi.com/cursos`). Without
-// this the URL extractor sees one giant malformed URL.
-function splitConcatenatedUrls(md: string): string {
-	return md.replace(/(https?:\/\/[^\s]*?)(?=https?:\/\/)/g, "$1 ");
-}
-
-function absolutizeDotUrls(md: string): string {
-	return md.replace(
-		DOT_URL_RE,
-		(_m, leading: string, host: string, path: string) =>
-			`${leading}https://${host}/${path}`,
-	);
-}
-
-// Generic path leaves we never reconstruct from, even if a cited URL
-// happens to end with one — too easy to false-match prose like "apply/".
-const GENERIC_LEAVES = new Set([
-	"apply",
-	"careers",
-	"jobs",
-	"home",
-	"page",
-	"index",
-	"main",
-	"about",
-	"contact",
-	"search",
-	"login",
-	"signup",
-	"register",
-	"post",
-	"posts",
-	"list",
-	"view",
-]);
-const ORPHAN_LEAF_RE = /(?<![:/\w.])([a-z][a-z0-9_-]{3,})\/(?![\w])/gi;
-
-// When the model writes only the trailing slug of a citation
-// (`nrtai/`) — losing the host — try to round-trip it via any URL
-// already present in the body that ends with the same leaf segment.
-function reconstructOrphanPaths(md: string): string {
-	const urlRe = /\bhttps?:\/\/[^\s)\]]+/gi;
-	const byLeaf = new Map<string, string>();
-	for (const m of md.matchAll(urlRe)) {
-		const url = m[0].replace(/[.,;:!?)\]]+$/, "");
-		try {
-			const u = new URL(url);
-			const segs = u.pathname.replace(/\/+$/, "").split("/");
-			const leaf = segs[segs.length - 1] ?? "";
-			const key = leaf.toLowerCase();
-			if (leaf.length >= 4 && !GENERIC_LEAVES.has(key) && !byLeaf.has(key)) {
-				byLeaf.set(key, url);
-			}
-		} catch {
-			// malformed URL — skip
-		}
-	}
-	if (byLeaf.size === 0) return md;
-	return md.replace(ORPHAN_LEAF_RE, (match, slug: string) => {
-		const url = byLeaf.get(slug.toLowerCase());
-		return url ?? match;
-	});
-}
-
-// Curated TLDs so we don't autolink things like "v1.2.3" or "file.tar.gz".
-const COMMON_TLDS =
-	"com|org|net|edu|gov|io|co|ai|app|dev|info|uk|au|ca|de|fr|es|it|nz|jp|in|br|mx|ar|ch|nl|se|no|dk|fi|pt|ie|be|at|pl|cz|za|sg|hk|kr";
-const BARE_DOMAIN_RE = new RegExp(
-	`(^|[\\s(\\[])` +
-		`((?:[a-z0-9-]+\\.)+(?:${COMMON_TLDS}))` +
-		`(?![a-z0-9\\-./:])`,
-	"gi",
-);
-
-function autolinkBareDomains(md: string): string {
-	return md.replace(
-		BARE_DOMAIN_RE,
-		(_match, prefix: string, domain: string) => {
-			// Already inside a markdown link target — leave it alone.
-			if (prefix === "(" || prefix === "[") return `${prefix}${domain}`;
-			return `${prefix}[${domain}](https://${domain})`;
-		},
-	);
-}
 
 function stripSourcesTrailer(body: string): string {
 	return body.replace(SOURCES_TRAILER_RE, "");
@@ -185,15 +46,15 @@ function parseSourcesTrailer(body: string): Record<string, string> {
 }
 
 function sanitize(body: string): string {
+	// Backend now strips PUA / bare-domain / relative-citation /
+	// `[host](path)` / `.host/path` shapes before persistence. The
+	// frontend used to handle all of those at render time as defense
+	// against pre-Option-B persisted bodies; with raw annotations on
+	// + canonical URLs + body-intersection trailer, those shapes don't
+	// reach the renderer anymore. The only remaining work is stripping
+	// the trailer and any PUA leftover from older messages.
 	const trailerless = stripSourcesTrailer(body);
-	const cleaned = trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
-	return autolinkBareDomains(
-		reconstructOrphanPaths(
-			splitConcatenatedUrls(
-				absolutizeDotUrls(expandRelativeCitations(cleaned)),
-			),
-		),
-	);
+	return trailerless.replace(PUA_CITATION, "").replace(STRAY_PUA, "");
 }
 
 export function stripChatBody(body: string): string {

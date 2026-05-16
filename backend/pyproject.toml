@@ -28,6 +28,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "ruff>=0.8",
+  "pytest>=8.3",
 ]
 
 [tool.ruff]
@@ -47,3 +48,15 @@ select = ["E", "F", "I", "B", "UP", "N"]
 "scripts/eval_prompts*.py" = ["E501"]
 "scripts/eval_run*.py" = ["E501"]
 "scripts/eval_score*.py" = ["E501"]
+# Same rationale for the pydantic-evals dataset — each Case carries a
+# natural-language `message` whose wrapping would hurt review readability.
+"tests/evals/dataset.py" = ["E501"]
+# Evaluator rubrics are LLM prompts; wrapping them mid-sentence hurts the
+# judge's reading more than the code reviewer's.
+"tests/evals/evaluators.py" = ["E501"]
+
+[tool.pytest.ini_options]
+markers = [
+    "eval: end-to-end evaluation against live LLM APIs (slow, costs money)",
+]
+testpaths = ["tests"]

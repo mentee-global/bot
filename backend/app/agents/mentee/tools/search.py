@@ -16,7 +16,7 @@ from perplexity import APIConnectionError, APIStatusError, APITimeoutError
 from pydantic_ai import RunContext
 
 from app.agents.mentee.deps import MenteeDeps
-from app.agents.mentee.tools.perplexity import call_perplexity
+from app.agents.mentee.tools.perplexity import PerplexityRecency, call_perplexity
 from app.agents.mentee.tools.schemas import insufficient_context, ok
 from app.budget.provider_errors import build_reason, is_insufficient_funds
 
@@ -76,6 +76,7 @@ async def search_perplexity(
     country: str | None = None,
     field: str | None = None,
     level: str | None = None,
+    recency: PerplexityRecency | None = "month",
 ) -> str:
     """Ground the mentee's question against Perplexity `sonar-pro`.
 
@@ -87,6 +88,12 @@ async def search_perplexity(
             which research system prompt Perplexity sees.
         country, field, level: Optional filters echoed into the query so they
             carry into the grounded result.
+        recency: Server-side recency filter on Perplexity's search index.
+            Defaults to `"month"` because most mentee questions
+            (scholarships, programs, visa rules) move on the order of
+            weeks. Pass `"week"` for news or moving deadlines, `"day"` /
+            `"hour"` for breaking news, `"year"` for long-tail facts that
+            are stable but where a 12-month corpus helps.
 
     Returns:
         JSON string: `{"status": "ok", "source": "perplexity", "answer": "…",
@@ -138,6 +145,7 @@ async def search_perplexity(
             user_prompt=refined,
             model=settings.perplexity_model,
             timeout_s=settings.agent_request_timeout_s,
+            recency=recency,
         )
     except (APIStatusError, APITimeoutError, APIConnectionError) as exc:
         logger.warning("perplexity sdk error: %s", exc)
@@ -167,15 +175,23 @@ async def search_perplexity(
     if ctx.deps.usage.perplexity_model_sku is None:
         ctx.deps.usage.perplexity_model_sku = settings.perplexity_model
 
-    # Seed the per-run allowlist so the agent's URL validator knows these are
-    # real, tool-returned URLs and won't strip them. Routed through the
-    # agent helper so marketing PDFs / CDN attachments are excluded and the
-    # parallel HEAD-check kicks off as each URL lands in the allowlist.
+    # Seed the per-run citation ledger so the agent's URL validator knows
+    # these are real, tool-returned URLs and won't strip them. Routed
+    # through the agent helper so marketing PDFs / CDN attachments are
+    # excluded and the parallel HEAD-check kicks off as each URL lands
+    # in the allowlist. The `source="perplexity"` tag drives merge
+    # precedence when web_search later returns the same URL with a
+    # title — the WebSearch instance's title upgrades this entry.
+    # Snippet preserves the first 200 chars of the Perplexity answer so
+    # the sidebar can surface a one-liner without re-querying.
     from app.agents.mentee.agent import _add_url_to_allowlist
 
+    snippet = result.answer[:200].strip() if result.answer else None
     for url in result.citations:
         if isinstance(url, str):
-            _add_url_to_allowlist(ctx.deps, url)
+            _add_url_to_allowlist(
+                ctx.deps, url, source="perplexity", snippet=snippet
+            )
 
     return ok(
         {

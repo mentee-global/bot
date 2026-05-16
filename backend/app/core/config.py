@@ -82,7 +82,14 @@ class Settings(BaseSettings):
     agent_model: str = "gpt-5.4-mini"
     agent_request_timeout_s: float = 30.0
     agent_request_limit: int = 10
-    agent_total_tokens_limit: int = 32_000
+    # Raised from 32k after thread 1ada61ba… truncated mid-stream on turn 3:
+    # the cap fired after partial tokens had already been yielded, and the
+    # user saw a half-sentence. By turn 3 the input alone (system prompt +
+    # profile + history + perplexity output) easily approaches 32k, leaving
+    # no headroom for the response. 96k is roughly 3× that floor and ~$0.005
+    # of incremental cost per long turn. Compaction (history processor)
+    # remains the proper long-term shape; see plan P2-3.
+    agent_total_tokens_limit: int = 96_000
     agent_enable_web_search: bool = True
 
     # Observability — Logfire ships traces to the cloud only when a token is

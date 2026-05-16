@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
+from datetime import UTC, datetime
 
-import httpx
 import logfire
 from openai import AsyncOpenAI
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.builtin_tools import WebSearchTool
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     BuiltinToolCallPart,
     BuiltinToolReturnPart,
@@ -39,7 +40,7 @@ from pydantic_ai.usage import UsageLimits
 
 from app.agents.base import AgentPort
 from app.agents.events import StreamEvent, TextDelta, ToolEnd, ToolStart
-from app.agents.mentee.deps import MenteeDeps
+from app.agents.mentee.deps import Citation, CitationSource, MenteeDeps
 from app.agents.mentee.fallback import fallback_response
 from app.agents.mentee.ports import MenteeProfilePort, NullProfilePort
 from app.agents.mentee.prompts import SYSTEM_PROMPT
@@ -57,141 +58,67 @@ from app.domain.models import Message, User
 logger = logging.getLogger(__name__)
 
 
-# web_search emits citation tokens wrapped in private-use Unicode markers
-# (e.g. `\ue200cite\ue202turn0search0\ue201`). With
-# `openai_include_raw_annotations=True` the URL mapping arrives as a
-# `url_citation` annotation on the TextPart, but the inner marker text is
-# still noise we strip from the rendered reply.
-_PUA_CITATION_RE = re.compile(r"[\ue200-\ue2ff][^\ue200-\ue2ff]*[\ue200-\ue2ff]")
-_CITATION_MARKER_RE = re.compile(r"(?:cite)?turn\d+search\d+(?:(?:cite)?turn\d+search\d+)*")
-_STRAY_PUA_RE = re.compile(r"[\ue200-\ue2ff]")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)\s]+)\)")
-# OpenAI's web_search builtin emits inline citations as `[host](path)`
-# markdown links where the path is relative (no protocol). Browsers
-# interpret the relative href as relative to the current chat URL, so
-# clicks 404. Expand to a fully-qualified URL using the link text's
-# hostname so the link works.
-_OAI_RELATIVE_CITE_RE = re.compile(
-    r"\[((?:[a-z0-9-]+\.)+[a-z]{2,})\]"
-    r"\((?!https?:|mailto:|#)([^\s)]*)\)",
+# A "slug" the model echoes right before a real URL it pulled from a tool
+# result. Example: `plm/ (https://careers.cern/jobs/full-stack-software-engineer-plm/)`.
+# The model writes the path tail twice — once as bare text, once as a real
+# clickable URL. The bare text is never a working link on its own and reads
+# like broken markdown. We detect "slug (URL)" pairs where the URL's path
+# *ends with* the slug and drop the redundant slug. Anchored on whitespace
+# on the left so we don't eat the trailing slash of a real preceding URL.
+_REDUNDANT_SLUG_BEFORE_URL_RE = re.compile(
+    r"(?<=[\s.;:!?])"                       # left boundary: ws or punct
+    r"([a-z0-9][a-z0-9_/.-]*?/)"            # the slug, ending with /
+    r"\s+\((https?://[^\s)]+)\)",           # then " (URL)"
     re.IGNORECASE,
 )
-# Empty citation wrappers (like `()` or `( )`) left over after we drop a
-# garbage `[host](path)` — strip the parens too so the prose reads cleanly.
-_EMPTY_CITE_PARENS_RE = re.compile(r" ?\(\s*\)")
-# Bare-but-broken pseudo-URLs the model occasionally emits without a
-# protocol, like `.greenhouse.io/praxent/jobs/...`. The leading char is
-# captured (whitespace, `(`, or line start via MULTILINE `^`) and put
-# back verbatim so we don't misfire on prose like "version 2.5.10".
-_DOT_URL_RE = re.compile(
-    r"(^|[\s(])\.([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)/(\S+)",
-    re.IGNORECASE | re.MULTILINE,
+# Bare "cite" left behind when the URL it trailed was already stripped (out
+# of allowlist, PUA pair removed, etc.). Required shape: a sentence-ending
+# punctuation mark, whitespace, "cite", optional trailing ".", then end of
+# line or string. The punctuation lookbehind + EOL constraint protects
+# legitimate prose ("I'd like to cite a source.") because in that case
+# "cite" is followed by " a source", not whitespace-to-EOL.
+_BARE_CITE_RE = re.compile(
+    r"(?<=[.!?])[ \t]+cite\.?(?=\s*$)",
+    re.MULTILINE,
 )
-# Tracking-only fragments OpenAI sometimes leaves as the entire `path`
-# slot of a citation (the URL was a dead reference). Single-segment paths
-# matching these are dropped instead of expanded into bogus links.
-_TRACKING_PATH_TOKENS = frozenset(
-    {"openai", "utm_source", "utm_medium", "utm_campaign", "source"}
-)
-# Only match "cite" when it trails a URL, to avoid mauling prose uses.
-_ORPHAN_CITE_RE = re.compile(r"(https?://\S+)\s+cite\b")
-
-
-# Path leaves the model commonly writes that aren't actually slug-like
-# identifiers — too generic to safely replace with a single full URL.
-_GENERIC_LEAVES = frozenset(
-    {
-        "apply",
-        "careers",
-        "jobs",
-        "home",
-        "page",
-        "index",
-        "main",
-        "about",
-        "contact",
-        "search",
-        "login",
-        "signup",
-        "register",
-        "post",
-        "posts",
-        "list",
-        "view",
-    }
-)
-# Bare slug tokens (`nrtai/`, `praxent/`, etc.). Must not be preceded by
-# URL-internal characters (`/`, `:`, `.`, word) so we never re-edit a
-# segment that's already inside a real URL. Must end with `/` to look
-# like an orphan path stub rather than a regular word.
-_ORPHAN_LEAF_RE = re.compile(
-    r"(?<![:/\w.])([a-z][a-z0-9_-]{3,})/(?![\w])",
+# Bare-domain shorthand the model writes when it wants to "credit" a source
+# but doesn't write a real URL — `(sem.admin.ch)`, `(jobs.ch)`, `(admin.ch)`.
+# These aren't clickable, render as dead parens for the user, and add no
+# information beyond the SOURCES bar. Strip them entirely. Allowed shape:
+# `(host.tld)` or `(host.tld.tld)` — TLD must be 2+ alpha chars, host is
+# alnum + dashes/dots, no path, no spaces, no protocol. Lookahead avoids
+# eating parens that have additional content (`(jobs.ch/path)` is left
+# alone — handled by other regexes).
+_BARE_DOMAIN_CITATION_RE = re.compile(
+    r" ?\(\s*"
+    r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+"  # one or more host segments
+    r"[a-z]{2,}"                                # final TLD
+    r"\s*\)",
     re.IGNORECASE,
 )
+# OpenAI's Responses API wraps citation markers in Unicode Private-Use-Area
+# codepoints — `citeturn0search0` style. Pydantic-ai
+# passes these through verbatim regardless of `openai_include_raw_annotations`
+# (confirmed against pydantic-ai 1.84.1 source), so we must strip them
+# server-side or `citeturn0search0` leaks into persisted bodies once the
+# PUA wrappers get dropped downstream. The first regex catches well-formed
+# `\uE2NN…\uE2NN` pairs and removes the whole span including inner text;
+# the second mops up isolated PUA codepoints that survive when a stream
+# chunk boundary splits the wrapping pair across emits.
+_PUA_CITATION_RE = re.compile(r"[-][^-]*[-]")
+_STRAY_PUA_RE = re.compile(r"[-]")
 
 
-def _reconstruct_orphan_paths(text: str, cited_urls: set[str]) -> str:
-    """Replace bare path stubs (`nrtai/`) with the full URL when one of
-    `cited_urls` ends with that slug.
-
-    Defends against a model failure mode where the model writes only the
-    last path segment of a citation (host + earlier path segments lost).
-    Since the search tool's full URL is in `cited_urls`, the slug is
-    enough to round-trip. Skips short/generic leaves to keep false-
-    positive risk near zero.
-    """
-    if not cited_urls:
-        return text
-    by_leaf: dict[str, str] = {}
-    for url in cited_urls:
-        try:
-            from urllib.parse import urlparse
-
-            parts = urlparse(url).path.rstrip("/").split("/")
-            leaf = parts[-1] if parts else ""
-        except Exception:  # noqa: BLE001
-            continue
-        key = leaf.lower()
-        if len(leaf) < 4 or key in _GENERIC_LEAVES:
-            continue
-        by_leaf.setdefault(key, url)
-    if not by_leaf:
-        return text
-
-    def repl(match: re.Match[str]) -> str:
-        slug = match.group(1).lower()
-        return by_leaf.get(slug, match.group(0))
-
-    return _ORPHAN_LEAF_RE.sub(repl, text)
-
-
-def _is_garbage_rel_path(path: str) -> bool:
-    """True if the path of a `[host](path)` citation is too degenerate to
-    expand into a real URL — empty, a tracking-only fragment, or a single
-    short letter token. Multi-segment paths (containing `/`) always pass.
-    """
-    trimmed = path.lstrip("/").strip()
-    if not trimmed:
-        return True
-    if "/" in trimmed:
-        return False
-    before_query = trimmed.split("?", 1)[0]
-    if not before_query:
-        return True
-    lower = before_query.lower()
-    if lower in _TRACKING_PATH_TOKENS:
-        return True
-    if "=" in before_query:
-        return True
-    # Short pure-letter token — almost certainly a stray tracking word.
-    if len(before_query) < 4 and not any(c.isdigit() for c in before_query):
-        return True
-    return False
 # URL extraction. Match anything up to whitespace and the few characters
 # that almost never appear inside a URL. Parens and brackets are *allowed*
 # inside (some URLs really contain them, e.g. jobright.ai/...(remote,-latam)),
 # so trailing-punctuation stripping does balanced-bracket cleanup instead.
 _URL_RE = re.compile(r'https?://[^\s<>"]+')
+# Permissive probe used only by the streaming stripper's mid-URL back-off:
+# matches a bare scheme + zero or more body chars, so we can detect a cut
+# that landed right after `://` (where `_URL_RE` would miss).
+_URL_PROBE_RE = re.compile(r'https?://[^\s<>"]*')
 _URL_TRAIL_PUNCT = ".,;:!?"
 
 
@@ -254,75 +181,139 @@ def _is_user_facing_url(url: str) -> bool:
     return not bare.endswith(_NON_USER_FACING_EXTS)
 
 
-# Liveness-check tuning. We want false positives (stripping a live URL)
-# to be rare, so only confident negatives count as dead. 401/403/405/406/429
-# are common on Wellfound, Indeed, LinkedIn etc. — bot-block, not gone.
-_DEAD_STATUS = frozenset({404, 410})
-_PROBE_TIMEOUT_S = 2.0
-# Total wall-clock budget at validation time. Anything still pending is
-# treated as alive (we'd rather show a 404 than a slow blank reply).
-_LIVENESS_GATHER_BUDGET_S = 1.0
-_BROWSER_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-)
+# Query-param prefixes that don't change page identity. Stripped on the
+# visible URL (so the user clicks a clean link) AND treated as noise for
+# the dedup key.
+_NOISE_QUERY_PARAMS = ("hl=", "utm_", "utm-", "ref=", "ref_")
+# Path prefixes WebSearch surfaces as language variants of one canonical
+# page. Used only to compute the dedup key — the visible URL keeps its
+# locale so the user clicks the right translation.
+_LOCALE_PATH_PREFIXES = ("/en/", "/de/", "/es/", "/fr/", "/it/", "/pt/", "/ar/")
 
 
-async def _check_url_alive_and_record(
-    client: httpx.AsyncClient, url: str, dead_urls: set[str]
-) -> None:
-    """Best-effort liveness probe; mutates `dead_urls` only on 404/410.
+def _canonical_url(url: str) -> tuple[str, str]:
+    """Return ``(visible_url, canonical_key)``.
 
-    Algorithm: HEAD first (fast, cheap), then retry with a tiny `Range` GET
-    on *any* HTTP error response. Some servers (e.g. Workable's
-    `jobs.workable.com`) return 404 to HEAD as an anti-bot signal even when
-    GET returns 200 — without the GET retry we get false positives that
-    strip live URLs from the reply. Only the GET verdict counts; network
-    errors and timeouts leave the URL alone.
+    WebSearch surfaces every accessible URL on a domain — language
+    variants (`/en/`, `/de/`, ...), `/print` versions, glossary entries,
+    `?hl=en-US` query duplicates. One real page can produce 20+ URLs.
+    Canonicalizing collapses those into a single citation while keeping
+    the user-facing URL pointed at the locale variant we'd prefer to
+    show.
+
+    - ``visible_url``: trailing slash stripped, `/print` suffix dropped,
+      noise query params removed. Stored on `Citation.url` and rendered.
+    - ``canonical_key``: additionally collapses language-prefix path
+      variants so `/en/foo`, `/de/foo`, `/es/foo` share a dedup key.
+      Stored as the dict key in `deps.citations` so a second writer for
+      a different locale variant merges into the first.
+
+    Only `http(s)` URLs reach here — the asset filter runs upstream.
     """
-    headers = {"User-Agent": _BROWSER_UA}
-    try:
-        r = await client.head(
-            url,
-            timeout=_PROBE_TIMEOUT_S,
-            follow_redirects=True,
-            headers=headers,
-        )
-        if r.status_code >= 400:
-            r = await client.get(
-                url,
-                timeout=_PROBE_TIMEOUT_S,
-                follow_redirects=True,
-                headers={**headers, "Range": "bytes=0-1"},
-            )
-        if r.status_code in _DEAD_STATUS:
-            dead_urls.add(url)
-    except Exception:  # noqa: BLE001 — network blip, treat as alive
-        return
+    if not isinstance(url, str):
+        return url, url
+    visible = url.strip()
+
+    # Split scheme + rest so the path manipulation can't accidentally
+    # touch the host.
+    scheme_sep = visible.find("://")
+    if scheme_sep == -1:
+        return visible, visible
+    scheme = visible[: scheme_sep + 3]
+    rest = visible[scheme_sep + 3 :]
+
+    # Lop off ?query and #fragment, rebuild ?query without the noise keys.
+    rest_main, frag = (rest.split("#", 1) + [""])[:2]
+    path_q = rest_main.split("?", 1)
+    path = path_q[0]
+    query = path_q[1] if len(path_q) == 2 else ""
+    if query:
+        kept = [
+            kv
+            for kv in query.split("&")
+            if kv and not kv.lower().startswith(_NOISE_QUERY_PARAMS)
+        ]
+        query = "&".join(kept)
+
+    # Drop a trailing /print or /print/ segment — variant of the same page.
+    lowered = path.lower()
+    if lowered.endswith("/print"):
+        path = path[: -len("/print")]
+    elif lowered.endswith("/print/"):
+        path = path[: -len("/print/")]
+    path = path.rstrip("/")
+
+    rebuilt = scheme + (
+        path
+        + (f"?{query}" if query else "")
+        + (f"#{frag}" if frag else "")
+    )
+    visible_url = rebuilt or visible.rstrip("/")
+
+    # Canonical key: same shape, but with language-prefix collapsed to a
+    # sentinel so /en/foo and /de/foo dedupe. Only collapse when the
+    # path actually starts with one of the known locale prefixes; never
+    # touch hosts whose path happens to contain `/en/` later on.
+    host_and_after = rebuilt[scheme_sep + 3 :]
+    if "/" in host_and_after:
+        first_slash = host_and_after.index("/")
+        host_part = rebuilt[: scheme_sep + 3 + first_slash]
+        path_part = rebuilt[scheme_sep + 3 + first_slash :]
+    else:
+        host_part = rebuilt
+        path_part = ""
+    canonical_path = path_part
+    for prefix in _LOCALE_PATH_PREFIXES:
+        if canonical_path.lower().startswith(prefix):
+            canonical_path = "/__/" + canonical_path[len(prefix) :]
+            break
+    canonical_key = (host_part + canonical_path).rstrip("/")
+
+    return visible_url, canonical_key
 
 
 def _add_url_to_allowlist(
-    deps: MenteeDeps, url: str, *, title: str | None = None
+    deps: MenteeDeps,
+    url: str,
+    *,
+    source: CitationSource,
+    title: str | None = None,
+    snippet: str | None = None,
 ) -> None:
-    """Insert `url` into the per-run allowlist if it's a user-facing page,
-    record an optional `title`, and kick off a parallel HEAD-check when the
-    deps carry an http client."""
+    """Insert `url` into the per-run citation ledger if it's a user-facing
+    page, recording optional `title` + `snippet`.
+
+    Stored under a canonical key so locale / print / tracking-param
+    variants of the same page collapse into one citation. First writer
+    sets `source`. A later writer can upgrade an empty title (e.g.
+    WebSearch returns a title for a URL Perplexity surfaced first) and
+    can swap the visible URL when its locale variant matches
+    `deps.ui_locale` better than what's stored.
+    """
     if not _is_user_facing_url(url):
         return
-    normalized = url.rstrip("/")
-    if title and normalized not in deps.url_titles:
-        deps.url_titles[normalized] = title.strip()
-    if normalized in deps.cited_urls:
+    visible_url, canonical_key = _canonical_url(url)
+    clean_title = title.strip() if title else None
+    clean_snippet = snippet.strip() if snippet else None
+    existing = deps.citations.get(canonical_key)
+    if existing is not None:
+        if clean_title and not existing.title:
+            existing.title = clean_title
+        if clean_snippet and not existing.snippet:
+            existing.snippet = clean_snippet
+        # If a later variant matches the user's UI locale better than
+        # what we stored first, prefer the locale variant for display.
+        if deps.ui_locale and existing.url != visible_url:
+            locale_marker = f"/{deps.ui_locale.split('-', 1)[0].lower()}/"
+            if locale_marker in visible_url.lower() and locale_marker not in existing.url.lower():
+                existing.url = visible_url
         return
-    deps.cited_urls.add(normalized)
-    client = deps.http_client
-    if (
-        isinstance(client, httpx.AsyncClient)
-        and normalized not in deps.liveness_tasks
-    ):
-        deps.liveness_tasks[normalized] = asyncio.create_task(
-            _check_url_alive_and_record(client, normalized, deps.dead_urls)
-        )
+    deps.citations[canonical_key] = Citation(
+        url=visible_url,
+        source=source,
+        title=clean_title,
+        snippet=clean_snippet,
+    )
 
 
 # Trailer marker — must match what the frontend strips and parses. Kept
@@ -331,86 +322,87 @@ _SOURCES_TRAILER_PREFIX = "<!-- mentee-sources: "
 _SOURCES_TRAILER_SUFFIX = " -->"
 
 
-def _format_sources_trailer(
-    cited_urls: set[str],
-    dead_urls: set[str],
-    url_titles: dict[str, str],
-) -> str:
-    """Render the per-message URL→title sidecar as an HTML comment.
+# Localized recovery deltas for `UsageLimitExceeded` mid-stream. Picked at
+# stream-cap time and appended to whatever partial text the user already
+# sees, so they understand the reply ended early rather than thinking the
+# bot stopped on its own. Keep these short — they're meant to be additive,
+# not replacement copy. Language picked from `ui_locale` (see
+# MenteeDeps.ui_locale); falls back to English when the locale is unset
+# or unknown so the message is at least intelligible.
+_USAGE_LIMIT_RECOVERY = {
+    "en": (
+        "\n\n— I had to cut the response short before finishing. "
+        "Want me to pick it up from where it stopped?"
+    ),
+    "es": (
+        "\n\n— tuve que cortar la respuesta antes de terminar. "
+        "¿Quieres que retome desde donde se cortó?"
+    ),
+    "pt": (
+        "\n\n— precisei cortar a resposta antes de terminar. "
+        "Quer que eu continue de onde parei?"
+    ),
+    "ar": (
+        "\n\n— اضطررت إلى قطع الإجابة قبل إكمالها. "
+        "هل تريد أن أكمل من حيث توقفت؟"
+    ),
+}
 
-    Lets the frontend SOURCES bar show real page titles next to pill
-    icons (instead of just the hostname, which makes two URLs from the
-    same site look identical). Only emits entries for live, allowlisted
-    URLs that have a known title — Perplexity citations have no title and
-    are skipped, so the frontend falls back to hostname for those.
+
+def _usage_limit_recovery_text(ui_locale: str | None) -> str:
+    """Pick the recovery delta for the active locale; default to English."""
+    if ui_locale:
+        # Match on the bare language code so "en-US"/"es-CO" still hit.
+        code = ui_locale.split("-", 1)[0].lower()
+        if code in _USAGE_LIMIT_RECOVERY:
+            return _USAGE_LIMIT_RECOVERY[code]
+    return _USAGE_LIMIT_RECOVERY["en"]
+
+
+def _format_sources_trailer(
+    citations: dict[str, Citation],
+    body_text: str,
+) -> str:
+    """Render the per-message URL→title sidecar as an HTML comment,
+    restricted to URLs the model actually wrote inline in ``body_text``.
+
+    Pre-Stage-4 the trailer dumped every URL a tool returned, which led
+    to the 24-pill SOURCES bar problem (WebSearch surfaces every
+    accessible URL on a domain). Intersecting with the body means the
+    bar mirrors what the user reads: if the model cited two URLs
+    inline, two pills appear; tool-returned URLs the model chose not to
+    use stay silent.
+
+    Each URL extracted from the body is canonicalized via
+    `_canonical_url` so locale / print / utm variants match the
+    canonical key in `deps.citations`. The emitted JSON key is the
+    citation's **visible** URL (locale variant pointing at a real
+    page) — the frontend already does substring-with-trailing-slash
+    matching, so any minor form difference (trailing slash, query
+    leftover) still resolves to the same pill.
+
+    The wire shape is `{url: title}` (title may be `""`).
     """
     import json
 
+    if not citations:
+        return ""
+
+    cited_keys_in_body: set[str] = set()
+    for raw in _URL_RE.findall(body_text):
+        clean, _ = _strip_url_trailing_punct(raw)
+        _, canonical_key = _canonical_url(clean)
+        cited_keys_in_body.add(canonical_key)
+
     payload: dict[str, str] = {}
-    for url in cited_urls:
-        if url in dead_urls:
+    for canonical_key, citation in citations.items():
+        if canonical_key not in cited_keys_in_body:
             continue
-        title = url_titles.get(url)
-        if not title:
-            continue
-        payload[url] = title
+        payload[citation.url] = (citation.title or "").strip()
     if not payload:
         return ""
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return f"\n\n{_SOURCES_TRAILER_PREFIX}{body}{_SOURCES_TRAILER_SUFFIX}"
-
-
-async def _gather_liveness(deps: MenteeDeps) -> None:
-    """Wait up to `_LIVENESS_GATHER_BUDGET_S` for outstanding probes to
-    finish. Tasks still pending after the budget are abandoned (their URLs
-    stay in the allowlist; this errs toward showing rather than hiding)."""
-    tasks = [t for t in deps.liveness_tasks.values() if not getattr(t, "done", lambda: False)()]
-    if not tasks:
-        return
-    try:
-        await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=_LIVENESS_GATHER_BUDGET_S,
-        )
-    except TimeoutError:
-        return
-
-
-# Path slots that begin with `.<domain>/` are OpenAI shorthand for "the
-# link-text host's parent domain". Strip the prefix so we don't end up
-# building `https://gradschool.cornell.edu/.cornell.edu/academics/…`.
-_PATH_DOT_DOMAIN_PREFIX_RE = re.compile(
-    r"^\.[a-z0-9-]+(?:\.[a-z0-9-]+)*/",
-    re.IGNORECASE,
-)
-
-
-def _expand_relative_citations(text: str) -> str:
-    """Rewrite OpenAI's `[host](path)` citations to absolute URLs.
-
-    The Responses API web_search builtin sometimes emits inline citations
-    as markdown links with the path-only as the href. Without a protocol
-    the browser resolves the href against the current page URL, so clicks
-    end up at `/chat/jobs/view/...` and 404. Reconstructing the full URL
-    using the link text's hostname makes the link work without changing
-    the visible link text. Citations whose path is degenerate (empty, a
-    tracking-only fragment, or a single short letter token) are dropped
-    entirely — there's no real URL behind them to link to.
-    """
-
-    def repl(match: re.Match[str]) -> str:
-        host = match.group(1)
-        path = match.group(2)
-        if _is_garbage_rel_path(path):
-            return ""
-        # Strip the leading `.subdomain/` prefix OpenAI sometimes inserts
-        # (e.g. `[gradschool.cornell.edu](.cornell.edu/academics/…)`),
-        # otherwise the resulting URL has a junk segment at the start.
-        path = _PATH_DOT_DOMAIN_PREFIX_RE.sub("", path)
-        return f"[{host}](https://{host}/{path.lstrip('/')})"
-
-    rewritten = _OAI_RELATIVE_CITE_RE.sub(repl, text)
-    return _EMPTY_CITE_PARENS_RE.sub("", rewritten)
 
 
 def _split_concatenated_urls(text: str) -> str:
@@ -426,83 +418,162 @@ def _split_concatenated_urls(text: str) -> str:
     # Lookahead matches *only* when another https:// follows immediately
     # without whitespace; the non-greedy body keeps each URL minimal.
     return re.sub(r"(https?://[^\s]*?)(?=https?://)", r"\1 ", text)
+def _drop_redundant_slug_before_url(text: str) -> str:
+    """Strip the bare path-slug the model echoes right before a real URL.
 
-
-def _absolutize_dot_urls(text: str) -> str:
-    """Convert `.host.tld/path` pseudo-URLs to `https://host.tld/path`.
-
-    The model sometimes prefixes a citation host with a leading dot
-    (`.greenhouse.io/praxent/jobs/…`) instead of a real protocol; the
-    result is rendered as inert text in the chat. Adding a protocol
-    promotes them to bare URLs that GFM autolinks naturally.
+    The model occasionally renders citations as `slug/ (https://host/.../slug/)`
+    — the slug is the last path segment of the URL repeated as plain text.
+    Looks like broken markdown to the user. We detect that exact shape and
+    keep just the parenthesized URL.
     """
 
     def repl(match: re.Match[str]) -> str:
-        leading = match.group(1)
-        host = match.group(2)
-        path = match.group(3)
-        return f"{leading}https://{host}/{path}"
+        slug = match.group(1).rstrip("/").lower()
+        url = match.group(2)
+        # Two safety rails so we don't eat legitimate prose:
+        #  1. Slug must be at least 3 chars — kills 1-2-char prose like
+        #     `a/`, `y/`. 3 is the minimum real slug length we see
+        #     (`plm`, `api`, etc.).
+        #  2. Slug must be a *suffix* of the URL path. Models write the
+        #     trailing portion of the path verbatim — for the actual cases
+        #     we see (`plm/`, `sd-gss-2026-96-ld/`, `detail/fd4b6a98-…/`)
+        #     `path.endswith(slug)` is the cleanest match.
+        if len(slug) < 3:
+            return match.group(0)
+        from urllib.parse import urlparse
 
-    return _DOT_URL_RE.sub(repl, text)
+        try:
+            path = urlparse(url).path.rstrip("/").lower()
+        except Exception:  # noqa: BLE001 — bad URL stays untouched
+            return match.group(0)
+        if path.endswith(slug):
+            return f"({url})"
+        return match.group(0)
 
+    return _REDUNDANT_SLUG_BEFORE_URL_RE.sub(repl, text)
+def _strip_citations(
+    text: str, cited_urls: Collection[str] | None = None  # noqa: ARG001
+) -> str:
+    r"""Pre-allowlist cleanup of model-emitted text.
 
-def _strip_citations(text: str, cited_urls: set[str] | None = None) -> str:
-    # PUA pairs first so their inner cite/turn tokens go with them.
+    Five passes, ordered so each can rely on what the earlier passes
+    removed:
+
+    1. **PUA citation wrappers** — `\uE2NN…\uE2NN`-wrapped tokens injected
+       by OpenAI's Responses API around every cited URL, regardless of
+       the `openai_include_raw_annotations` flag. Stripping the wrapped
+       span (including inner `citeturn0search0` text) here means the
+       persisted body is clean before `_BARE_CITE_RE` runs.
+    2. **Stray PUA codepoints** — single PUA chars that escape (1) when
+       a stream chunk boundary splits the wrapper pair.
+    3. **Path-slug-before-URL** — model echoes the URL's last segment as
+       plain text right before the real URL (`plm/ (https://…/plm/)`).
+    4. **Bare `cite` tokens** — what's left of a citation when the PUA
+       wrapper has been stripped but a trailing `cite` survives.
+    5. **Bare-domain shorthand** in parens (`(sem.admin.ch)`). Not a URL,
+       not clickable — strip and let the SOURCES bar carry the link.
+
+    Allowlist enforcement happens after, in `_filter_off_allowlist_urls`.
+    `cited_urls` is kept in the signature for back-compat with call sites
+    but the body no longer reads it.
+    """
     text = _PUA_CITATION_RE.sub("", text)
-    text = _CITATION_MARKER_RE.sub("", text)
     text = _STRAY_PUA_RE.sub("", text)
-    # Expand `[host](relative-path)` to absolute URLs *before* unwrapping
-    # markdown-link syntax so the bare-URL form below still works.
-    text = _expand_relative_citations(text)
-    # Promote `.host.tld/path` pseudo-URLs so they're clickable too.
-    text = _absolutize_dot_urls(text)
-    text = _MD_LINK_RE.sub(r"\2", text)
-    text = _ORPHAN_CITE_RE.sub(r"\1", text)
-    # Split URLs the model glued together without whitespace before any
-    # downstream URL processing (allowlist matching, autolinking) sees
-    # them as one giant malformed URL.
+    text = _drop_redundant_slug_before_url(text)
     text = _split_concatenated_urls(text)
-    # Last: try to reconnect bare path stubs (`nrtai/`) to the full URL
-    # the search tool returned. Runs after the markdown-link unwrapping
-    # so we never re-edit a slug already inside a real URL.
-    if cited_urls:
-        text = _reconstruct_orphan_paths(text, cited_urls)
+    text = _BARE_CITE_RE.sub("", text)
+    text = _BARE_DOMAIN_CITATION_RE.sub("", text)
     return text
 
 
 def _filter_off_allowlist_urls(
     text: str,
-    cited: set[str],
+    cited: Collection[str],
     *,
-    dead: set[str] | None = None,
     on_strip: object | None = None,
 ) -> str:
-    """Replace any URL not present in `cited`, or known to be dead, with the
-    empty string.
+    """Strip URLs the model wrote that aren't in the per-run allowlist.
 
-    `cited` holds normalized URLs (trailing slash stripped). `dead`, when
-    given, holds normalized URLs the HEAD-check confirmed return 404/410 \u2014
-    those are dropped even if they came from a tool. `on_strip` is an
-    optional telemetry callable invoked once per stripped URL.
+    Handles two URL forms uniformly:
+
+    - **Markdown links** `[text](url)`: if the URL is allowed, keep the
+      whole link. If not, keep just the link text and drop the URL +
+      surrounding `()` \u2014 readers still see a descriptive label, just
+      without a (potentially fabricated) target.
+    - **Bare URLs** `https://\u2026`: if the URL is allowed, keep it. If not,
+      drop it but preserve any trailing sentence punctuation so the
+      surrounding prose still reads naturally.
+
+    `cited` holds canonical citation keys (locale-prefix collapsed,
+    print/utm/hl stripped). We run each URL the model wrote through
+    `_canonical_url` before checking membership so the model's
+    locale-specific URL (`/en/...`) still matches a citation indexed by
+    its canonical key. `on_strip` is an optional telemetry callable
+    invoked once per stripped URL.
     """
-    dead_set = dead if dead is not None else set()
+    def _is_allowed(raw_url: str) -> bool:
+        clean, _ = _strip_url_trailing_punct(raw_url)
+        _, canonical_key = _canonical_url(clean)
+        return canonical_key in cited
 
-    def repl(match: re.Match[str]) -> str:
-        raw = match.group(0)
-        clean, trail = _strip_url_trailing_punct(raw)
-        normalized = clean.rstrip("/")
-        if normalized in cited and normalized not in dead_set:
-            return raw
+    def _notify_strip(raw_url: str) -> None:
         if callable(on_strip):
             try:
+                clean, _ = _strip_url_trailing_punct(raw_url)
                 on_strip(clean)  # type: ignore[misc]
             except Exception:  # noqa: BLE001 \u2014 telemetry must not break output
                 pass
-        # Drop the URL but preserve the trailing punctuation so the surrounding
-        # prose ("\u2026visit." vs "\u2026visit") still reads naturally.
+
+    # 1. Markdown links first so the bare-URL pass below doesn't pick up
+    # the URL portion of a link that we're about to keep wholesale.
+    def md_repl(match: re.Match[str]) -> str:
+        link_text = match.group(1)
+        url = match.group(2)
+        if _is_allowed(url):
+            return f"[{link_text}]({url})"
+        _notify_strip(url)
+        return link_text
+
+    text = _MD_LINK_RE.sub(md_repl, text)
+
+    # 2. Bare URLs the model wrote without markdown wrapping.
+    def bare_repl(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        if _is_allowed(raw):
+            return raw
+        _, trail = _strip_url_trailing_punct(raw)
+        _notify_strip(raw)
         return trail
 
-    return _URL_RE.sub(repl, text)
+    return _URL_RE.sub(bare_repl, text)
+
+
+def _last_balanced_pos(buf: str, end: int) -> int:
+    """Return the largest position p <= `end` where every `[` and `(`
+    in `buf[0:p]` is matched by a corresponding `]` / `)` also in
+    `buf[0:p]`. Used by the streaming stripper to avoid cutting in the
+    middle of an unclosed markdown citation like `[host](url-still-streaming…`.
+
+    Counts unmatched closers as balanced (extra `)` is fine — only
+    unmatched openers force a back-off). Worst case O(end).
+    """
+    sq = pr = 0
+    last = 0
+    for i in range(end):
+        ch = buf[i]
+        if ch == "[":
+            sq += 1
+        elif ch == "]":
+            if sq > 0:
+                sq -= 1
+        elif ch == "(":
+            pr += 1
+        elif ch == ")":
+            if pr > 0:
+                pr -= 1
+        if sq == 0 and pr == 0:
+            last = i + 1
+    return last
 
 
 class _CitationStripper:
@@ -520,16 +591,13 @@ class _CitationStripper:
 
     def __init__(
         self,
-        cited_urls: set[str] | None = None,
-        dead_urls: set[str] | None = None,
+        cited_urls: Collection[str] | None = None,
         on_strip_url: object | None = None,
     ) -> None:
         self._buf = ""
-        self._cited_urls = cited_urls if cited_urls is not None else set()
-        # Mutated in the background by HEAD-check tasks; the stripper reads
-        # the latest state on every emit so by the final flush (after
-        # `_gather_liveness`) all confirmed-dead URLs are dropped.
-        self._dead_urls = dead_urls if dead_urls is not None else set()
+        self._cited_urls: Collection[str] = (
+            cited_urls if cited_urls is not None else set()
+        )
         self._on_strip_url = on_strip_url
 
     def _post_process(self, text: str) -> str:
@@ -537,7 +605,6 @@ class _CitationStripper:
         text = _filter_off_allowlist_urls(
             text,
             self._cited_urls,
-            dead=self._dead_urls,
             on_strip=self._on_strip_url,
         )
         return text
@@ -546,10 +613,76 @@ class _CitationStripper:
         self._buf += delta
         if len(self._buf) <= self._SAFE_TAIL:
             return ""
+        # The four back-off layers can each expose state the previous
+        # layers need to revisit (e.g. the balanced-parens back-off may
+        # roll cut_end back to just before an unclosed `(`, which can
+        # leave a path-slug like `plm/ ` orphaned in the emit half of
+        # `plm/ (URL)`). Loop until the cut stops moving — bounded by
+        # the buffer length, so at most O(SAFE_TAIL) iterations.
         cut_end = len(self._buf) - self._SAFE_TAIL
-        # Back off to a non-alphanumeric boundary so we never cut inside a marker.
-        while cut_end > 0 and self._buf[cut_end - 1].isalnum():
-            cut_end -= 1
+        for _ in range(self._SAFE_TAIL):
+            prev = cut_end
+            # 1. Don't cut mid-word — also includes `-`, `_`, `.` so
+            # slug-like tokens (`sd-gss-2026-96-ld`, `full-stack-…`,
+            # `file.py`) stay intact instead of being split between
+            # an alnum chunk and a hyphen chunk.
+            while cut_end > 0 and (
+                self._buf[cut_end - 1].isalnum()
+                or self._buf[cut_end - 1] in "-_."
+            ):
+                cut_end -= 1
+            # 2. Don't split a sentence-end punctuation from the word
+            # that follows it. `_BARE_CITE_RE` needs ".", whitespace,
+            # and "cite" to sit in the same emit chunk — peeling the
+            # trailing whitespace + punct keeps the "." with its
+            # sentence.
+            while cut_end > 0 and self._buf[cut_end - 1] in " \t\n.!?":
+                cut_end -= 1
+            # 3. Don't leave a trailing path-slug right at the cut.
+            # `_REDUNDANT_SLUG_BEFORE_URL_RE` needs the slug + URL in
+            # the same string; if emit ends with `plm/` and the tail
+            # starts with ` (URL)`, the regex never fires.
+            if cut_end > 0 and self._buf[cut_end - 1] == "/":
+                p = cut_end - 1
+                while p > 0 and (
+                    self._buf[p - 1].isalnum() or self._buf[p - 1] in "-_."
+                ):
+                    p -= 1
+                if p < cut_end - 1:
+                    cut_end = p
+            # 4. Don't leave an unclosed `[` or `(` in the emit region.
+            # The `[text](url)` regex needs the closing `)` to match —
+            # if we cut between `[text](` and `)`, the broken half
+            # survives into the persisted body.
+            cut_end = _last_balanced_pos(self._buf, cut_end)
+            # 5. Don't cut mid-URL: detect any unfinished `https?://…`
+            # prefix in the emit and back off to before its `h`. We
+            # use a permissive probe (body chars are *optional*) so
+            # the case where the cut lands right after `://` is also
+            # caught — `_URL_RE` requires ≥1 body char and would miss
+            # it. Also catch the case where the cut landed inside the
+            # scheme itself (between `:` and `//`, or after `:`).
+            url_probe = None
+            for m in _URL_PROBE_RE.finditer(self._buf, 0, cut_end):
+                url_probe = m
+            if url_probe is not None and url_probe.end() == cut_end:
+                cut_end = url_probe.start()
+                while cut_end > 0 and self._buf[cut_end - 1] in " \t\n.!?":
+                    cut_end -= 1
+            else:
+                for prefix in (
+                    "https:/",
+                    "http:/",
+                    "https:",
+                    "http:",
+                ):
+                    if self._buf[:cut_end].endswith(prefix):
+                        cut_end -= len(prefix)
+                        while cut_end > 0 and self._buf[cut_end - 1] in " \t\n.!?":
+                            cut_end -= 1
+                        break
+            if cut_end == prev:
+                break
         if cut_end == 0:
             return ""
         emitable = self._buf[:cut_end]
@@ -565,7 +698,7 @@ class _CitationStripper:
 def _harvest_urls_from_messages(
     messages: list[ModelMessage], deps: MenteeDeps
 ) -> None:
-    """Populate `deps.cited_urls` (and kick off liveness checks) from
+    """Populate `deps.citations` (and kick off liveness checks) from
     web_search sources and TextPart annotations.
 
     OpenAI's built-in web_search returns its source URLs on the
@@ -584,7 +717,13 @@ def _harvest_urls_from_messages(
                 if isinstance(content, dict):
                     for src in content.get("sources") or []:
                         if isinstance(src, dict):
-                            _add_url_to_allowlist(deps, src.get("url") or "")
+                            src_title = src.get("title")
+                            _add_url_to_allowlist(
+                                deps,
+                                src.get("url") or "",
+                                source="openai_web_search",
+                                title=src_title if isinstance(src_title, str) else None,
+                            )
             elif isinstance(part, TextPart):
                 details = part.provider_details or {}
                 for ann in details.get("annotations") or []:
@@ -596,6 +735,7 @@ def _harvest_urls_from_messages(
                         _add_url_to_allowlist(
                             deps,
                             ann.get("url") or "",
+                            source="openai_web_search",
                             title=title if isinstance(title, str) else None,
                         )
 
@@ -626,14 +766,19 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
         # parallel and reconcile their source lists.
         tools.append(search_perplexity)
 
-    # Surface web_search URL citations as structured data so we can build a
-    # per-run allowlist and refuse to render any URL the model fabricates.
-    # Without these flags pydantic-ai drops the annotations and we'd be
-    # trusting the model to render URLs from memory — which is exactly how
-    # the `jobs.lever.co/...` 404s reached production.
+    # `openai_include_web_search_sources=True` gives us a structured list
+    # of source URLs on `BuiltinToolReturnPart.content["sources"]`, but
+    # those entries are URL-only (no title). Titles ride on
+    # `TextPart.provider_details["annotations"]`, which only get
+    # populated when `openai_include_raw_annotations=True`. Both flags
+    # on: the model gets per-URL titles for the SOURCES bar AND keeps
+    # the structured fallback list. The PUA citation markers OpenAI
+    # injects in text are stripped server-side by `_PUA_CITATION_RE` /
+    # `_STRAY_PUA_RE` regardless of these flags — pydantic-ai 1.84.1
+    # passes them through verbatim.
     model_settings = OpenAIResponsesModelSettings(
-        openai_include_raw_annotations=True,
         openai_include_web_search_sources=True,
+        openai_include_raw_annotations=True,
     )
 
     agent: Agent[MenteeDeps, str] = Agent(
@@ -646,6 +791,24 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
         builtin_tools=builtin_tools,
         model_settings=model_settings,
     )
+
+    @agent.instructions
+    def today_header() -> str:
+        # Resolved fresh each turn so a long-running process stays
+        # date-accurate. Date-only (not datetime) because mentee questions
+        # rarely need hour precision and a stable per-day anchor lets
+        # search caches dedupe queries within a calendar day. UTC is used
+        # explicitly so behavior is stable across deploy timezones.
+        today = datetime.now(UTC).date().isoformat()
+        return (
+            f"Today's date is {today} (UTC). When you call grounded-search "
+            "tools for vacancies, scholarships, deadlines, tuition figures, "
+            "visa rules, or other time-sensitive facts, include the current "
+            "year in your query. Treat anything older than 12 months as "
+            "potentially stale — say so to the mentee and recommend they "
+            "verify on the official source."
+        )
+
 
     @agent.instructions
     async def add_user_context(ctx: RunContext[MenteeDeps]) -> str:
@@ -900,13 +1063,6 @@ class MenteeAgent(AgentPort):
             request_limit=settings.agent_request_limit,
             total_tokens_limit=settings.agent_total_tokens_limit,
         )
-        # Reused across turns so liveness-probe connection pooling kicks
-        # in for popular hosts (Wellfound, Indeed, Lever). Process-lifetime
-        # client; FastAPI workers terminate it on shutdown.
-        self._http_client: httpx.AsyncClient = httpx.AsyncClient(
-            timeout=_PROBE_TIMEOUT_S,
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-        )
 
     @property
     def pydantic_agent(self) -> Agent[MenteeDeps, str]:
@@ -927,7 +1083,6 @@ class MenteeAgent(AgentPort):
             perplexity_enabled=perplexity_enabled,
             budget=self._budget,
             ui_locale=ui_locale,
-            http_client=self._http_client,
         )
 
     async def _handle_openai_error(self, exc: Exception) -> None:
@@ -986,24 +1141,19 @@ class MenteeAgent(AgentPort):
                 )
                 _count_builtin_tool_calls(collector, result.all_messages())
                 _harvest_urls_from_messages(result.all_messages(), deps)
-                # Wait for outstanding HEAD checks so the validator can drop
-                # 404s alongside off-allowlist URLs.
-                await _gather_liveness(deps)
                 deduped = _dedup_response_text(result.all_messages())
                 stripped_urls: list[str] = []
+                cited_keys = deps.citations.keys()
                 cleaned = _strip_citations(
                     deduped if deduped is not None else result.output,
-                    deps.cited_urls,
+                    cited_keys,
                 )
                 body = _filter_off_allowlist_urls(
                     cleaned,
-                    deps.cited_urls,
-                    dead=deps.dead_urls,
+                    cited_keys,
                     on_strip=stripped_urls.append,
                 )
-                output = body + _format_sources_trailer(
-                    deps.cited_urls, deps.dead_urls, deps.url_titles
-                )
+                output = body + _format_sources_trailer(deps.citations, body)
                 if stripped_urls:
                     logger.warning(
                         "agent.url_off_allowlist count=%d urls=%s",
@@ -1011,9 +1161,27 @@ class MenteeAgent(AgentPort):
                         stripped_urls[:10],
                     )
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
-                span.set_attribute("urls_cited", len(deps.cited_urls))
-                span.set_attribute("urls_dead", len(deps.dead_urls))
-                span.set_attribute("urls_titled", len(deps.url_titles))
+                span.set_attribute("citations_count", len(deps.citations))
+                span.set_attribute(
+                    "citations_titled",
+                    sum(1 for c in deps.citations.values() if c.title),
+                )
+                span.set_attribute(
+                    "citations_from_perplexity",
+                    sum(
+                        1
+                        for c in deps.citations.values()
+                        if c.source == "perplexity"
+                    ),
+                )
+                span.set_attribute(
+                    "citations_from_web_search",
+                    sum(
+                        1
+                        for c in deps.citations.values()
+                        if c.source == "openai_web_search"
+                    ),
+                )
                 span.set_attribute("status", "ok")
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
@@ -1098,15 +1266,20 @@ class MenteeAgent(AgentPort):
             queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
             response_length = 0
             stripped_urls: list[str] = []
+            # Accumulates every TextDelta `cleaned` chunk that `drive()`
+            # emits. `_format_sources_trailer` reads it at trailer-formation
+            # time so the trailer payload is restricted to URLs the model
+            # actually wrote inline (Stage 4 — body intersection).
+            body_accum: list[str] = []
             deps = self._deps(user, collector, perplexity_enabled, ui_locale)
 
             async def drive() -> None:
-                # The stripper reads `deps.cited_urls` at emit time. Tools fire
-                # before the final TextPart streams, so by the time URLs are
-                # checked the allowlist is already populated for this turn.
+                # The stripper reads the citation keys at emit time. Tools
+                # fire before the final TextPart streams, so by the time
+                # URLs are checked the allowlist is already populated. We
+                # pass the dict's `keys()` view so updates land live.
                 stripper = _CitationStripper(
-                    cited_urls=deps.cited_urls,
-                    dead_urls=deps.dead_urls,
+                    cited_urls=deps.citations.keys(),
                     on_strip_url=stripped_urls.append,
                 )
                 # The OpenAI Responses model sometimes emits two consecutive
@@ -1158,9 +1331,16 @@ class MenteeAgent(AgentPort):
                                                     ):
                                                         if not isinstance(src, dict):
                                                             continue
+                                                        src_title = src.get(
+                                                            "title"
+                                                        )
                                                         _add_url_to_allowlist(
                                                             deps,
                                                             src.get("url") or "",
+                                                            source="openai_web_search",
+                                                            title=src_title
+                                                            if isinstance(src_title, str)
+                                                            else None,
                                                         )
                                                 await queue.put(
                                                     ToolEnd(
@@ -1187,6 +1367,7 @@ class MenteeAgent(AgentPort):
                                                     if part.content:
                                                         cleaned = stripper.feed(part.content)
                                                         if cleaned:
+                                                            body_accum.append(cleaned)
                                                             await queue.put(
                                                                 TextDelta(text=cleaned)
                                                             )
@@ -1200,6 +1381,7 @@ class MenteeAgent(AgentPort):
                                             ):
                                                 cleaned = stripper.feed(event.delta.content_delta)
                                                 if cleaned:
+                                                    body_accum.append(cleaned)
                                                     await queue.put(TextDelta(text=cleaned))
                             elif Agent.is_call_tools_node(node):
                                 async with node.stream(run.ctx) as handle:
@@ -1223,17 +1405,12 @@ class MenteeAgent(AgentPort):
                             _harvest_urls_from_messages(
                                 run.result.all_messages(), deps
                             )
-                        # Wait for outstanding HEAD checks. By here, tools
-                        # have been firing for several seconds while the
-                        # model generated text, so most checks should be
-                        # done; this gather has a hard 1s budget for any
-                        # stragglers.
-                        await _gather_liveness(deps)
                         tail = stripper.flush()
                         if tail:
+                            body_accum.append(tail)
                             await queue.put(TextDelta(text=tail))
                         trailer = _format_sources_trailer(
-                            deps.cited_urls, deps.dead_urls, deps.url_titles
+                            deps.citations, "".join(body_accum)
                         )
                         if trailer:
                             await queue.put(TextDelta(text=trailer))
@@ -1279,6 +1456,47 @@ class MenteeAgent(AgentPort):
                         "stream": True,
                     },
                 )
+            except UsageLimitExceeded as exc:
+                # Cap fired mid-stream. Unlike a generic agent failure, the
+                # partial reply on screen is usable — we don't want to glue
+                # a canned fallback over it. Append a short localized hint
+                # so the mentee knows the answer ended early, flush the
+                # stripper, and emit the sources trailer the success path
+                # would have emitted before drive() unwound.
+                span.set_attribute("status", "fallback")
+                span.set_attribute("error_type", type(exc).__name__)
+                span.set_attribute("error_message", str(exc)[:500])
+                posthog_client.capture(
+                    user,
+                    "server.agent.run_failed",
+                    {
+                        "agent_id": self.agent_id,
+                        "model": self._settings.agent_model,
+                        "thread_id": user_message.thread_id,
+                        "user_message_id": user_message.id,
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc)[:500],
+                        "stream": True,
+                    },
+                )
+                logger.warning(
+                    "mentee agent stream hit usage limit, emitting recovery delta: %s",
+                    exc,
+                )
+                if not task.done():
+                    task.cancel()
+                # Don't flush the stripper's tail: at cap-time it likely
+                # holds a partial citation marker mid-token, and emitting
+                # it would leak `…` or `turn0search` fragments.
+                recovery = _usage_limit_recovery_text(ui_locale)
+                response_length += len(recovery)
+                yield TextDelta(text=recovery)
+                trailer = _format_sources_trailer(
+                    deps.citations, "".join(body_accum)
+                )
+                if trailer:
+                    response_length += len(trailer)
+                    yield TextDelta(text=trailer)
             except Exception as exc:  # noqa: BLE001 — fallback path
                 span.set_attribute("status", "fallback")
                 span.set_attribute("error_type", type(exc).__name__)
@@ -1318,9 +1536,27 @@ class MenteeAgent(AgentPort):
                         stripped_urls[:10],
                     )
                 span.set_attribute("urls_off_allowlist", len(stripped_urls))
-                span.set_attribute("urls_cited", len(deps.cited_urls))
-                span.set_attribute("urls_dead", len(deps.dead_urls))
-                span.set_attribute("urls_titled", len(deps.url_titles))
+                span.set_attribute("citations_count", len(deps.citations))
+                span.set_attribute(
+                    "citations_titled",
+                    sum(1 for c in deps.citations.values() if c.title),
+                )
+                span.set_attribute(
+                    "citations_from_perplexity",
+                    sum(
+                        1
+                        for c in deps.citations.values()
+                        if c.source == "perplexity"
+                    ),
+                )
+                span.set_attribute(
+                    "citations_from_web_search",
+                    sum(
+                        1
+                        for c in deps.citations.values()
+                        if c.source == "openai_web_search"
+                    ),
+                )
                 span.set_attribute(
                     "openai_input_tokens", collector.openai_input_tokens
                 )
