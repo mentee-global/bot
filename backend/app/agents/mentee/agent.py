@@ -390,6 +390,7 @@ class MenteeAgent(AgentPort):
         self._budget = budget
         self._usage_limits = UsageLimits(
             request_limit=settings.agent_request_limit,
+            tool_calls_limit=settings.agent_tool_calls_limit,
             total_tokens_limit=settings.agent_total_tokens_limit,
         )
 
