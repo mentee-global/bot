@@ -18,12 +18,14 @@ import asyncio
 from app.agents.mentee.agent import (
     _count_builtin_tool_calls,
     _dedup_response_text,
-    _filter_off_allowlist_urls,
     _format_sources_trailer,
     _harvest_urls_from_messages,
     _history_to_messages,
-    _strip_citations,
     build_mentee_agent,
+)
+from app.agents.mentee.citations import (
+    _filter_off_allowlist_urls,
+    _strip_citations,
 )
 from app.agents.mentee.deps import MenteeDeps
 from app.agents.mentee.ports import NullProfilePort

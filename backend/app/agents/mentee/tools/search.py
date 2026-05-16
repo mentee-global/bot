@@ -184,7 +184,7 @@ async def search_perplexity(
     # title — the WebSearch instance's title upgrades this entry.
     # Snippet preserves the first 200 chars of the Perplexity answer so
     # the sidebar can surface a one-liner without re-querying.
-    from app.agents.mentee.agent import _add_url_to_allowlist
+    from app.agents.mentee.citations import _add_url_to_allowlist
 
     snippet = result.answer[:200].strip() if result.answer else None
     for url in result.citations:

@@ -25,7 +25,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
-from app.agents.mentee.agent import (
+from app.agents.mentee.citations import (
     _BARE_DOMAIN_CITATION_RE,
     _URL_RE,
     _canonical_url,

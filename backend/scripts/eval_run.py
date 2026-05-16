@@ -18,7 +18,7 @@ import json
 import time
 from pathlib import Path
 
-from app.agents.mentee.agent import _strip_citations
+from app.agents.mentee.citations import _strip_citations
 from app.agents.mentee.clai_agent import agent
 from scripts.eval_prompts import PROMPTS, EvalPrompt
 
