@@ -21,13 +21,12 @@ and `deps` is reached transitively. Imported by `agent.py` only.
 
 from __future__ import annotations
 
-from collections.abc import Collection
-
 from app.agents.mentee.citations import (
     _URL_PROBE_RE,
     _filter_off_allowlist_urls,
     _strip_citations,
 )
+from app.agents.mentee.deps import Citation
 
 
 def _last_balanced_pos(buf: str, end: int) -> int:
@@ -62,23 +61,29 @@ class _CitationStripper:
     """Streaming-safe stripper that buffers a tail so markers split across
     deltas still get matched.
 
-    Also enforces the per-run URL allowlist (`cited_urls`): when a URL appears
-    in the emit chunk, it is kept iff present in the allowlist; otherwise it
-    is dropped. The buffer's `_SAFE_TAIL` (256 chars) is generous enough to
-    contain any reasonable URL, so a URL straddling two deltas is always seen
-    whole at validation time.
+    Also enforces the per-run URL allowlist via the `citations` dict
+    (canonical-key → Citation): when a URL appears in the emit chunk it
+    is kept iff present in the dict (and rewritten to the citation's
+    canonical visible URL — drops `?utm_source=openai`, etc); otherwise
+    it is dropped. The buffer's `_SAFE_TAIL` (256 chars) is generous
+    enough to contain any reasonable URL, so a URL straddling two deltas
+    is always seen whole at validation time.
+
+    We import `Citation` from `deps.py` for the type annotation only;
+    the layering is fine because `deps.py` is the canonical data-shape
+    module and is upstream of every implementation file.
     """
 
     _SAFE_TAIL = 256
 
     def __init__(
         self,
-        cited_urls: Collection[str] | None = None,
+        citations: dict[str, Citation] | None = None,
         on_strip_url: object | None = None,
     ) -> None:
         self._buf = ""
-        self._cited_urls: Collection[str] = (
-            cited_urls if cited_urls is not None else set()
+        self._citations: dict[str, Citation] = (
+            citations if citations is not None else {}
         )
         self._on_strip_url = on_strip_url
 
@@ -86,7 +91,7 @@ class _CitationStripper:
         text = _strip_citations(text)
         text = _filter_off_allowlist_urls(
             text,
-            self._cited_urls,
+            self._citations,
             on_strip=self._on_strip_url,
         )
         return text

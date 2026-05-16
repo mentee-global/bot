@@ -472,13 +472,12 @@ class MenteeAgent(AgentPort):
                 _harvest_urls_from_messages(result.all_messages(), deps)
                 deduped = _dedup_response_text(result.all_messages())
                 stripped_urls: list[str] = []
-                cited_keys = deps.citations.keys()
                 cleaned = _strip_citations(
                     deduped if deduped is not None else result.output,
                 )
                 body = _filter_off_allowlist_urls(
                     cleaned,
-                    cited_keys,
+                    deps.citations,
                     on_strip=stripped_urls.append,
                 )
                 output = body + _format_sources_trailer(deps.citations, body)
@@ -602,12 +601,13 @@ class MenteeAgent(AgentPort):
             deps = self._deps(user, collector, perplexity_enabled, ui_locale)
 
             async def drive() -> None:
-                # The stripper reads the citation keys at emit time. Tools
+                # The stripper reads the citations dict at emit time. Tools
                 # fire before the final TextPart streams, so by the time
                 # URLs are checked the allowlist is already populated. We
-                # pass the dict's `keys()` view so updates land live.
+                # pass the live dict (not a snapshot) so harvest writes
+                # land in the stripper without re-binding.
                 stripper = _CitationStripper(
-                    cited_urls=deps.citations.keys(),
+                    citations=deps.citations,
                     on_strip_url=stripped_urls.append,
                 )
                 # The OpenAI Responses model sometimes emits two consecutive

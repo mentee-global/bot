@@ -14,7 +14,6 @@ the other way around.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
 
 from app.agents.mentee.deps import Citation, CitationSource, MenteeDeps
 
@@ -359,33 +358,48 @@ def _strip_citations(text: str) -> str:
 
 def _filter_off_allowlist_urls(
     text: str,
-    cited: Collection[str],
+    citations: dict[str, Citation],
     *,
     on_strip: object | None = None,
 ) -> str:
-    """Strip URLs the model wrote that aren't in the per-run allowlist.
+    """Strip URLs the model wrote that aren't in the per-run allowlist,
+    and rewrite the URLs that survive to their canonical visible form.
 
     Handles two URL forms uniformly:
 
     - **Markdown links** `[text](url)`: if the URL is allowed, keep the
-      whole link. If not, keep just the link text and drop the URL +
-      surrounding `()` — readers still see a descriptive label, just
-      without a (potentially fabricated) target.
-    - **Bare URLs** `https://…`: if the URL is allowed, keep it. If not,
-      drop it but preserve any trailing sentence punctuation so the
-      surrounding prose still reads naturally.
+      link text with the canonical URL substituted in (drops
+      `?utm_source=openai`, collapses locale variants, etc). If not,
+      keep just the link text and drop the URL + surrounding `()` —
+      readers still see a descriptive label, just without a (potentially
+      fabricated) target.
+    - **Bare URLs** `https://…`: if the URL is allowed, replace it with
+      the canonical visible URL from `citations`. If not, drop it but
+      preserve any trailing sentence punctuation so the surrounding
+      prose still reads naturally.
 
-    `cited` holds canonical citation keys (locale-prefix collapsed,
-    print/utm/hl stripped). We run each URL the model wrote through
-    `_canonical_url` before checking membership so the model's
-    locale-specific URL (`/en/...`) still matches a citation indexed by
-    its canonical key. `on_strip` is an optional telemetry callable
-    invoked once per stripped URL.
+    `citations` is the per-run ledger keyed by canonical URL
+    (locale-prefix collapsed, print/utm/hl stripped). We run each URL
+    the model wrote through `_canonical_url` before checking membership
+    so the model's locale-specific URL (`/en/...`) still matches a
+    citation indexed by its canonical key. The rewrite ensures the
+    persisted body shows the cleaned URL stored on `Citation.url`, not
+    whatever tagged variant OpenAI handed the model. `on_strip` is an
+    optional telemetry callable invoked once per stripped URL.
     """
-    def _is_allowed(raw_url: str) -> bool:
+    def _resolve(raw_url: str) -> tuple[bool, str | None]:
+        """Return ``(is_allowed, canonical_visible_url)``.
+
+        ``canonical_visible_url`` is the `Citation.url` value to
+        substitute into the body when the URL is allowed; ``None`` when
+        not allowed.
+        """
         clean, _ = _strip_url_trailing_punct(raw_url)
         _, canonical_key = _canonical_url(clean)
-        return canonical_key in cited
+        citation = citations.get(canonical_key)
+        if citation is None:
+            return False, None
+        return True, citation.url
 
     def _notify_strip(raw_url: str) -> None:
         if callable(on_strip):
@@ -400,8 +414,9 @@ def _filter_off_allowlist_urls(
     def md_repl(match: re.Match[str]) -> str:
         link_text = match.group(1)
         url = match.group(2)
-        if _is_allowed(url):
-            return f"[{link_text}]({url})"
+        allowed, canonical = _resolve(url)
+        if allowed and canonical is not None:
+            return f"[{link_text}]({canonical})"
         _notify_strip(url)
         return link_text
 
@@ -410,8 +425,10 @@ def _filter_off_allowlist_urls(
     # 2. Bare URLs the model wrote without markdown wrapping.
     def bare_repl(match: re.Match[str]) -> str:
         raw = match.group(0)
-        if _is_allowed(raw):
-            return raw
+        allowed, canonical = _resolve(raw)
+        if allowed and canonical is not None:
+            _, trail = _strip_url_trailing_punct(raw)
+            return canonical + trail
         _, trail = _strip_url_trailing_punct(raw)
         _notify_strip(raw)
         return trail

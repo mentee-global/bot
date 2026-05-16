@@ -125,11 +125,10 @@ async def run_mentee(inputs: MenteeInput) -> MenteeOutput:
     _count_builtin_tool_calls(deps.usage, result.all_messages())
     _harvest_urls_from_messages(result.all_messages(), deps)
     deduped = _dedup_response_text(result.all_messages())
-    cited_keys = deps.citations.keys()
     cleaned = _strip_citations(
         deduped if deduped is not None else result.output,
     )
-    body = _filter_off_allowlist_urls(cleaned, cited_keys)
+    body = _filter_off_allowlist_urls(cleaned, deps.citations)
     body = body + _format_sources_trailer(deps.citations, body)
 
     citations_payload = {
