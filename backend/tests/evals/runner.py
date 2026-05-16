@@ -18,7 +18,6 @@ import asyncio
 from app.agents.mentee.agent import (
     _count_builtin_tool_calls,
     _dedup_response_text,
-    _format_sources_trailer,
     _harvest_urls_from_messages,
     _history_to_messages,
     build_mentee_agent,
@@ -29,6 +28,7 @@ from app.agents.mentee.citations import (
 )
 from app.agents.mentee.deps import MenteeDeps
 from app.agents.mentee.ports import NullProfilePort
+from app.agents.mentee.trailer import _format_sources_trailer
 from app.budget.usage import UsageSummary
 from app.core.config import settings as default_settings
 from app.domain.enums import MessageRole
