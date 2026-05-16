@@ -48,6 +48,7 @@ from app.agents.mentee.citations import (
 )
 from app.agents.mentee.deps import MenteeDeps
 from app.agents.mentee.fallback import fallback_response
+from app.agents.mentee.harvest import _harvest_urls_from_messages
 from app.agents.mentee.ports import MenteeProfilePort, NullProfilePort
 from app.agents.mentee.prompts import SYSTEM_PROMPT
 from app.agents.mentee.tools.career import analyze_career_path
@@ -219,51 +220,6 @@ class _CitationStripper:
         out = self._post_process(self._buf)
         self._buf = ""
         return out
-
-
-def _harvest_urls_from_messages(
-    messages: list[ModelMessage], deps: MenteeDeps
-) -> None:
-    """Populate `deps.citations` (and kick off liveness checks) from
-    web_search sources and TextPart annotations.
-
-    OpenAI's built-in web_search returns its source URLs on the
-    `BuiltinToolReturnPart.content["sources"]` list (when
-    `openai_include_web_search_sources=True`) and as `url_citation`
-    annotations on each TextPart's `provider_details["annotations"]` (when
-    `openai_include_raw_annotations=True`). We consult both because the
-    streaming and non-streaming paths both surface them.
-    """
-    for msg in messages:
-        if not isinstance(msg, ModelResponse):
-            continue
-        for part in msg.parts:
-            if isinstance(part, BuiltinToolReturnPart):
-                content = part.content
-                if isinstance(content, dict):
-                    for src in content.get("sources") or []:
-                        if isinstance(src, dict):
-                            src_title = src.get("title")
-                            _add_url_to_allowlist(
-                                deps,
-                                src.get("url") or "",
-                                source="openai_web_search",
-                                title=src_title if isinstance(src_title, str) else None,
-                            )
-            elif isinstance(part, TextPart):
-                details = part.provider_details or {}
-                for ann in details.get("annotations") or []:
-                    if (
-                        isinstance(ann, dict)
-                        and ann.get("type") == "url_citation"
-                    ):
-                        title = ann.get("title")
-                        _add_url_to_allowlist(
-                            deps,
-                            ann.get("url") or "",
-                            source="openai_web_search",
-                            title=title if isinstance(title, str) else None,
-                        )
 
 
 def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
