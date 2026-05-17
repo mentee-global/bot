@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 
 from app.agents.base import AgentPort
 from app.agents.events import TextDelta, ToolEnd, ToolStart
+from app.agents.mentee.citations import strip_empty_markdown_links
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
 from app.domain.enums import MessageRole
@@ -169,7 +170,16 @@ class MessageService:
                     },
                 )
 
-        assistant_message = assistant_message.model_copy(update={"body": "".join(chunks)})
+        # Cross-chunk cleanup: when the streaming stripper splits a
+        # `[text](url)` across chunks (link text in chunk N, `(url)` in
+        # chunk N+1), `_filter_off_allowlist_urls` strips the bare URL
+        # inside the second chunk but leaves the empty `()` framing
+        # behind. The resulting persisted body has `[text]()` artifacts
+        # that render as empty-href anchors. Drop them on the joined body.
+        persisted_body = strip_empty_markdown_links("".join(chunks))
+        assistant_message = assistant_message.model_copy(
+            update={"body": persisted_body}
+        )
         await self.store.append_message(thread, assistant_message)
 
         await self.budget.record_turn(

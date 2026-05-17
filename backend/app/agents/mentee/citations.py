@@ -56,6 +56,17 @@ _BARE_DOMAIN_CITATION_RE = re.compile(
     r"\s*\)",
     re.IGNORECASE,
 )
+# `[text]()` — markdown link with an empty href. The model occasionally
+# writes these as placeholders when it lacks a verified URL (violating the
+# prompt's "omit the item" rule). They also arise when the streaming chunk
+# boundary splits a `[text](url)` such that `[text]` emits in one chunk
+# and `(url)` arrives in the next: `_filter_off_allowlist_urls` strips the
+# bare URL inside the parens but leaves the surrounding `()` behind, and
+# the concatenation yields `[text]()`. An empty-href anchor resolves to
+# the current document URL in the browser, so clicking the link looks
+# like a redirect to the bot itself. Strip the bracket/paren framing and
+# keep just the link text.
+_EMPTY_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(\s*\)")
 # OpenAI's Responses API wraps citation markers in Unicode Private-Use-Area
 # codepoints — `citeturn0search0` style. Pydantic-ai
 # passes these through verbatim regardless of `openai_include_raw_annotations`
@@ -328,7 +339,7 @@ def _drop_redundant_slug_before_url(text: str) -> str:
 def _strip_citations(text: str) -> str:
     r"""Pre-allowlist cleanup of model-emitted text.
 
-    Five passes, ordered so each can rely on what the earlier passes
+    Six passes, ordered so each can rely on what the earlier passes
     removed:
 
     1. **PUA citation wrappers** — `\uE2NN…\uE2NN`-wrapped tokens injected
@@ -344,6 +355,8 @@ def _strip_citations(text: str) -> str:
        wrapper has been stripped but a trailing `cite` survives.
     5. **Bare-domain shorthand** in parens (`(sem.admin.ch)`). Not a URL,
        not clickable — strip and let the SOURCES bar carry the link.
+    6. **Empty-href markdown links** (`[text]()`) — placeholders that
+       render as `<a href="">` and resolve to the current document URL.
 
     Allowlist enforcement happens after, in `_filter_off_allowlist_urls`.
     """
@@ -353,7 +366,23 @@ def _strip_citations(text: str) -> str:
     text = _split_concatenated_urls(text)
     text = _BARE_CITE_RE.sub("", text)
     text = _BARE_DOMAIN_CITATION_RE.sub("", text)
+    text = _EMPTY_MD_LINK_RE.sub(r"\1", text)
     return text
+
+
+def strip_empty_markdown_links(text: str) -> str:
+    """Drop empty-href markdown links (`[text]()`) and keep the link text.
+
+    Public helper so the message persistence path can run the strip on
+    the final assembled body. The streaming stripper's per-chunk
+    `_strip_citations` catches the in-chunk case where the model writes
+    `[text](pua-marker)` and the PUA pass empties the parens. The
+    cross-chunk case — `[text]` emits in chunk N and `()` (left over
+    after a bare-URL strip) emits in chunk N+1 — only becomes visible
+    once the chunks are joined, so we need an extra pass on the
+    concatenated body before it lands in the database.
+    """
+    return _EMPTY_MD_LINK_RE.sub(r"\1", text)
 
 
 def _filter_off_allowlist_urls(
