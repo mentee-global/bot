@@ -166,17 +166,27 @@ function extractSources(
 }
 
 const components: Components = {
-	a: ({ href, children, ...rest }) => (
-		<a
-			{...rest}
-			href={href}
-			target="_blank"
-			rel="noreferrer noopener"
-			className="text-[var(--theme-primary)] underline decoration-dotted underline-offset-2 hover:decoration-solid hover:text-[var(--theme-accent)]"
-		>
-			{children}
-		</a>
-	),
+	a: ({ href, children, ...rest }) => {
+		// Defense against [text]() artifacts that can slip through backend
+		// post-processing (e.g. when the streaming chunk boundary strips a
+		// URL but leaves its parens). An anchor with an empty href resolves
+		// to the current document URL, making it look like a redirect to
+		// the bot itself when clicked. Render the link text inline instead.
+		if (!href || !href.trim()) {
+			return <>{children}</>;
+		}
+		return (
+			<a
+				{...rest}
+				href={href}
+				target="_blank"
+				rel="noreferrer noopener"
+				className="text-[var(--theme-primary)] underline decoration-dotted underline-offset-2 hover:decoration-solid hover:text-[var(--theme-accent)]"
+			>
+				{children}
+			</a>
+		);
+	},
 	pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
 };
 
