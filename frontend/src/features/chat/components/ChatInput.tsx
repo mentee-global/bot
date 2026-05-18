@@ -150,7 +150,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 							data-gramm_editor="false"
 							data-enable-grammarly="false"
 							className={cn(
-								"block w-full flex-1 resize-none rounded-lg border bg-[var(--theme-bg)] px-3.5 py-2 text-sm leading-6 text-[var(--theme-primary)] placeholder:text-[var(--theme-muted)] outline-none transition",
+								"block w-full flex-1 resize-none rounded-lg border bg-[var(--theme-bg)] px-3.5 py-2 text-base leading-6 text-[var(--theme-primary)] placeholder:text-[var(--theme-muted)] outline-none transition md:text-sm",
 								isBlocked && "cursor-not-allowed opacity-60",
 								overLimit
 									? "border-[var(--theme-danger)] focus:border-[var(--theme-danger)] focus:ring-2 focus:ring-[var(--theme-danger)]/25"
