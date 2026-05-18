@@ -25,24 +25,60 @@ function stripSourcesTrailer(body: string): string {
 	return body.replace(SOURCES_TRAILER_RE, "");
 }
 
-function parseSourcesTrailer(body: string): Record<string, string> {
+// Source provenance for each URL the backend surfaced. "tool" means a
+// search tool (OpenAI WebSearch / Perplexity) returned this URL this
+// turn; "model" means the agent wrote it from training knowledge and
+// the backend kept it through (Option G) instead of stripping. The
+// renderer styles them differently — tool-verified URLs get the full
+// link treatment and a SOURCES-bar pill; model URLs get a muted style
+// and an "unverified" tooltip, and don't appear as pills.
+type SourceProvenance = "tool" | "model";
+
+interface SourceMeta {
+	title?: string;
+	provenance: SourceProvenance;
+}
+
+function classifyProvenance(raw: string | undefined): SourceProvenance {
+	return raw === "model_training" ? "model" : "tool";
+}
+
+function parseSourcesTrailer(body: string): Record<string, SourceMeta> {
 	const m = body.match(SOURCES_TRAILER_RE);
 	if (!m) return {};
 	try {
 		const parsed = JSON.parse(m[1]) as unknown;
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			const out: Record<string, string> = {};
-			for (const [url, title] of Object.entries(parsed)) {
-				if (typeof title === "string" && title.trim()) {
-					out[url] = title.trim();
-				}
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+			return {};
+		const out: Record<string, SourceMeta> = {};
+		for (const [url, val] of Object.entries(parsed)) {
+			// Pre-Option-G shape: `{url: "Title"}`. Treat every URL as tool-
+			// verified so older persisted messages still get pill treatment.
+			if (typeof val === "string") {
+				const trimmed = val.trim();
+				out[url] = trimmed
+					? { title: trimmed, provenance: "tool" }
+					: { provenance: "tool" };
+				continue;
 			}
-			return out;
+			// Post-Option-G shape: `{url: {title?, source}}`.
+			if (val && typeof val === "object") {
+				const obj = val as { title?: unknown; source?: unknown };
+				const title =
+					typeof obj.title === "string" && obj.title.trim()
+						? obj.title.trim()
+						: undefined;
+				const provenance = classifyProvenance(
+					typeof obj.source === "string" ? obj.source : undefined,
+				);
+				out[url] = title ? { title, provenance } : { provenance };
+			}
 		}
+		return out;
 	} catch {
 		// malformed JSON — silently fall back to hostname-only pills
+		return {};
 	}
-	return {};
 }
 
 function sanitize(body: string): string {
@@ -68,6 +104,7 @@ interface Source {
 	hostname: string;
 	/** Page title from web_search annotations, when available. */
 	title?: string;
+	provenance: SourceProvenance;
 }
 
 // Path components that don't carry meaning on their own — usually wrappers
@@ -139,9 +176,17 @@ function deriveFallbackTitle(u: URL): string | undefined {
 	return label;
 }
 
+function lookupSourceMeta(
+	url: string,
+	sources: Record<string, SourceMeta>,
+): SourceMeta | undefined {
+	// Trailer keys are stored without trailing slash; match either form.
+	return sources[url] ?? sources[url.replace(/\/$/, "")] ?? undefined;
+}
+
 function extractSources(
 	body: string,
-	titles: Record<string, string>,
+	sources: Record<string, SourceMeta>,
 ): Source[] {
 	const found = new Map<string, Source>();
 	const urlRe = /\bhttps?:\/\/[^\s)\]]+/gi;
@@ -151,13 +196,21 @@ function extractSources(
 		try {
 			const u = new URL(raw);
 			const hostname = u.hostname.replace(/^www\./, "");
-			// Trailer keys are stored without trailing slash; match either form.
-			const annotated =
-				titles[raw] ?? titles[raw.replace(/\/$/, "")] ?? undefined;
+			const meta = lookupSourceMeta(raw, sources);
+			// Model-provenance URLs are kept clickable inline but don't
+			// appear as pills — the SOURCES bar is for "this turn's
+			// grounded sources," and the model's training-knowledge URLs
+			// don't qualify.
+			if (meta?.provenance === "model") continue;
 			// Fall back to a path-derived label so two URLs from the same host
 			// don't render as identical hostname-only pills.
-			const title = annotated ?? deriveFallbackTitle(u);
-			found.set(raw, { url: raw, hostname, title });
+			const title = meta?.title ?? deriveFallbackTitle(u);
+			found.set(raw, {
+				url: raw,
+				hostname,
+				title,
+				provenance: meta?.provenance ?? "tool",
+			});
 		} catch {
 			// malformed URL — skip
 		}
@@ -165,30 +218,43 @@ function extractSources(
 	return Array.from(found.values());
 }
 
-const components: Components = {
-	a: ({ href, children, ...rest }) => {
-		// Defense against [text]() artifacts that can slip through backend
-		// post-processing (e.g. when the streaming chunk boundary strips a
-		// URL but leaves its parens). An anchor with an empty href resolves
-		// to the current document URL, making it look like a redirect to
-		// the bot itself when clicked. Render the link text inline instead.
-		if (!href || !href.trim()) {
-			return <>{children}</>;
-		}
-		return (
-			<a
-				{...rest}
-				href={href}
-				target="_blank"
-				rel="noreferrer noopener"
-				className="text-[var(--theme-primary)] underline decoration-dotted underline-offset-2 hover:decoration-solid hover:text-[var(--theme-accent)]"
-			>
-				{children}
-			</a>
-		);
-	},
-	pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
-};
+function buildComponents(sources: Record<string, SourceMeta>): Components {
+	return {
+		a: ({ href, children, ...rest }) => {
+			// Defense against [text]() artifacts that can slip through backend
+			// post-processing (e.g. when the streaming chunk boundary strips a
+			// URL but leaves its parens). An anchor with an empty href resolves
+			// to the current document URL, making it look like a redirect to
+			// the bot itself when clicked. Render the link text inline instead.
+			if (!href || !href.trim()) {
+				return <>{children}</>;
+			}
+			const meta = lookupSourceMeta(href, sources);
+			const isModel = meta?.provenance === "model";
+			return (
+				<a
+					{...rest}
+					href={href}
+					target="_blank"
+					rel="noreferrer noopener"
+					title={
+						isModel
+							? "Not verified by search this turn — link from the model's training knowledge"
+							: undefined
+					}
+					className={
+						isModel
+							? "text-[var(--theme-muted)] underline decoration-dashed underline-offset-2 hover:decoration-solid hover:text-[var(--theme-secondary)]"
+							: "text-[var(--theme-primary)] underline decoration-dotted underline-offset-2 hover:decoration-solid hover:text-[var(--theme-accent)]"
+					}
+				>
+					{children}
+				</a>
+			);
+		},
+		pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
+	};
+}
 
 function CodeBlock({
 	children,
@@ -239,12 +305,13 @@ interface MessageBodyProps {
 
 function MessageBodyImpl({ body, streaming }: MessageBodyProps) {
 	const clean = useMemo(() => sanitize(body), [body]);
-	const titles = useMemo(() => parseSourcesTrailer(body), [body]);
+	const sourceMap = useMemo(() => parseSourcesTrailer(body), [body]);
+	const components = useMemo(() => buildComponents(sourceMap), [sourceMap]);
 	// Suppress sources mid-stream — URLs arrive character by character and
 	// the list would flicker.
 	const sources = useMemo(
-		() => (streaming ? [] : extractSources(clean, titles)),
-		[clean, titles, streaming],
+		() => (streaming ? [] : extractSources(clean, sourceMap)),
+		[clean, sourceMap, streaming],
 	);
 
 	return (
