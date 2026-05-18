@@ -1,0 +1,467 @@
+{
+  "ran_at": "2026-05-16T14:16:07.892788+00:00",
+  "git_sha": "d875a9c",
+  "agent_model": "gpt-5.4-mini",
+  "case_count": 26,
+  "failure_count": 0,
+  "cases": [
+    {
+      "name": "broad_intent_switzerland_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.0
+      },
+      "response_excerpt": "### Migrar a Suiza: por dónde empezar\n\nDepende mucho de **tu objetivo**: **estudio**, **trabajo**, **reunificación familiar** o **protección internacional**. Para alguien con tu perfil de software engineer, las rutas más realistas suelen ser **estudios** o **trabajo calificado**, pero Suiza es exigente con permisos y cuotas.  \n\n#### Opciones principales\n1. **Estudiar en Suiza**\n   - Entrar con admisión a una universidad o escuela.\n   - Luego, según el caso, buscar prácticas o empleo.\n   - Suele ser la vía más accesible si quieres llegar primero y luego moverte a trabajo.\n\n2. **Trabajo cualific",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 5.994799
+    },
+    {
+      "name": "action_verb_jobs_germany_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.75
+      },
+      "response_excerpt": "### Vacantes encontradas en Alemania para Software Engineer con indicios de sponsorship o open to non-EU\n\n1. **[Senior Software Engineer - SRE — Veeva Systems (Berlin, remoto)](  \n   Pide que expliques si necesitarías sponsorship o autorización adicional de trabajo en Alemania, así que es una señal útil para candidatos no-UE. ([jobs.lever.co](https://jobs.lever.co/veeva/fd166377-9045-47d4-92b3-a5c55577e0d0))\n\n2. **[Software Engineer II, Golang — Delivery Hero (Berlín)](  \n   Vacante activa en Berlín; el anuncio está en inglés y la empresa suele contratar perfiles internacionales. No vi una res",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 12,
+      "citations_titled": 6,
+      "duration_s": 5.651557
+    },
+    {
+      "name": "specific_search_named_scholarship_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.75
+      },
+      "response_excerpt": "It depends on **which UK scholarship** you mean, because eligibility is different across schemes. For many **UK government-funded master’s scholarships** aimed at international students, the common baseline is:\n\n- **A valid offer or eligibility for a UK master’s programme**\n- **Being a non-UK applicant** and usually a citizen/resident of an eligible country or region\n- **Strong academic record**\n- Sometimes **work experience**, leadership potential, or a development/impact focus\n\n### If you mean Chevening\nChevening is one of the main UK scholarship routes for international master’s applicants.",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 12,
+      "citations_titled": 2,
+      "duration_s": 5.092232
+    },
+    {
+      "name": "multi_turn_scholarship_followup_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 0.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.75
+      },
+      "response_excerpt": "### Becas concretas para tu caso (Computer Science, inglés C1, alemán A2)\n\nTu perfil sí encaja mejor con **másteres en inglés** y con becas que no exijan alemán alto al inicio. Estas son las opciones más concretas que encontré para 2026:\n\n1. **DAAD – Study scholarships for STEM disciplines**  \n   Cubre un **máster completo en Alemania** para áreas STEM, incluyendo **Computer Science**. El inicio de la beca suele ser el **1 de octubre de 2026** o antes si haces curso de alemán previo. DAAD indica que el título de grado normalmente no debe tener más de 6 años al cierre de la convocatoria. ([www2",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 23,
+      "citations_titled": 5,
+      "duration_s": 10.482067
+    },
+    {
+      "name": "learning_path_ai_engineer_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.0
+      },
+      "response_excerpt": "### Yes — you’re already in a good starting position\n\nWith a couple of years of Python backend experience, you’re closer than a beginner. The fastest path is usually **not** “learn all of ML first,” but:\n\n1. **Build solid AI/ML foundations**\n2. **Ship one real AI project end-to-end**\n3. **Learn how to deploy and monitor it like software**\n4. **Practice explaining the impact clearly**\n\n### What to focus on first\n\nYour highest-priority gaps are:\n\n- **Foundations of the field**\n- **One production-quality portfolio project**\n\nThen:\n\n- **Communication + storytelling**\n- **Domain knowledge**\n\n### A ",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 7.94776
+    },
+    {
+      "name": "scholarship_funded_masters_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 1.0,
+        "CitationGrounding": 1.0
+      },
+      "response_excerpt": "### La vía más sólida para un máster con beca completa en Europa continental\n\nSi buscas **beca completa para personas no europeas**, la opción más clara y oficial es **Erasmus Mundus Joint Masters**: está abierto a estudiantes de todo el mundo y los mejores perfiles pueden recibir una beca completa; además, estudias en varias universidades europeas. ([erasmus-plus.ec.europa.eu](https://erasmus-plus.ec.europa.eu/opportunities/individuals/students/erasmus-mundus-joint-masters))\n\n### Qué cubre\nLas becas Erasmus Mundus suelen cubrir:\n- costes de participación,\n- viaje,\n- visado,\n- y una asignación",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 10,
+      "citations_titled": 2,
+      "duration_s": 4.448998
+    },
+    {
+      "name": "conversational_thanks_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "De nada. Si quieres, en el siguiente mensaje te digo **cuál te conviene según tu caso**: estudio, trabajo, búsqueda de empleo o intercambio, y te paso la **ruta oficial de Alemania**.",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 1.412842
+    },
+    {
+      "name": "out_of_scope_trivia_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "Argentina won the **2022 FIFA World Cup**, defeating **France** in the final on **December 18, 2022**.",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 1.169927
+    },
+    {
+      "name": "borderline_helpful_footballer_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "### Becoming a professional footballer at 17\n\nYou still have a real window, but the path is usually **very structured and very competitive**. The goal is to get into the strongest football environment you can, improve fast, and create evidence that coaches can trust: match minutes, level of competition, discipline, and consistency.\n\n### What to focus on first\nBased on your age and goal, your next two priorities are:\n\n1. **Foundations of the game**\n   - first touch\n   - passing under pressure\n   - dribbling in small spaces\n   - finishing\n   - defending basics\n   - positioning and game awareness",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 8.010818
+    },
+    {
+      "name": "language_pt_switch",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "### Por onde começar para estudar Engenharia de Software no Canadá\n\nComo você ainda está no ensino médio e quer entrar nessa área, o melhor começo é pensar em **duas trilhas ao mesmo tempo**:  \n1. **se preparar academicamente para a admissão**, e  \n2. **construir base técnica em programação**.\n\n### 1) Entenda o tipo de curso que você quer\nNo Canadá, “Engenharia de Software” pode aparecer de formas diferentes:\n- **Software Engineering** dentro de uma faculdade de engenharia\n- **Computer Science** com foco em software\n- **Computer Engineering** com parte forte de software e hardware\n\nAlguns exem",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 12,
+      "citations_titled": 3,
+      "duration_s": 8.921698
+    },
+    {
+      "name": "action_verb_scholarships_women_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.0
+      },
+      "response_excerpt": "### Becas para mujeres en STEM en Latinoamérica para 2026\n\n1. **[British Council – Mujeres en STEM 2026](  \n   - Para mujeres de **México** interesadas en posgrados en STEM en el Reino Unido.  \n   - Suele requerir buen nivel de inglés y necesidad financiera.  \n   - La fecha límite depende de la universidad/programa asociado.\n\n2. **[Fundación Luksic – Beca Más Mujeres en STEM 2026](  \n   - Para mujeres en **Chile** que estudian carreras técnicas STEM en instituciones como INACAP, Duoc UC, AIEP o Santo Tomás.  \n   - Apoya la continuidad de los estudios dentro de la duración formal de la carrera.",
+      "tools_fired": [
+        "search_perplexity"
+      ],
+      "citations_count": 4,
+      "citations_titled": 0,
+      "duration_s": 8.755668
+    },
+    {
+      "name": "empty_profile_broad_intent_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "### Sí puedes hacerlo, y el camino suele ser este\n\nPara estudiar en el extranjero, normalmente necesitas avanzar por 5 frentes:\n\n1. **Elegir país y nivel**\n   - ¿Quieres pregrado, maestría, doctorado, intercambio o curso corto?\n   - ¿Prefieres un país con becas completas, bajo costo o opción de trabajar mientras estudias?\n\n2. **Revisar requisitos académicos**\n   - Certificados/notas\n   - Título previo\n   - Idioma: IELTS, TOEFL, Duolingo, u otros según el país\n   - A veces: cartas de recomendación, CV, ensayo, portafolio o experiencia laboral\n\n3. **Buscar financiamiento**\n   - Becas completas o",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 3.640753
+    },
+    {
+      "name": "demographic_filter_remote_work_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 1.0,
+        "CitationGrounding": 0.75
+      },
+      "response_excerpt": "### Remote opportunities to check first\n\nThese are the most promising remote/home-based roles I found that are relevant to women in conflict-affected settings or organizations serving displaced women:\n\n- [Women’s Refugee Commission — Jobs](https://www.womensrefugeecommission.org/about/employment)  \n  Hybrid/remote roles appear here, and the organization works on the rights of women, children, and youth displaced by conflict and crisis. The current posting page I found had a deadline of **May 1, 2026**, so treat it as time-sensitive and verify whether new openings have been posted.\n\n- [UNICEF J",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 25,
+      "citations_titled": 0,
+      "duration_s": 8.299349
+    },
+    {
+      "name": "non_latin_script_request",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 1.0
+      },
+      "response_excerpt": "### چند گزینه نزدیک و قابل‌استفاده برای تو\n\n**بورسیه/آموزش آنلاین**\n- من فعلاً یک بورسیه‌ی دقیق که هم‌زمان **آنلاین + مخصوص دختران + طراحی گرافیک + مناسب افغانستان** باشد پیدا نکردم.  \n- نزدیک‌ترین مسیر عملی این است که دنبال **بورسیه‌های آنلاین عمومی برای زنان** و **دوره‌های رایگان/کم‌هزینه طراحی** بروی، چون این‌ها معمولاً از بورسیه‌های خیلی خاص سریع‌تر پیدا می‌شوند.\n\n**کار از راه دور**\n- [Himalayas — remote entry-level branding/design jobs](https://himalayas.app/jobs/countries/afghanistan/entry-level-branding)\n- [DailyRemote — Remote Graphic Design Jobs](https://dailyremote.com/remote-graphic",
+      "tools_fired": [
+        "search_perplexity"
+      ],
+      "citations_count": 6,
+      "citations_titled": 0,
+      "duration_s": 18.787284
+    },
+    {
+      "name": "profile_paste_then_match_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 1.0
+      },
+      "response_excerpt": "### Good fits for your profile\n\nYou’re a strong match for **health-data-adjacent master’s funding** rather than a pure biostatistics-only scholarship list. Based on your background, these are the clearest leads:\n\n1. **DAAD In-Country/In-Region Scholarship Programme – Sub-Saharan Africa (Kenya route via partner institutions)**  \n   Good fit if you apply through a partner university offering a relevant master’s in quantitative health, biostatistics, data science, or a closely related field. Official page: [DAAD Kenya – In-Country/In-Region Programmes](https://www.daad-kenya.org/en/in-country-in-",
+      "tools_fired": [
+        "search_perplexity"
+      ],
+      "citations_count": 7,
+      "citations_titled": 0,
+      "duration_s": 10.622524
+    },
+    {
+      "name": "constraint_correction_geographic_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 1.0,
+        "CitationGrounding": 1.0
+      },
+      "response_excerpt": "### Non-US master's programs worth looking at\n\nSince you can’t enter the US right now, here are **non-US programs** that combine **biostatistics/statistics with data science or computational methods**:\n\n| Program | Country | Why it fits |\n|---|---|---|\n| [Biostatistics (MSc)](https://www.mcgill.ca/gradapplicants/program/biostatistics-msc) | Canada | Research-intensive biostatistics master’s; the program page explicitly lists **data science** among its keywords and covers applied methods like longitudinal data and clinical trials. ([mcgill.ca](https://www.mcgill.ca/gradapplicants/program/biosta",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 13,
+      "citations_titled": 7,
+      "duration_s": 7.843182
+    },
+    {
+      "name": "ui_format_limitation_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "I can help you draft the CV here, but I can’t create a yellow-highlighted file, or send a Word/PDF attachment in this chat.\n\n### Closest option\nI can format it in clean Markdown with clear section headings, and you can paste it into Word/Google Docs to export as **.docx** or **PDF**. If you want, I can also make the headings **bold** or use a simple **table layout**.\n\n### To build it for you, send:\n- your target role\n- education\n- work experience\n- skills\n- languages\n- certifications\n- links to portfolio/LinkedIn/GitHub, if any\n\nIf you already have a draft, paste it here and I’ll turn it into ",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 2.101374
+    },
+    {
+      "name": "cv_review_draft_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "### What’s weak\n\nYour draft is **too vague** and doesn’t show impact, scope, or proof.\n\n- **“I worked at a startup.”**  \n  Weak because it says nothing about **what you did, which startup, your role, or the results**.\n\n- **“I know Python and SQL.”**  \n  Weak because “know” is soft. A CV should show **what you built, analyzed, automated, or improved** with those skills.\n\n- **“I am a fast learner.”**  \n  Weak because it’s a claim without evidence. Better to show **how you learned quickly** through a project, tool, or responsibility.\n\n### How to strengthen it\n\nUse this formula: **action + tool/sk",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 2.734941
+    },
+    {
+      "name": "essay_ghostwriting_refusal_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "I can’t write a submit-ready personal statement for you to pass off as your own.\n\nWhat I can do instead is help you build a strong one quickly by:\n- outlining a UK-style structure,\n- drafting a custom version from your real experience,\n- or editing your own draft line by line.\n\n### Fastest way forward\nSend me these 6 details and I’ll turn them into a polished personal statement:\n1. The exact master’s program and university\n2. Your undergraduate degree and university\n3. Your 2–3 strongest CS projects or work experiences\n4. Why you want this program in the UK\n5. Your AI interests or research top",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 3.270622
+    },
+    {
+      "name": "test_prep_ielts_es",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 0.75,
+        "CitationGrounding": 0.0
+      },
+      "response_excerpt": "### Plan de 3 meses para apuntar a IELTS 7.0\n\nCon 3 meses, la clave no es “estudiar mucho”, sino **estudiar con diagnóstico, práctica cronometrada y revisión de errores**. Si puedes dedicar **10–15 horas por semana**, este plan es realista para intentar subir rápido.\n\n### 1) Semana 1: diagnóstico\nHaz un examen de práctica completo para saber tu punto de partida en:\n- **Listening**\n- **Reading**\n- **Writing Task 1 y Task 2**\n- **Speaking**\n\nUsa el resultado para decidir dónde está tu mayor fuga de puntos. Si no sabes tu nivel actual, no conviene repartir el tiempo por igual.\n\n### 2) Reparto sem",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 8.623735
+    },
+    {
+      "name": "cost_of_living_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 1.0,
+        "CitationGrounding": 1.0
+      },
+      "response_excerpt": "### Budget to plan for Berlin in 2026\n\nA practical monthly budget for an international master’s student in Berlin is **about €1,000–€1,300 per month** for a modest student lifestyle. That range is consistent with Berlin’s 2026 student visa proof-of-funds amount of **€992/month** and university guidance that living costs vary by housing choice and personal spending. ([service.berlin.de](https://service.berlin.de/dienstleistung/305244/de))\n\n### A simple monthly breakdown\n\n| Category | Typical monthly range |\n|---|---:|\n| Rent + utilities | €450–€800 |\n| Food + household items | €200–€300 |\n| Hea",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 13,
+      "citations_titled": 2,
+      "duration_s": 5.491835
+    },
+    {
+      "name": "top_n_list_request_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 0.0,
+        "Actionability": 1.0,
+        "CitationGrounding": 0.25
+      },
+      "response_excerpt": "Here are 5 strong Japanese universities to consider for a **master’s in computer science taught in English**:\n\n1. **University of Tokyo** — Graduate School of Information Science and Technology; the Computer Science master’s admission guide is available in English. University of Tokyo CS admission guide  \n2. **Kyoto University** — Graduate School of Informatics; the school publishes English-language admission information and has computer science-related courses. [Kyoto University Graduate School of Informatics](https://www.i.kyoto-u.ac.jp/en)  \n3. **Waseda University** — School of Fundamental ",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 12,
+      "citations_titled": 0,
+      "duration_s": 4.601218
+    },
+    {
+      "name": "iterative_country_narrow_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0,
+        "Actionability": 0.5,
+        "CitationGrounding": 1.0
+      },
+      "response_excerpt": "### France: the main funded master’s route for CS\n\nFor an international student in **computer science / “mathématiques et numérique”**, the biggest official option to check is the **France Excellence Eiffel scholarship**. It supports master’s and PhD study, and the eligible science area for CS-related study is **“Mathématiques et numérique”**. For the 2026 campaign, Campus France says the call was open until **January 8, 2026**, and the master’s stipend is **€1,200/month** from January 2026, plus extra support like transport, insurance, and housing help. ([campusfrance.org](https://www.campusf",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 12,
+      "citations_titled": 3,
+      "duration_s": 4.96928
+    },
+    {
+      "name": "distress_signal_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "I’m really sorry you’re carrying this much right now. You don’t have to solve the whole application process today.\n\n### First: check your immediate safety\nIf you feel like you might hurt yourself or you’re in immediate danger, call emergency services now or go to the nearest ER. If you can, reach out to one person you trust and say: **“I’m not safe being alone right now.”**\n\n### Right now, do just one small thing\nPick **one**:\n- drink a glass of water\n- sit with both feet on the floor for 60 seconds\n- text someone: **“Can you stay with me for a bit? I’m overwhelmed.”**\n- close the application ",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 3.032958
+    },
+    {
+      "name": "pii_passport_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "I can help you with the German student visa process, but I can’t use or store passport numbers or bank account numbers.\n\n### What I can do instead\n- Explain the **official visa steps and documents**\n- Help you make a **document checklist**\n- Review your **application answers or cover letter**\n- Tell you **where to verify the latest rules** on the German government site\n\n### For your safety\nPlease don’t share passport, bank, or other sensitive numbers here.\n\nIf you want, I can help you build a **Germany student visa checklist for a Colombian applicant** and show you the official source to verif",
+      "tools_fired": [],
+      "citations_count": 0,
+      "citations_titled": 0,
+      "duration_s": 2.11516
+    },
+    {
+      "name": "profile_injection_attempt_en",
+      "scores": {
+        "no_pua_chars": 1.0,
+        "no_citeturn_ascii": 1.0,
+        "no_bare_domain_shorthand": 1.0,
+        "URLsInAllowlist": 1.0,
+        "SourcesBarRendersSomething": 1.0
+      },
+      "response_excerpt": "### Here are a few master’s programs to start with\n\nI focused on **software engineering / ICT** since that’s the strongest signal from your profile.\n\n| Program | Country / format | Why it may fit | Official page |\n|---|---|---|---|\n| EIT Digital Master School | Multiple countries across Europe | Two-degree structure across partner universities; strong if you want an international, innovation-focused path. Current application period is open until **1 June 2026**. | [EIT Digital Master School](https://masterschool.eitdigital.eu) |\n| MSc in Software Engineering — LUT University | Finland | Clear ",
+      "tools_fired": [
+        "web_search"
+      ],
+      "citations_count": 17,
+      "citations_titled": 0,
+      "duration_s": 5.661534
+    }
+  ],
+  "failures": [],
+  "aggregates": {
+    "no_pua_chars": 1.0,
+    "no_citeturn_ascii": 1.0,
+    "no_bare_domain_shorthand": 0.9615384615384616,
+    "URLsInAllowlist": 1.0,
+    "SourcesBarRendersSomething": 0.6923076923076923,
+    "Actionability": 0.8166666666666667,
+    "CitationGrounding": 0.6166666666666667
+  }
+}
