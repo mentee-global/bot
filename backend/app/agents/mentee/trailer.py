@@ -73,25 +73,31 @@ def _format_sources_trailer(
     citations: dict[str, Citation],
     body_text: str,
 ) -> str:
-    """Render the per-message URL→title sidecar as an HTML comment,
-    restricted to URLs the model actually wrote inline in ``body_text``.
+    """Render the per-message URL sidecar as an HTML comment, restricted
+    to URLs the model actually wrote inline in ``body_text``.
 
     Pre-Stage-4 the trailer dumped every URL a tool returned, which led
     to the 24-pill SOURCES bar problem (WebSearch surfaces every
     accessible URL on a domain). Intersecting with the body means the
-    bar mirrors what the user reads: if the model cited two URLs
-    inline, two pills appear; tool-returned URLs the model chose not to
-    use stay silent.
+    sidecar mirrors what the user reads: if the model cited two URLs
+    inline, two entries appear.
 
     Each URL extracted from the body is canonicalized via
     `_canonical_url` so locale / print / utm variants match the
     canonical key in `deps.citations`. The emitted JSON key is the
-    citation's **visible** URL (locale variant pointing at a real
-    page) — the frontend already does substring-with-trailing-slash
-    matching, so any minor form difference (trailing slash, query
-    leftover) still resolves to the same pill.
+    citation's **visible** URL.
 
-    The wire shape is `{url: title}` (title may be `""`).
+    Wire shape (post Option G):
+
+        {visible_url: {"title": str, "source": "openai_web_search"
+                                              | "perplexity"
+                                              | "model_training"}}
+
+    The frontend uses ``source`` to render tool-verified URLs as
+    SOURCES-bar pills and inline links, and to render
+    ``model_training`` URLs as inline-only with a muted style + tooltip
+    so the mentee can tell which links the bot grounded against this
+    turn versus which came from the model's training knowledge.
     """
     if not citations:
         return ""
@@ -102,11 +108,15 @@ def _format_sources_trailer(
         _, canonical_key = _canonical_url(clean)
         cited_keys_in_body.add(canonical_key)
 
-    payload: dict[str, str] = {}
+    payload: dict[str, dict[str, str]] = {}
     for canonical_key, citation in citations.items():
         if canonical_key not in cited_keys_in_body:
             continue
-        payload[citation.url] = (citation.title or "").strip()
+        entry: dict[str, str] = {"source": citation.source}
+        title = (citation.title or "").strip()
+        if title:
+            entry["title"] = title
+        payload[citation.url] = entry
     if not payload:
         return ""
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

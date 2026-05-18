@@ -13,7 +13,7 @@ from app.domain.models import User
 # return the same URL, the WebSearch instance wins because it has a
 # trustworthy title). Add new sources here as we wire more grounding
 # back-ends.
-CitationSource = Literal["openai_web_search", "perplexity"]
+CitationSource = Literal["openai_web_search", "perplexity", "model_training"]
 
 
 @dataclass(slots=True)

@@ -385,81 +385,93 @@ def strip_empty_markdown_links(text: str) -> str:
     return _EMPTY_MD_LINK_RE.sub(r"\1", text)
 
 
+def _record_model_url(
+    citations: dict[str, Citation], raw_url: str
+) -> str | None:
+    """Register a URL the model wrote that isn't in the tool-grounded
+    allowlist. Returns the canonical visible URL to substitute into the
+    body, or ``None`` if the URL was rejected (non-http, asset, etc).
+
+    Model URLs come from training knowledge — they're often correct
+    (canonical course pages, government sites) but not verified by any
+    tool this turn. Recording them under ``source="model_training"``
+    lets the frontend render them with a "not verified by search" visual
+    cue while still keeping the link clickable. The first writer wins,
+    matching ``_add_url_to_allowlist`` semantics.
+    """
+    if not _is_user_facing_url(raw_url):
+        return None
+    visible_url, canonical_key = _canonical_url(raw_url)
+    existing = citations.get(canonical_key)
+    if existing is not None:
+        # A tool already vouched for this URL (or another model write
+        # got here first); use the existing canonical visible URL.
+        return existing.url
+    citations[canonical_key] = Citation(
+        url=visible_url,
+        source="model_training",
+    )
+    return visible_url
+
+
 def _filter_off_allowlist_urls(
     text: str,
     citations: dict[str, Citation],
     *,
-    on_strip: object | None = None,
+    on_strip: object | None = None,  # noqa: ARG001 — retained for caller back-compat
 ) -> str:
-    """Strip URLs the model wrote that aren't in the per-run allowlist,
-    and rewrite the URLs that survive to their canonical visible form.
+    """Canonicalize URLs the model wrote and record their provenance.
 
-    Handles two URL forms uniformly:
+    Two URL forms handled uniformly:
 
-    - **Markdown links** `[text](url)`: if the URL is allowed, keep the
-      link text with the canonical URL substituted in (drops
-      `?utm_source=openai`, collapses locale variants, etc). If not,
-      keep just the link text and drop the URL + surrounding `()` —
-      readers still see a descriptive label, just without a (potentially
-      fabricated) target.
-    - **Bare URLs** `https://…`: if the URL is allowed, replace it with
-      the canonical visible URL from `citations`. If not, drop it but
-      preserve any trailing sentence punctuation so the surrounding
-      prose still reads naturally.
+    - **Markdown links** `[text](url)`: rewrite to the canonical visible
+      URL (drops `?utm_source=openai`, collapses locale variants). If
+      the URL isn't in the tool-grounded allowlist, register it under
+      ``source="model_training"`` and keep it clickable — the frontend
+      styles unverified URLs differently.
+    - **Bare URLs** `https://…`: same canonical-substitution; same
+      model-training fallback. Trailing sentence punctuation is
+      preserved so prose reads naturally.
 
-    `citations` is the per-run ledger keyed by canonical URL
-    (locale-prefix collapsed, print/utm/hl stripped). We run each URL
-    the model wrote through `_canonical_url` before checking membership
-    so the model's locale-specific URL (`/en/...`) still matches a
-    citation indexed by its canonical key. The rewrite ensures the
-    persisted body shows the cleaned URL stored on `Citation.url`, not
-    whatever tagged variant OpenAI handed the model. `on_strip` is an
-    optional telemetry callable invoked once per stripped URL.
+    `citations` is the per-run ledger keyed by canonical URL. We mutate
+    it in place when the model writes a URL we haven't seen — this is
+    why the streaming `_CitationStripper` stores a reference, not a
+    copy. ``on_strip`` is kept in the signature so existing telemetry
+    callers don't break, but its callable is no longer invoked because
+    no URL is dropped in Option G.
     """
-    def _resolve(raw_url: str) -> tuple[bool, str | None]:
-        """Return ``(is_allowed, canonical_visible_url)``.
 
-        ``canonical_visible_url`` is the `Citation.url` value to
-        substitute into the body when the URL is allowed; ``None`` when
-        not allowed.
+    def _resolve(raw_url: str) -> str | None:
+        """Return the canonical visible URL to substitute into the body,
+        or ``None`` to leave the model's raw URL in place (non-http,
+        asset URL, etc — i.e. the cases ``_is_user_facing_url`` rejects).
         """
         clean, _ = _strip_url_trailing_punct(raw_url)
         _, canonical_key = _canonical_url(clean)
-        citation = citations.get(canonical_key)
-        if citation is None:
-            return False, None
-        return True, citation.url
-
-    def _notify_strip(raw_url: str) -> None:
-        if callable(on_strip):
-            try:
-                clean, _ = _strip_url_trailing_punct(raw_url)
-                on_strip(clean)  # type: ignore[misc]
-            except Exception:  # noqa: BLE001 — telemetry must not break output
-                pass
+        existing = citations.get(canonical_key)
+        if existing is not None:
+            return existing.url
+        return _record_model_url(citations, clean)
 
     # 1. Markdown links first so the bare-URL pass below doesn't pick up
-    # the URL portion of a link that we're about to keep wholesale.
+    # the URL portion of a link that we're about to rewrite wholesale.
     def md_repl(match: re.Match[str]) -> str:
         link_text = match.group(1)
         url = match.group(2)
-        allowed, canonical = _resolve(url)
-        if allowed and canonical is not None:
+        canonical = _resolve(url)
+        if canonical is not None:
             return f"[{link_text}]({canonical})"
-        _notify_strip(url)
-        return link_text
+        return f"[{link_text}]({url})"
 
     text = _MD_LINK_RE.sub(md_repl, text)
 
     # 2. Bare URLs the model wrote without markdown wrapping.
     def bare_repl(match: re.Match[str]) -> str:
         raw = match.group(0)
-        allowed, canonical = _resolve(raw)
-        if allowed and canonical is not None:
+        canonical = _resolve(raw)
+        if canonical is not None:
             _, trail = _strip_url_trailing_punct(raw)
             return canonical + trail
-        _, trail = _strip_url_trailing_punct(raw)
-        _notify_strip(raw)
-        return trail
+        return raw
 
     return _URL_RE.sub(bare_repl, text)
