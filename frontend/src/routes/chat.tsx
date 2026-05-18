@@ -33,7 +33,10 @@ import {
 	type ChatInputHandle,
 } from "#/features/chat/components/ChatInput";
 import { MessageListSkeleton } from "#/features/chat/components/ChatSkeletons";
-import { ChatWelcome } from "#/features/chat/components/ChatWelcome";
+import {
+	ChatWelcome,
+	clearWelcomeTipsState,
+} from "#/features/chat/components/ChatWelcome";
 import { ConfirmDeleteThreadDialog } from "#/features/chat/components/ConfirmDeleteThreadDialog";
 import { stripChatBody } from "#/features/chat/components/MessageBody";
 import { MessageList } from "#/features/chat/components/MessageList";
@@ -273,6 +276,7 @@ function ChatView({
 	const handleLogout = useCallback(() => {
 		clearAllDrafts();
 		clearSessionRatingState();
+		clearWelcomeTipsState();
 		logout.mutate();
 	}, [logout]);
 

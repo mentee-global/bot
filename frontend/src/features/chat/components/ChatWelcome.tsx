@@ -13,6 +13,14 @@ import { m } from "#/paraglide/messages";
 
 const WELCOME_TIPS_DISMISSED_KEY = "mentee:welcome-tips-dismissed";
 
+export function clearWelcomeTipsState() {
+	try {
+		window.sessionStorage.removeItem(WELCOME_TIPS_DISMISSED_KEY);
+	} catch {
+		/* sessionStorage unavailable */
+	}
+}
+
 interface ChatWelcomeProps {
 	userName: string;
 	recentThreads?: ThreadSummary[];
@@ -119,8 +127,10 @@ export function ChatWelcome({
 }
 
 function WelcomeTipsCard({ onOpenAbout }: { onOpenAbout?: () => void }) {
-	// One-shot: shown once on the first welcome render, then never auto-shown
-	// again (still reachable via the header info icon and sidebar row).
+	// Per-session: shown once per browser session/login. sessionStorage clears
+	// when the tab closes, and `clearWelcomeTipsState()` clears it on logout —
+	// so the next login (in a new tab or after sign-out) sees the card again.
+	// Still reachable any time via the header info icon and sidebar row.
 	// Hidden on the server and on the first client paint to avoid a flash.
 	const [hydrated, setHydrated] = useState(false);
 	const [dismissed, setDismissed] = useState(true);
@@ -129,17 +139,20 @@ function WelcomeTipsCard({ onOpenAbout }: { onOpenAbout?: () => void }) {
 		let alreadySeen = false;
 		try {
 			alreadySeen =
-				window.localStorage.getItem(WELCOME_TIPS_DISMISSED_KEY) === "1";
+				window.sessionStorage.getItem(WELCOME_TIPS_DISMISSED_KEY) === "1";
+			// One-time cleanup of the old localStorage flag from the previous
+			// per-device implementation, so it doesn't keep occupying space.
+			window.localStorage.removeItem(WELCOME_TIPS_DISMISSED_KEY);
 		} catch {
 			alreadySeen = false;
 		}
 		if (!alreadySeen) {
-			// Mark as seen now so the card never auto-appears again, even if
-			// the user navigates away without clicking the X.
+			// Mark as seen for this session so reloads / new-chat navigations
+			// during the same session don't reopen the card.
 			try {
-				window.localStorage.setItem(WELCOME_TIPS_DISMISSED_KEY, "1");
+				window.sessionStorage.setItem(WELCOME_TIPS_DISMISSED_KEY, "1");
 			} catch {
-				/* localStorage unavailable — accept session-only behavior */
+				/* sessionStorage unavailable — accept render-only behavior */
 			}
 		}
 		setDismissed(alreadySeen);
