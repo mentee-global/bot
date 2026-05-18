@@ -4,16 +4,21 @@ import {
 	GraduationCap,
 	MapPin,
 	Sparkles,
+	X,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ThreadSummary } from "#/features/chat/data/chat.types";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+
+const WELCOME_TIPS_DISMISSED_KEY = "mentee:welcome-tips-dismissed";
 
 interface ChatWelcomeProps {
 	userName: string;
 	recentThreads?: ThreadSummary[];
 	onPickStarter: (prompt: string) => void;
 	onContinue?: (threadId: string) => void;
+	onOpenAbout?: () => void;
 	disabled?: boolean;
 }
 
@@ -22,6 +27,7 @@ export function ChatWelcome({
 	recentThreads = [],
 	onPickStarter,
 	onContinue,
+	onOpenAbout,
 	disabled = false,
 }: ChatWelcomeProps) {
 	const firstName = userName.split(" ")[0] ?? userName;
@@ -106,6 +112,87 @@ export function ChatWelcome({
 					</button>
 				))}
 			</div>
+
+			<WelcomeTipsCard onOpenAbout={onOpenAbout} />
 		</div>
+	);
+}
+
+function WelcomeTipsCard({ onOpenAbout }: { onOpenAbout?: () => void }) {
+	// One-shot: shown once on the first welcome render, then never auto-shown
+	// again (still reachable via the header info icon and sidebar row).
+	// Hidden on the server and on the first client paint to avoid a flash.
+	const [hydrated, setHydrated] = useState(false);
+	const [dismissed, setDismissed] = useState(true);
+
+	useEffect(() => {
+		let alreadySeen = false;
+		try {
+			alreadySeen =
+				window.localStorage.getItem(WELCOME_TIPS_DISMISSED_KEY) === "1";
+		} catch {
+			alreadySeen = false;
+		}
+		if (!alreadySeen) {
+			// Mark as seen now so the card never auto-appears again, even if
+			// the user navigates away without clicking the X.
+			try {
+				window.localStorage.setItem(WELCOME_TIPS_DISMISSED_KEY, "1");
+			} catch {
+				/* localStorage unavailable — accept session-only behavior */
+			}
+		}
+		setDismissed(alreadySeen);
+		setHydrated(true);
+	}, []);
+
+	if (!hydrated || dismissed) return null;
+
+	const handleDismiss = () => {
+		setDismissed(true);
+	};
+
+	const tips = [
+		m.welcome_tips_files(),
+		m.welcome_tips_memory(),
+		m.welcome_tips_credits(),
+	];
+
+	return (
+		<aside className="relative mt-5 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)] px-4 py-3 pr-9">
+			<button
+				type="button"
+				onClick={handleDismiss}
+				aria-label={m.welcome_tips_dismiss_aria()}
+				className="absolute right-2 top-2 rounded-md p-1 text-[var(--theme-muted)] transition hover:bg-[var(--theme-bg)] hover:text-[var(--theme-primary)]"
+			>
+				<X aria-hidden="true" className="size-3.5" />
+			</button>
+			<p className="island-kicker m-0 mb-1.5">{m.welcome_tips_kicker()}</p>
+			<ul className="m-0 flex flex-col gap-1 p-0">
+				{tips.map((tip) => (
+					<li
+						key={tip}
+						className="flex list-none items-start gap-2 text-xs text-[var(--theme-secondary)] sm:text-sm"
+					>
+						<span
+							aria-hidden="true"
+							className="mt-1.5 size-1 shrink-0 rounded-full bg-[var(--theme-muted)]"
+						/>
+						<span className="min-w-0 leading-snug">{tip}</span>
+					</li>
+				))}
+			</ul>
+			{onOpenAbout ? (
+				<button
+					type="button"
+					onClick={onOpenAbout}
+					className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--theme-accent-hover)] underline-offset-4 transition hover:underline sm:text-sm"
+				>
+					{m.welcome_tips_more()}
+					<ArrowRight aria-hidden="true" className="size-3.5" />
+				</button>
+			) : null}
+		</aside>
 	);
 }

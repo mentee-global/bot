@@ -1,4 +1,5 @@
 import {
+	Info,
 	MessageSquarePlus,
 	Pencil,
 	Pin,
@@ -26,6 +27,7 @@ interface ThreadSidebarProps {
 	onRequestRename: (thread: ThreadSummary) => void;
 	onInlineRename: (threadId: string, title: string) => void;
 	onRequestDelete: (thread: ThreadSummary) => void;
+	onOpenAbout?: () => void;
 	isCreating: boolean;
 	isOpenMobile: boolean;
 	onCloseMobile: () => void;
@@ -44,6 +46,7 @@ export function ThreadSidebar({
 	onRequestRename,
 	onInlineRename,
 	onRequestDelete,
+	onOpenAbout,
 	isCreating,
 	isOpenMobile,
 	onCloseMobile,
@@ -192,6 +195,21 @@ export function ThreadSidebar({
 						</div>
 					)}
 				</div>
+				{onOpenAbout ? (
+					<div className="border-t border-[var(--theme-border)] px-2 py-2">
+						<button
+							type="button"
+							onClick={() => {
+								onOpenAbout();
+								onCloseMobile();
+							}}
+							className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs font-medium text-[var(--theme-muted)] transition hover:bg-[var(--theme-bg)] hover:text-[var(--theme-primary)]"
+						>
+							<Info aria-hidden="true" className="size-3.5" />
+							<span>{m.about_bot_title()}</span>
+						</button>
+					</div>
+				) : null}
 			</aside>
 		</>
 	);

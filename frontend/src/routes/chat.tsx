@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
 	AlertTriangle,
+	Info,
 	Keyboard,
 	Menu,
 	PauseCircle,
@@ -26,6 +27,7 @@ import {
 import { CreditsPill } from "#/features/budget/components/CreditsPill";
 import type { MeResponse } from "#/features/budget/data/budget.types";
 import { useMeQuery } from "#/features/budget/hooks/useBudget";
+import { AboutBotDialog } from "#/features/chat/components/AboutBotDialog";
 import {
 	ChatInput,
 	type ChatInputHandle,
@@ -174,6 +176,7 @@ function ChatView({
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
 	const [shortcutsOpen, setShortcutsOpen] = useState(false);
+	const [aboutOpen, setAboutOpen] = useState(false);
 	const [editConfirm, setEditConfirm] = useState<{
 		messageId: string;
 		body: string;
@@ -476,6 +479,7 @@ function ChatView({
 				onRequestRename={setRenameTarget}
 				onInlineRename={handleInlineRename}
 				onRequestDelete={setDeleteTarget}
+				onOpenAbout={() => setAboutOpen(true)}
 				isCreating={false}
 				isOpenMobile={sidebarOpen}
 				onCloseMobile={() => setSidebarOpen(false)}
@@ -522,6 +526,14 @@ function ChatView({
 							</Link>
 						</>
 					) : null}
+					<button
+						type="button"
+						onClick={() => setAboutOpen(true)}
+						aria-label={m.about_bot_open_aria()}
+						className="hidden shrink-0 items-center justify-center rounded-md border border-[var(--theme-border)] p-1.5 text-[var(--theme-muted)] transition hover:border-[var(--theme-accent)] hover:text-[var(--theme-primary)] md:inline-flex"
+					>
+						<Info className="size-4" aria-hidden="true" />
+					</button>
 					<button
 						type="button"
 						onClick={() => setShortcutsOpen(true)}
@@ -576,6 +588,7 @@ function ChatView({
 									track("chat.starter_picked", { kind: "continue" });
 									handleSelect(threadId);
 								}}
+								onOpenAbout={() => setAboutOpen(true)}
 								disabled={block !== null}
 							/>
 						) : (
@@ -643,6 +656,7 @@ function ChatView({
 				onConfirm={confirmEdit}
 			/>
 			<ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+			<AboutBotDialog open={aboutOpen} onOpenChange={setAboutOpen} />
 			{isAdmin ? (
 				<PersonaSheet
 					open={personaSheetOpen}
