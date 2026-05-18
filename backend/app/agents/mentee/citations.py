@@ -89,17 +89,23 @@ _URL_RE = re.compile(r'https?://[^\s<>"]+')
 # matches a bare scheme + zero or more body chars, so we can detect a cut
 # that landed right after `://` (where `_URL_RE` would miss).
 _URL_PROBE_RE = re.compile(r'https?://[^\s<>"]*')
-_URL_TRAIL_PUNCT = ".,;:!?"
+_URL_TRAIL_PUNCT = ".,;:!?*"
 
 
 def _strip_url_trailing_punct(url: str) -> tuple[str, str]:
     """Split a regex-matched URL into (clean_url, trailing_punct).
 
-    Punctuation comes in two flavors:
-      - sentence-end chars (".,;:!?") — always stripped from the tail
+    Punctuation comes in three flavors:
+      - sentence-end + emphasis chars (".,;:!?*") — always stripped from
+        the tail. The `*` covers markdown bold/italic emphasis (`**url**`,
+        `*url*`); real URLs don't end in `*`.
       - closing brackets (")", "]") — stripped only when unbalanced (i.e.
         more closers than openers in the URL), so genuine in-URL parens
         like `/foo(bar)/` survive while trailing markdown brackets don't.
+
+    Iterates so a mixed tail like `)**` peels to (url, ")**") cleanly:
+    pass 1 strips the `*`, pass 2 strips the next `*`, pass 3 strips
+    the unbalanced `)`.
     """
     trail = ""
     while url:
