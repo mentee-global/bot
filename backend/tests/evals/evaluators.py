@@ -132,6 +132,55 @@ class SourcesBarRendersSomething(
         return 1.0 if has_title else 0.0
 
 
+# Strip the trailing `<!-- mentee-sources: ... -->` HTML comment the
+# trailer formatter appends, so the length check measures only what the
+# mentee sees in the chat surface.
+_TRAILER_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+# Line starting with `### ` (Markdown H3) — the model's default heavy
+# structure marker that we want to absent from short conversational
+# turns.
+_H3_HEADING_RE = re.compile(r"(?m)^###\s")
+
+
+@dataclass
+class ConversationalShapeAppropriate(
+    Evaluator[MenteeInput, MenteeOutput, MenteeMetadata]
+):
+    """Turn shape matches the conversational register the case expects.
+
+    Gated by `metadata.expects_short_prose`. The case represents a
+    chat turn where heavy markdown is inappropriate — single
+    clarifying question, refusal, acknowledgement, emotional reply,
+    repeat acknowledgement, vague-seed reply that needs one filter.
+
+    A reply passes when it contains NO `###` heading anywhere AND
+    its visible body (trailer HTML comment stripped) is under the
+    prose cap. Otherwise the reply is "report-shaped" — fails the
+    `feels-like-chat` quality bar even if the underlying content is
+    correct.
+
+    Returns 1.0 (vacuously) when `expects_short_prose=False` so this
+    evaluator never grades search-shaped turns harshly for using
+    structure where structure is earned.
+    """
+
+    max_chars: int = 600
+
+    def evaluate(
+        self, ctx: EvaluatorContext[MenteeInput, MenteeOutput, MenteeMetadata]
+    ) -> float:
+        meta = ctx.metadata
+        if meta is None or not meta.expects_short_prose:
+            return 1.0
+        body = ctx.output.body
+        if _H3_HEADING_RE.search(body):
+            return 0.0
+        visible = _TRAILER_COMMENT_RE.sub("", body).strip()
+        if len(visible) > self.max_chars:
+            return 0.0
+        return 1.0
+
+
 # --- LLM-as-judge evaluators -----------------------------------------
 
 
@@ -259,6 +308,7 @@ def default_evaluators() -> list[Evaluator[MenteeInput, MenteeOutput, MenteeMeta
         NoMarkerLeak(),
         URLsInAllowlist(),
         SourcesBarRendersSomething(),
+        ConversationalShapeAppropriate(),
         Actionability(),
         CitationGrounding(),
     ]
@@ -267,6 +317,7 @@ def default_evaluators() -> list[Evaluator[MenteeInput, MenteeOutput, MenteeMeta
 __all__ = (
     "Actionability",
     "CitationGrounding",
+    "ConversationalShapeAppropriate",
     "NoMarkerLeak",
     "SourcesBarRendersSomething",
     "URLsInAllowlist",

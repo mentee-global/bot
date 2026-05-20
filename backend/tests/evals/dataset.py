@@ -73,12 +73,19 @@ class MenteeMetadata(BaseModel):
     `expected_language` — short locale tag the reply should be in
     (`"es"`, `"en"`, `"pt"`, `"fa"`). Currently informational; can be
     wired into a future deterministic evaluator.
+
+    `expects_short_prose` — the turn shape calls for a short, plain-
+    prose reply (clarification, acknowledgement, refusal, emotional
+    reply, repeat acknowledgement). Wired into the
+    `ConversationalShapeAppropriate` evaluator, which fails the case
+    if the body contains a `###` heading or runs over the prose cap.
     """
 
     category: str
     expects_sources: bool = False
     judges_apply: bool = False
     expected_language: str = "es"
+    expects_short_prose: bool = False
 
 
 class MenteeOutput(BaseModel):
@@ -674,6 +681,196 @@ def mentee_cases() -> Sequence[Case[MenteeInput, MenteeOutput, MenteeMetadata]]:
                 expects_sources=False,
                 judges_apply=False,
                 expected_language="en",
+            ),
+        ),
+
+        # === Eligibility: modality (online-only) ========================
+        # Mentee explicitly limits modality. Real-thread shape: bot
+        # recommended in-person programs to a user who said "online
+        # only", then disclaimed mid-list. The prompt's "Eligibility is
+        # a filter, not a footnote" rule says omit non-fitting items.
+        Case(
+            name="eligibility_online_only_es",
+            inputs=MenteeInput(
+                message=(
+                    "Solo me interesan programas 100% en línea. "
+                    "Pásame becas concretas de máster en informática con financiamiento."
+                ),
+                profile=_LATAM_ENG_PROFILE,
+            ),
+            metadata=MenteeMetadata(
+                category="eligibility_modality",
+                expects_sources=True,
+                judges_apply=True,
+                expected_language="es",
+            ),
+        ),
+
+        # === Eligibility: country / visa-blocked ========================
+        # Real-thread shape: bot listed US universities for a user who
+        # said they cannot enter the US. The bot must filter US results
+        # before responding, not list-then-disclaim. Different from the
+        # existing `constraint_correction_geographic_en` in that the
+        # constraint is stated up front, not mid-thread.
+        Case(
+            name="eligibility_visa_blocked_en",
+            inputs=MenteeInput(
+                message=(
+                    "I'm a Sudanese citizen and right now I can't get a US visa. "
+                    "Find me funded master's programs in computer science in countries where I'd be able to enroll."
+                ),
+                ui_locale="en",
+                preferred_language="en",
+                profile=MenteeProfileFixture(
+                    location="capital region",
+                    country="Sudan",
+                    biography="CS student currently blocked from US entry; looking for non-US funded programs.",
+                    field_of_study="Computer Science",
+                ),
+            ),
+            metadata=MenteeMetadata(
+                category="eligibility_country",
+                expects_sources=True,
+                judges_apply=True,
+                expected_language="en",
+            ),
+        ),
+
+        # === Seed prompt: profile-echo then act =========================
+        # Stand-in for the "Find scholarships that fit my profile"
+        # starter chip. Real-thread shape: bot assumes nationality /
+        # gender / field / modality without confirming, then locks the
+        # whole conversation to a wrong assumption. The prompt rule:
+        # echo the assumed profile in one short line ("Going with: ...")
+        # and act in the same turn.
+        Case(
+            name="profile_echo_then_act_en",
+            inputs=MenteeInput(
+                message="Find scholarships that fit my profile.",
+                ui_locale="en",
+                preferred_language="en",
+                profile=MenteeProfileFixture(
+                    location="provincial city",
+                    country="Afghanistan",
+                    biography=(
+                        "Afghan woman, former medical student, currently displaced. "
+                        "Looking for fully-funded online or in-region master's options in health data."
+                    ),
+                    field_of_study="Health Data Science",
+                ),
+            ),
+            metadata=MenteeMetadata(
+                category="seed_profile_echo",
+                expects_sources=True,
+                judges_apply=True,
+                expected_language="en",
+            ),
+        ),
+
+        # === Generalized emotional weight (not "distress") ==============
+        # Frustration, fatigue, discouragement — NOT crying / suicidal
+        # ideation. Generalizes from the prompt's old narrow distress
+        # list. The new emotional-weight rule says slow down,
+        # acknowledge first, do NOT pile on a multi-bullet plan, do NOT
+        # wrap in `###` headings. May offer one small next step *only
+        # if it seems wanted*.
+        Case(
+            name="emotional_frustration_general_es",
+            inputs=MenteeInput(
+                message=(
+                    "Llevo meses aplicando y nada funciona. Estoy harta. "
+                    "No sé si vale la pena seguir intentándolo."
+                ),
+                profile=_LATAM_ENG_PROFILE,
+            ),
+            metadata=MenteeMetadata(
+                category="emotional_weight",
+                expects_sources=False,
+                judges_apply=False,
+                expected_language="es",
+                expects_short_prose=True,
+            ),
+        ),
+
+        # === Repeated message (previous reply did not land) =============
+        # Real-thread shape: mentee re-sent the same emotional message
+        # twice; the bot returned a near-identical templated reply the
+        # second time. The prompt's repeated-message rule says
+        # acknowledge the repeat explicitly and change register
+        # (shorter, less structured, more human; ask what isn't landing).
+        Case(
+            name="repeated_message_distress_en",
+            inputs=MenteeInput(
+                message="When I talk to you I feel more desperate.",
+                history=[
+                    MenteeInputMessage(
+                        role="user",
+                        body="When I talk to you I feel more desperate.",
+                    ),
+                    MenteeInputMessage(
+                        role="assistant",
+                        body=(
+                            "I hear you. Reply with one word: **safe** or **not safe**. "
+                            "If safe, here are next steps for your scholarship application."
+                        ),
+                    ),
+                ],
+                ui_locale="en",
+                preferred_language="en",
+                profile=MenteeProfileFixture(
+                    location="provincial city",
+                    country="Afghanistan",
+                    biography="Afghan woman seeking displacement-friendly scholarships.",
+                ),
+            ),
+            metadata=MenteeMetadata(
+                category="repeated_message",
+                expects_sources=False,
+                judges_apply=False,
+                expected_language="en",
+                expects_short_prose=True,
+            ),
+        ),
+
+        # === Short clarification (one sentence, no menu) ================
+        # Single missing filter — the prompt rule says ask in one
+        # sentence, not as `### I need one missing detail` + bullet
+        # menu of options.
+        Case(
+            name="short_clarify_no_menu_en",
+            inputs=MenteeInput(
+                message="What scholarships should I apply to?",
+                ui_locale="en",
+                preferred_language="en",
+                profile=None,
+            ),
+            metadata=MenteeMetadata(
+                category="short_clarify",
+                expects_sources=False,
+                judges_apply=False,
+                expected_language="en",
+                expects_short_prose=True,
+            ),
+        ),
+
+        # === Vague seed prompt that needs one filter ====================
+        # Real-thread shape: "Compare study-abroad options in a country"
+        # starter chip dead-ends 2/3 of the time at the bot asking
+        # "which country?". The chip should require a country slot in
+        # the UI, but as a backstop the bot should ask for the country
+        # in one sentence — not a multi-bullet menu.
+        Case(
+            name="compare_study_abroad_needs_country_es",
+            inputs=MenteeInput(
+                message="Compárame opciones de estudio en el extranjero.",
+                profile=_LATAM_ENG_PROFILE,
+            ),
+            metadata=MenteeMetadata(
+                category="seed_needs_country",
+                expects_sources=False,
+                judges_apply=False,
+                expected_language="es",
+                expects_short_prose=True,
             ),
         ),
     ]
