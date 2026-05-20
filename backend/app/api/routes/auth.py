@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from typing import Annotated
 from urllib.parse import unquote, urlsplit
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from app.api.deps import SESSION_COOKIE, get_auth_service
+from app.api.deps import LOGIN_ATTEMPT_COOKIE, SESSION_COOKIE, get_auth_service
 from app.auth.errors import (
     AuthError,
     CodeExchangeError,
@@ -48,11 +49,25 @@ async def login(
         "auth.login",
         has_redirect_to=redirect_to is not None,
         role_hint=role_hint,
+        attempt_cookie_set=True,
     ):
         authorize_url = await auth.start_login(
             redirect_to=redirect_to, login_role_hint=role_hint
         )
-        return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
+        response = RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
+        # Breadcrumb the frontend reads to detect silent drop-offs. Non-HttpOnly
+        # so the SPA can see it; deleted by the callback handler on every exit
+        # path (success and error).
+        response.set_cookie(
+            key=LOGIN_ATTEMPT_COOKIE,
+            value=str(int(time.time())),
+            httponly=False,
+            samesite=settings.session_cookie_samesite,
+            secure=settings.session_cookie_secure,
+            max_age=settings.login_attempt_max_age_seconds,
+            path="/",
+        )
+        return response
 
 
 # Same-origin relative paths only. Reject anything with a scheme, netloc,
@@ -88,6 +103,17 @@ def _safe_post_login_path(redirect_to: str | None) -> str:
     return candidate
 
 
+def _clear_attempt(response: RedirectResponse) -> RedirectResponse:
+    """Drop the login-attempt breadcrumb cookie on every callback exit path.
+
+    Whether the OAuth flow succeeded or errored cleanly, the user is now off
+    the bot's landing page and the recovery banner should not trigger on
+    their next visit.
+    """
+    response.delete_cookie(LOGIN_ATTEMPT_COOKIE, path="/")
+    return response
+
+
 @router.get("/callback")
 @limiter.limit("30/minute")
 async def callback(
@@ -109,15 +135,19 @@ async def callback(
             reason = error if error in _PASSTHROUGH_ERRORS else "oauth"
             span.set_attribute("status", "provider_error")
             span.set_attribute("error_reason", reason)
-            return RedirectResponse(
-                f"{frontend}/auth/error?reason={reason}",
-                status_code=status.HTTP_302_FOUND,
+            return _clear_attempt(
+                RedirectResponse(
+                    f"{frontend}/auth/error?reason={reason}",
+                    status_code=status.HTTP_302_FOUND,
+                )
             )
         if not code or not state:
             span.set_attribute("status", "missing_params")
-            return RedirectResponse(
-                f"{frontend}/auth/error?reason=missing_params",
-                status_code=status.HTTP_302_FOUND,
+            return _clear_attempt(
+                RedirectResponse(
+                    f"{frontend}/auth/error?reason=missing_params",
+                    status_code=status.HTTP_302_FOUND,
+                )
             )
 
         try:
@@ -127,17 +157,21 @@ async def callback(
         except StateMismatchError as exc:
             span.set_attribute("status", "state_mismatch")
             span.set_attribute("error_type", type(exc).__name__)
-            return RedirectResponse(
-                f"{frontend}/auth/error?reason=oauth",
-                status_code=status.HTTP_302_FOUND,
+            return _clear_attempt(
+                RedirectResponse(
+                    f"{frontend}/auth/error?reason=oauth",
+                    status_code=status.HTTP_302_FOUND,
+                )
             )
         except (CodeExchangeError, InvalidIdTokenError, UserinfoFetchError) as exc:
             span.set_attribute("status", "oauth_failure")
             span.set_attribute("error_type", type(exc).__name__)
             logger.warning("OAuth callback failed: %s", exc)
-            return RedirectResponse(
-                f"{frontend}/auth/error?reason=oauth",
-                status_code=status.HTTP_302_FOUND,
+            return _clear_attempt(
+                RedirectResponse(
+                    f"{frontend}/auth/error?reason=oauth",
+                    status_code=status.HTTP_302_FOUND,
+                )
             )
 
         for k, v in user_attrs(user).items():
@@ -157,7 +191,7 @@ async def callback(
             max_age=settings.session_max_age_seconds,
             path="/",
         )
-        return response
+        return _clear_attempt(response)
 
 
 @router.get("/me", response_model=MeResponse)

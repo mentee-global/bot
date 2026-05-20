@@ -12,7 +12,7 @@ export const Route = createFileRoute("/auth/error")({
 
 function AuthErrorPage() {
 	const { reason } = Route.useSearch();
-	const message = translateReason(reason);
+	const { message, hint } = translateReason(reason);
 
 	return (
 		<main className="page-wrap px-4 pb-16 pt-20 text-center">
@@ -20,7 +20,10 @@ function AuthErrorPage() {
 				<h1 className="display-title mb-3 text-2xl font-bold text-[var(--theme-primary)]">
 					{m.auth_error_title()}
 				</h1>
-				<p className="mb-6 text-[var(--theme-muted)]">{message}</p>
+				<p className="mb-3 text-[var(--theme-muted)]">{message}</p>
+				{hint && (
+					<p className="mb-6 text-sm text-[var(--theme-secondary)]">{hint}</p>
+				)}
 				<Link to="/" className="btn-primary">
 					{m.auth_back_home()}
 				</Link>
@@ -32,18 +35,25 @@ function AuthErrorPage() {
 // Reasons mirror the backend's /api/auth/callback → /auth/error mapping
 // (backend plan §11). Mentee passes OAuth 2.0 standard error codes through
 // verbatim; anything else collapses to "oauth" so we don't leak provider
-// internals.
-function translateReason(reason?: string): string {
+// internals. Per-reason hints suggest concrete next steps for the common
+// silent-bounce failure modes.
+function translateReason(reason?: string): { message: string; hint?: string } {
 	switch (reason) {
 		case "access_denied":
-			return m.auth_error_denied();
+			return {
+				message: m.auth_error_denied(),
+				hint: m.auth_error_hint_access_denied(),
+			};
 		case "login_required":
-			return m.auth_error_login_required();
+			return { message: m.auth_error_login_required() };
 		case "invalid_scope":
 		case "missing_params":
 		case "oauth":
-			return m.auth_error_generic();
+			return {
+				message: m.auth_error_generic(),
+				hint: m.auth_error_hint_oauth(),
+			};
 		default:
-			return m.auth_error_unknown();
+			return { message: m.auth_error_unknown() };
 	}
 }

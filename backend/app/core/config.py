@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     session_cookie_samesite: str = "lax"
     session_max_age_seconds: int = 60 * 60 * 24 * 7
 
+    # Short-lived breadcrumb the frontend reads on the landing page to detect
+    # silent OAuth drop-offs (provider bounced the user without sending them
+    # back to /api/auth/callback). Non-HttpOnly by design; carries only an
+    # epoch-seconds timestamp.
+    login_attempt_cookie_name: str = "mentee_login_attempt"
+    login_attempt_max_age_seconds: int = 300
+
     # OAuth transient state
     oauth_state_ttl_seconds: int = 600
 

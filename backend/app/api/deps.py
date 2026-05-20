@@ -21,6 +21,7 @@ from app.services.pg_thread_store import PostgresThreadStore
 from app.services.thread_store import InMemoryThreadStore, ThreadStore
 
 SESSION_COOKIE = settings.session_cookie_name
+LOGIN_ATTEMPT_COOKIE = settings.login_attempt_cookie_name
 
 
 def _build_agent(s: Settings, budget: BudgetService) -> AgentPort:

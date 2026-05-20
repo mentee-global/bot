@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
+import { LoginRecoveryBanner } from "#/features/auth/components/LoginRecoveryBanner";
 import { LoginRedirectOverlay } from "#/features/auth/components/LoginRedirectOverlay";
 import { authService } from "#/features/auth/data/auth.service";
 import { useSession } from "#/features/auth/hooks/useSession";
@@ -59,6 +60,7 @@ function Landing() {
 
 	return (
 		<main className="page-wrap px-4 pb-16 pt-20">
+			{!isLoggedIn && !isRedirecting && <LoginRecoveryBanner />}
 			<section className="rise-in max-w-3xl">
 				<p className="island-kicker mb-4">{m.landing_kicker()}</p>
 				<h1 className="display-title mb-6 text-5xl font-bold leading-[1.05] tracking-tight text-[var(--theme-primary)] sm:text-6xl">
