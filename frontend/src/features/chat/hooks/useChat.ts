@@ -35,7 +35,10 @@ export function threadQueryOptions(threadId: string | null | undefined) {
 				? chatService.getThreadById(threadId, signal)
 				: chatService.getThread(signal),
 		// Wait for the thread list to resolve a concrete id before firing.
-		enabled: !!threadId,
+		// `pending-*` is the client-side optimistic id minted in
+		// `useStreamMessage` before the backend mints a real UUID — sending
+		// it to /threads/{id} would 404 (was 500 before the backend guard).
+		enabled: !!threadId && !threadId.startsWith("pending-"),
 		// setQueryData writes after create/send are authoritative, so avoid
 		// an immediate refetch on next render.
 		staleTime: 30_000,

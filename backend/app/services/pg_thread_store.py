@@ -37,7 +37,17 @@ def _now() -> datetime:
 
 
 def _as_uuid(value: str | UUID) -> UUID:
-    return value if isinstance(value, UUID) else UUID(value)
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(value)
+    except ValueError as exc:
+        # A path-segment id reached the store that isn't a real UUID — most
+        # commonly the frontend's optimistic `pending-thread-…` placeholder
+        # leaking into a fetch before the backend has resolved the real id.
+        # Surface as a missing-thread so the route's existing 404 handler
+        # catches it instead of bubbling up as a 500.
+        raise ThreadNotFoundError(str(value)) from exc
 
 
 def _thread_from_record(

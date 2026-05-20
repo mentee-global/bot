@@ -128,7 +128,9 @@ export function useThreadRatingQuery(threadId: string | null | undefined) {
 			const res = await chatService.getThreadRating(threadId, signal);
 			return res.rating;
 		},
-		enabled: Boolean(threadId),
+		// Skip `pending-*` optimistic ids minted before the backend resolves
+		// the real thread UUID — see `threadQueryOptions` for context.
+		enabled: Boolean(threadId) && !threadId?.startsWith("pending-"),
 		staleTime: 60_000,
 	});
 }

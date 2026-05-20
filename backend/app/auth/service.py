@@ -128,7 +128,7 @@ class AuthService:
         if session_row.access_token_expires_at <= _now() + timedelta(seconds=60):
             session_row, user_row = await self._refresh(session_row)
         user = _user_from_row(user_row)
-        user.mentee_profile = await self._resolve_profile(session_row)
+        user.mentee_profile = await self._resolve_profile(session_row, user_row)
         return user
 
     async def logout(self, session_id: str) -> None:
@@ -143,12 +143,19 @@ class AuthService:
         logger.info("logout for session %s", session_id[:8])
 
     async def _resolve_profile(
-        self, session_row: SessionRecord
+        self, session_row: SessionRecord, user_row: UserRecord
     ) -> MenteeProfile | None:
         """Return the mentee's richer profile (cached 15 min by default).
         Returns None when the profile client is disabled or degrades gracefully.
         """
         if self._profile_client is None:
+            return None
+
+        # `/oauth/profile` is mentee-only by design (returns 404 for any other
+        # role via `ProfileNotFound` in Mentee's `assemble_profile_dto`). Skip
+        # the round trip — and the log noise it produces — when we already
+        # know the role from /oauth/userinfo.
+        if (user_row.role or "").lower() != "mentee":
             return None
 
         session_id = session_row.session_id
