@@ -79,8 +79,13 @@ class Settings(BaseSettings):
     perplexity_api_key: SecretStr | None = None
     perplexity_model: str = "sonar"
     agent_impl: Literal["mock", "mentee"] = "mock"
-    agent_model: str = "gpt-5.4-mini"
-    agent_request_timeout_s: float = 30.0
+    agent_model: str = "gpt-5.4"
+    # gpt-5.4 is rated "Highest" reasoning / "Medium" speed — under default
+    # effort on heavy multi-step search turns the OpenAI request can run
+    # 30-60s. 30s tripped 3/26 cases in the post-swap eval; 60s clears
+    # them without giving runaway turns infinite room to burn (the real
+    # runaway guard is `agent_total_tokens_limit` below).
+    agent_request_timeout_s: float = 60.0
     agent_request_limit: int = 10
     # Hard ceiling on tool calls per turn. Observed distribution over the
     # 14-day window before this setting was added: P50=0, P95=3, max=4.

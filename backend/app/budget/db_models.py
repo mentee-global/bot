@@ -137,8 +137,8 @@ class BudgetConfig(SQLModel, table=True):
 
     # Pricing — adjust when provider rates change. Per-million-token values are
     # stored as micros so admin edits stay integer-accurate.
-    pricing_openai_input_per_mtok_micros: int = Field(default=750_000)       # $0.75
-    pricing_openai_output_per_mtok_micros: int = Field(default=4_500_000)    # $4.50
+    pricing_openai_input_per_mtok_micros: int = Field(default=2_500_000)     # $2.50
+    pricing_openai_output_per_mtok_micros: int = Field(default=15_000_000)   # $15.00
     pricing_perplexity_input_per_mtok_micros: int = Field(default=1_000_000)  # $1.00
     pricing_perplexity_output_per_mtok_micros: int = Field(default=1_000_000)  # $1.00
     pricing_perplexity_request_fee_micros: int = Field(default=5_000)         # $0.005
