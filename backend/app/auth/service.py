@@ -92,9 +92,7 @@ class AuthService:
             login_role_hint=login_role_hint,
         )
 
-    async def complete_login(
-        self, *, code: str, state: str
-    ) -> tuple[User, str, str | None]:
+    async def complete_login(self, *, code: str, state: str) -> tuple[User, str, str | None]:
         state_row = await self._state.pop(state)
         if state_row is None:
             raise StateMismatchError()
@@ -119,6 +117,30 @@ class AuthService:
             user_row.role or "?",
         )
         return _user_from_row(user_row), session_id, state_row.redirect_to
+
+    async def is_session_fresh(self, session_id: str, *, max_idle_seconds: int) -> bool:
+        """True iff the session row exists, its access token has not expired,
+        and ``last_used_at`` is within ``max_idle_seconds`` of now.
+
+        Read-only by design — does NOT touch ``last_used_at``. Used by
+        ``/api/auth/login`` to skip the OAuth round-trip when the caller is
+        almost certainly the same user who just logged in. Letting this path
+        bump the timestamp would defeat the freshness bound: every click
+        would refresh the window even after the user walked away.
+
+        Token refresh is intentionally skipped here too; if the access token
+        is past expiry we'd rather fall through to a full OAuth login and
+        let Mentee re-confirm the user's identity than silently refresh
+        against a possibly-revoked grant.
+        """
+        row = await self._sessions.get(session_id)
+        if row is None:
+            return False
+        now = _now()
+        if row.access_token_expires_at <= now:
+            return False
+        idle_seconds = (now - row.last_used_at).total_seconds()
+        return idle_seconds <= max_idle_seconds
 
     async def current_user(self, session_id: str) -> User:
         loaded = await self._sessions.get_and_touch_with_user(session_id)
@@ -180,9 +202,7 @@ class AuthService:
                     decrypt(refreshed_session.access_token_enc)
                 )
             except ProfileFetchAuthError:
-                logger.info(
-                    "profile still 401 after refresh; falling back to identity prompt"
-                )
+                logger.info("profile still 401 after refresh; falling back to identity prompt")
                 return None
 
         ttl = self._settings.bot_profile_cache_ttl_seconds
@@ -192,9 +212,7 @@ class AuthService:
         )
         return profile
 
-    async def _refresh(
-        self, row: SessionRecord
-    ) -> tuple[SessionRecord, UserRecord]:
+    async def _refresh(self, row: SessionRecord) -> tuple[SessionRecord, UserRecord]:
         # Get-or-create lock without an outer mutex. Safe because a single
         # event loop runs no other coroutine between the lookup and the
         # insert (no await in between).
@@ -240,16 +258,13 @@ class AuthService:
                 # if it does, treat as a regression worth investigating.
                 await self._sessions.delete(row.session_id)
                 logger.warning(
-                    "refresh grant unsupported by provider (regression?); "
-                    "session %s expired",
+                    "refresh grant unsupported by provider (regression?); session %s expired",
                     row.session_id[:8],
                 )
                 raise
             except RefreshFailedError as e:
                 await self._sessions.delete(row.session_id)
-                logger.warning(
-                    "refresh failed for session %s: %s", row.session_id[:8], e
-                )
+                logger.warning("refresh failed for session %s: %s", row.session_id[:8], e)
                 raise
 
             profile: dict[str, Any] | None

@@ -44,16 +44,36 @@ async def login(
     auth: Annotated[AuthService, Depends(get_auth_service)],
     redirect_to: str | None = None,
     role_hint: str | None = None,
+    session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> RedirectResponse:
     with logfire.span(
         "auth.login",
         has_redirect_to=redirect_to is not None,
         role_hint=role_hint,
-        attempt_cookie_set=True,
-    ):
-        authorize_url = await auth.start_login(
-            redirect_to=redirect_to, login_role_hint=role_hint
-        )
+        had_session_cookie=session_id is not None,
+    ) as span:
+        # Fast path: the caller already has a recently-touched bot session,
+        # so OAuth would just rebuild a session they effectively already
+        # have. Skip the round-trip with Mentee and bounce them straight
+        # to `redirect_to`. Bounded by `login_short_circuit_max_idle_seconds`
+        # so the bot's cached identity can't outrun Mentee's on a shared
+        # browser — once the window lapses, the next login forces a fresh
+        # OAuth handshake and re-syncs to whoever Mentee says is signed in.
+        if session_id is not None and await auth.is_session_fresh(
+            session_id,
+            max_idle_seconds=settings.login_short_circuit_max_idle_seconds,
+        ):
+            span.set_attribute("status", "short_circuit")
+            span.set_attribute("attempt_cookie_set", False)
+            frontend = str(settings.frontend_url).rstrip("/")
+            return RedirectResponse(
+                f"{frontend}{_safe_post_login_path(redirect_to)}",
+                status_code=status.HTTP_302_FOUND,
+            )
+
+        span.set_attribute("status", "oauth_start")
+        span.set_attribute("attempt_cookie_set", True)
+        authorize_url = await auth.start_login(redirect_to=redirect_to, login_role_hint=role_hint)
         response = RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
         # Breadcrumb the frontend reads to detect silent drop-offs. Non-HttpOnly
         # so the SPA can see it; deleted by the callback handler on every exit
@@ -151,9 +171,7 @@ async def callback(
             )
 
         try:
-            user, session_id, redirect_to = await auth.complete_login(
-                code=code, state=state
-            )
+            user, session_id, redirect_to = await auth.complete_login(code=code, state=state)
         except StateMismatchError as exc:
             span.set_attribute("status", "state_mismatch")
             span.set_attribute("error_type", type(exc).__name__)
@@ -200,9 +218,7 @@ async def me(
     session_id: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> MeResponse:
     if not session_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         user = await auth.current_user(session_id)
     except AuthError as err:

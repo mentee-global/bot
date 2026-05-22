@@ -42,12 +42,8 @@ class Settings(BaseSettings):
     mentee_oauth_issuer: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
     mentee_oauth_client_id: str = "mentee-bot-local"
     mentee_oauth_client_secret: SecretStr
-    mentee_oauth_redirect_uri: AnyHttpUrl = AnyHttpUrl(
-        "http://localhost:8001/api/auth/callback"
-    )
-    mentee_oauth_scopes: str = (
-        "openid email profile mentee.role mentee.api.profile.read"
-    )
+    mentee_oauth_redirect_uri: AnyHttpUrl = AnyHttpUrl("http://localhost:8001/api/auth/callback")
+    mentee_oauth_scopes: str = "openid email profile mentee.role mentee.api.profile.read"
 
     # TTL for the per-session cache in AuthService that holds the richer
     # profile fetched from Mentee's /oauth/profile endpoint.
@@ -70,6 +66,14 @@ class Settings(BaseSettings):
     # epoch-seconds timestamp.
     login_attempt_cookie_name: str = "mentee_login_attempt"
     login_attempt_max_age_seconds: int = 300
+
+    # Idle window in which /api/auth/login can short-circuit OAuth and redirect
+    # straight to `redirect_to`. Caps the staleness of "which Mentee user is
+    # really logged in here" on shared browsers: when more time than this has
+    # passed since the bot session was last touched (by /me poll, by a message,
+    # by any authenticated API call), we force a fresh OAuth round-trip so
+    # Mentee's session — not the bot's cached cookie — picks the identity.
+    login_short_circuit_max_idle_seconds: int = 600
 
     # OAuth transient state
     oauth_state_ttl_seconds: int = 600
@@ -126,9 +130,9 @@ class Settings(BaseSettings):
     # endpoints still persist to DB but flag the row with email_error.
     sendgrid_api_key: SecretStr | None = None
     sender_email: str | None = None  # e.g. "Mentee Bot <bot@menteeglobal.org>"
-    admin_alert_recipients: Annotated[
-        list[str], NoDecode, BeforeValidator(_split_csv)
-    ] = ["juan@menteeglobal.org"]
+    admin_alert_recipients: Annotated[list[str], NoDecode, BeforeValidator(_split_csv)] = [
+        "juan@menteeglobal.org"
+    ]
 
     @property
     def is_prod(self) -> bool:
