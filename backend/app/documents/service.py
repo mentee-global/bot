@@ -11,13 +11,29 @@ ownership seam. The upload/extract pipelines are wired in plan Phase 1/2.
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime, timedelta
+
 from app.documents.base import (
     BlobStorePort,
+    DocPurpose,
+    DocStatus,
     DocumentProcessorPort,
     DocumentRetrievalPort,
 )
-from app.documents.store import DocumentStore
+from app.documents.store import DocumentNotFoundError, DocumentStore
 from app.services.thread_store import ThreadNotFoundError, ThreadStore
+
+logger = logging.getLogger(__name__)
+
+# Recovery loop tuning (plan decision #11).
+MAX_PROCESSING_ATTEMPTS = 3
+STALE_PROCESSING_SECONDS = 300
+
+
+def blob_key(user_id: str, document_id: str) -> str:
+    """Deterministic BlobStore key for a document's raw bytes."""
+    return f"{user_id}/{document_id}"
 
 
 class ThreadOwnershipError(Exception):
@@ -51,10 +67,71 @@ class DocumentService:
     async def process_chat_upload(
         self, *, user_id: str, thread_id: str, document_id: str
     ) -> None:
-        """Phase 1: load bytes → processor.parse() → persist summary + status.
-        Runs in a BackgroundTask; sets processing_started_at / attempts and
-        flips status pending→processing→ready|failed."""
-        raise NotImplementedError("Wired in plan Phase 1")
+        """Load bytes → processor.parse() → persist summary + status.
+
+        Runs in a BackgroundTask. `claim_for_processing` stamps
+        processing_started_at and bumps attempts so the recovery loop can tell
+        a stranded job from a slow one. Never raises — failures land as
+        status='failed' with an error message."""
+        try:
+            doc = await self._store.claim_for_processing(document_id)
+            data = await self._blobs.get(key=blob_key(user_id, document_id))
+            parsed = await self._processor.parse(
+                data=data, filename=doc.filename, mime_type=doc.mime_type
+            )
+            await self._store.update_document(
+                document_id,
+                status=DocStatus.READY,
+                summary=parsed.summary,
+                page_count=parsed.page_count,
+                provider=parsed.provider,
+                provider_file_id=parsed.provider_file_id,
+                error_message=None,
+            )
+        except DocumentNotFoundError:
+            logger.warning("process_chat_upload: document %s vanished", document_id)
+        except Exception as exc:  # noqa: BLE001 — record, don't crash the worker
+            logger.warning("process_chat_upload failed for %s: %s", document_id, exc)
+            try:
+                await self._store.update_document(
+                    document_id, status=DocStatus.FAILED, error_message=str(exc)[:500]
+                )
+            except DocumentNotFoundError:
+                pass
+
+    async def recover_stuck(
+        self,
+        *,
+        stale_seconds: int = STALE_PROCESSING_SECONDS,
+        max_attempts: int = MAX_PROCESSING_ATTEMPTS,
+    ) -> int:
+        """Re-dispatch pending/orphaned documents; fail those past max attempts.
+
+        Called at startup (all `processing` rows are orphaned by definition)
+        and periodically from the cleanup loop (plan decision #11). Returns how
+        many documents it acted on."""
+        stale_before = datetime.now(UTC) - timedelta(seconds=stale_seconds)
+        docs = await self._store.list_recoverable(stale_before=stale_before)
+        acted = 0
+        for doc in docs:
+            acted += 1
+            if doc.attempts >= max_attempts:
+                await self._store.update_document(
+                    doc.id,
+                    status=DocStatus.FAILED,
+                    error_message="exceeded processing retry limit",
+                )
+                continue
+            if doc.purpose == DocPurpose.CHAT_ATTACHMENT and doc.thread_id:
+                await self.process_chat_upload(
+                    user_id=doc.user_id,
+                    thread_id=doc.thread_id,
+                    document_id=doc.id,
+                )
+            # profile_cv recovery is wired with extraction in plan Phase 2.
+        if acted:
+            logger.info("recover_stuck: re-dispatched/failed %d document(s)", acted)
+        return acted
 
     async def extract_cv_profile(self, *, user_id: str, document_id: str) -> None:
         """Phase 2: processor.extract(ResumeSchema) → upsert_cv_draft (UNCONFIRMED).
