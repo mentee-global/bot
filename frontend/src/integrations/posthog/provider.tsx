@@ -3,10 +3,24 @@ import posthog from "posthog-js";
 import type { ReactNode } from "react";
 import { useIdentifySession } from "#/integrations/posthog/useIdentifySession";
 
+// Local dev (vite on localhost) produces noisy "Failed to fetch" / proxy-407
+// exceptions that aren't real end-user errors. Drop $exception events captured
+// from localhost before they reach PostHog; everything else (pageviews, replay)
+// is left untouched, and production error capture is unaffected.
+const isLocalhost =
+	typeof window !== "undefined" &&
+	/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
+
 if (typeof window !== "undefined" && import.meta.env.VITE_POSTHOG_KEY) {
 	posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
 		api_host: import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com",
 		person_profiles: "identified_only",
+		before_send: (event) => {
+			if (isLocalhost && event?.event === "$exception") {
+				return null;
+			}
+			return event;
+		},
 		// SPA-aware pageview capture — fires on history.pushState / popstate so
 		// every TanStack Router navigation produces a $pageview without the route
 		// tree having to know about analytics.
