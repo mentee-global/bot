@@ -13,6 +13,19 @@ from app.auth.session_store import SessionStore
 from app.auth.state_store import StateStore
 from app.budget.service import BudgetService
 from app.core.config import Settings, settings
+from app.documents.base import (
+    BlobStorePort,
+    DocumentProcessorPort,
+    DocumentRetrievalPort,
+)
+from app.documents.blob_store import DiskBlobStore
+from app.documents.processors.local import LocalProcessor
+from app.documents.service import DocumentService
+from app.documents.store import (
+    DocumentStore,
+    InMemoryDocumentStore,
+    PostgresDocumentStore,
+)
 from app.domain.models import User
 from app.reports.service import ReportsService
 from app.services.feedback_config_service import FeedbackConfigService
@@ -38,6 +51,28 @@ def _build_store(s: Settings) -> ThreadStore:
     return InMemoryThreadStore()
 
 
+def _build_document_store(s: Settings) -> DocumentStore:
+    if s.store_impl == "postgres":
+        return PostgresDocumentStore()
+    return InMemoryDocumentStore()
+
+
+def _build_blob_store(s: Settings) -> BlobStorePort:
+    # Only "disk" exists in the MVP; S3 lands in plan Phase 3 behind this port.
+    return DiskBlobStore(s.blob_store_path)
+
+
+def _build_doc_processor(s: Settings) -> DocumentProcessorPort:
+    # "openai"/"llamacloud" are wired in plan Phase 1/5. Until then the
+    # dependency-free local parser is the default so Phase 0 needs no keys.
+    return LocalProcessor()
+
+
+def _build_retrieval(s: Settings) -> DocumentRetrievalPort | None:
+    # Retrieval is a plan Phase 4 concern; "none" in the MVP.
+    return None
+
+
 # Process-wide singletons. Swap with a proper DI container when scope grows.
 # Budget is built first so the agent can call it on provider errors.
 _store: ThreadStore = _build_store(settings)
@@ -46,6 +81,18 @@ _agent: AgentPort = _build_agent(settings, _budget)
 _service = MessageService(store=_store, agent=_agent, budget=_budget)
 _reports = ReportsService(budget=_budget, settings=settings)
 _feedback_config = FeedbackConfigService()
+
+# Document upload & processing singletons (plan Phase 0).
+_document_store: DocumentStore = _build_document_store(settings)
+_blob_store: BlobStorePort = _build_blob_store(settings)
+_doc_processor: DocumentProcessorPort = _build_doc_processor(settings)
+_document_service = DocumentService(
+    store=_document_store,
+    blobs=_blob_store,
+    processor=_doc_processor,
+    threads=_store,
+    retrieval=_build_retrieval(settings),
+)
 
 _http: httpx.AsyncClient | None = None
 _oauth_client: MenteeOAuthClient | None = None
@@ -117,6 +164,18 @@ def get_reports_service() -> ReportsService:
 
 def get_feedback_config_service() -> FeedbackConfigService:
     return _feedback_config
+
+
+def get_document_store() -> DocumentStore:
+    return _document_store
+
+
+def get_blob_store() -> BlobStorePort:
+    return _blob_store
+
+
+def get_document_service() -> DocumentService:
+    return _document_service
 
 
 async def _resolve_session(

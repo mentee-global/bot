@@ -57,6 +57,36 @@ export const api = {
 		request<T>(path, { method: "PATCH", body, signal }),
 	delete: <T>(path: string, signal?: AbortSignal) =>
 		request<T>(path, { method: "DELETE", signal }),
+	// Multipart upload (plan Phase 1). Do NOT set Content-Type — the browser
+	// adds the multipart boundary itself. Keeps the auth cookie via credentials.
+	upload: <T>(path: string, formData: FormData, signal?: AbortSignal) =>
+		uploadRequest<T>(path, formData, signal),
 };
+
+async function uploadRequest<T>(
+	path: string,
+	formData: FormData,
+	signal?: AbortSignal,
+): Promise<T> {
+	const response = await fetch(`${API_URL}${path}`, {
+		method: "POST",
+		credentials: "include",
+		body: formData,
+		signal,
+	});
+
+	if (!response.ok) {
+		let parsed: unknown = null;
+		try {
+			parsed = await response.json();
+		} catch {
+			// body wasn't JSON — keep parsed as null
+		}
+		throw new ApiError(response.status, parsed);
+	}
+
+	if (response.status === 204) return undefined as T;
+	return (await response.json()) as T;
+}
 
 export { API_URL };

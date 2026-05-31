@@ -44,6 +44,47 @@ class ThreadRating(BaseModel):
     updated_at: datetime
 
 
+class Document(BaseModel):
+    """An uploaded document as seen by the API/service layer.
+
+    `summary` / `extracted_json` are populated asynchronously, so they stay
+    None until `status == "ready"`. See docs/documents/00-document-upload-plan.md.
+    """
+
+    id: str = Field(default_factory=_uuid)
+    user_id: str
+    thread_id: str | None = None
+    purpose: str  # "chat_attachment" | "profile_cv"
+    filename: str
+    mime_type: str
+    size_bytes: int
+    status: str = "pending"  # pending | processing | ready | failed
+    provider: str | None = None
+    file_hash: str
+    summary: str | None = None
+    extracted_json: dict | None = None
+    error_message: str | None = None
+    page_count: int | None = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class CvProfile(BaseModel):
+    """The canonical CV attached to a user profile (draft until confirmed)."""
+
+    user_id: str
+    cv_document_id: str | None = None
+    cv_structured: dict | None = None
+    cv_summary: str | None = None
+    # None = unconfirmed draft; facts are injected into chats only once set.
+    cv_confirmed_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=_now)
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.cv_confirmed_at is not None
+
+
 class FeedbackTriggerConfig(BaseModel):
     """Admin-controlled cadence for the in-chat session rating prompt.
 
