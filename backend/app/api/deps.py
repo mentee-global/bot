@@ -85,11 +85,9 @@ def _build_retrieval(s: Settings) -> DocumentRetrievalPort | None:
 _store: ThreadStore = _build_store(settings)
 _budget = BudgetService()
 _agent: AgentPort = _build_agent(settings, _budget)
-_service = MessageService(store=_store, agent=_agent, budget=_budget)
-_reports = ReportsService(budget=_budget, settings=settings)
-_feedback_config = FeedbackConfigService()
 
-# Document upload & processing singletons (plan Phase 0).
+# Document upload & processing singletons (plan Phase 0/1). Built before the
+# MessageService so chat turns can inject thread document context.
 _document_store: DocumentStore = _build_document_store(settings)
 _blob_store: BlobStorePort = _build_blob_store(settings)
 _doc_processor: DocumentProcessorPort = _build_doc_processor(settings)
@@ -100,6 +98,12 @@ _document_service = DocumentService(
     threads=_store,
     retrieval=_build_retrieval(settings),
 )
+
+_service = MessageService(
+    store=_store, agent=_agent, budget=_budget, documents=_document_service
+)
+_reports = ReportsService(budget=_budget, settings=settings)
+_feedback_config = FeedbackConfigService()
 
 _http: httpx.AsyncClient | None = None
 _oauth_client: MenteeOAuthClient | None = None

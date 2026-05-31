@@ -5,6 +5,7 @@ from app.agents.events import TextDelta, ToolEnd, ToolStart
 from app.agents.mentee.citations import strip_empty_markdown_links
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
+from app.documents.service import DocumentService
 from app.domain.enums import MessageRole
 from app.domain.models import Message, Thread, ThreadRating, User
 from app.services.thread_store import ThreadStore
@@ -25,10 +26,25 @@ class MessageService:
         store: ThreadStore,
         agent: AgentPort,
         budget: BudgetService,
+        documents: DocumentService | None = None,
     ) -> None:
         self.store = store
         self.agent = agent
         self.budget = budget
+        # Optional so tests / non-document deployments construct without it.
+        self.documents = documents
+
+    async def _document_context(self, user_id: str, thread: Thread, body: str) -> str | None:
+        """Compact 'documents in this thread' block for the agent, or None.
+
+        Scoped to (thread_id, user_id) inside the service so it can never
+        surface another user's files (plan decision #15)."""
+        if self.documents is None:
+            return None
+        ctx = await self.documents.build_thread_document_context(
+            user_id=user_id, thread_id=thread.id, latest_user_message=body
+        )
+        return ctx or None
 
     async def _resolve_thread(
         self, user_id: str, thread_id: str | None, *, create_new: bool = False
@@ -72,6 +88,7 @@ class MessageService:
         if is_first_message:
             await self._maybe_auto_title(thread, body)
 
+        document_context = await self._document_context(user_id, thread, body)
         usage = UsageSummary()
         reply_body = await self.agent.reply(
             user_message,
@@ -80,6 +97,7 @@ class MessageService:
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
             ui_locale=ui_locale,
+            document_context=document_context,
         )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
@@ -133,6 +151,7 @@ class MessageService:
             },
         )
 
+        document_context = await self._document_context(user_id, thread, body)
         usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
@@ -142,6 +161,7 @@ class MessageService:
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
             ui_locale=ui_locale,
+            document_context=document_context,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:

@@ -25,6 +25,7 @@ class AgentPort(ABC):
         usage_out: UsageSummary | None = None,
         perplexity_enabled: bool = True,
         ui_locale: str | None = None,
+        document_context: str | None = None,
     ) -> str:
         """Return the assistant's reply body for the given user message.
 
@@ -34,6 +35,9 @@ class AgentPort(ABC):
         Perplexity sub-budget is near exhausted). `ui_locale` is the chat
         UI's active locale when the user pressed send (e.g. "pt", "ar");
         agents should treat it as a strong hint for reply language.
+        `document_context` is a compact, pre-built block describing files the
+        user attached in this thread (summaries/facts) — agents inject it as
+        untrusted data; None when there are no attachments.
         """
         ...
 
@@ -46,6 +50,7 @@ class AgentPort(ABC):
         usage_out: UsageSummary | None = None,
         perplexity_enabled: bool = True,
         ui_locale: str | None = None,
+        document_context: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Yield assistant reply deltas and tool lifecycle events.
 
@@ -61,5 +66,6 @@ class AgentPort(ABC):
                 usage_out=usage_out,
                 perplexity_enabled=perplexity_enabled,
                 ui_locale=ui_locale,
+                document_context=document_context,
             )
         )
