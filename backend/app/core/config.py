@@ -81,6 +81,23 @@ class Settings(BaseSettings):
     # Thread persistence
     store_impl: Literal["memory", "postgres"] = "memory"
 
+    # Document upload & processing — see docs/documents/00-document-upload-plan.md.
+    # Processor is the only vendor-swappable surface; "openai" (multimodal +
+    # structured outputs) is the MVP target, "local" (pypdf/python-docx) needs
+    # no keys, "llamacloud" is plan Phase 5. Retrieval stays "none" in the MVP.
+    doc_processor_impl: Literal["openai", "local", "llamacloud"] = "local"
+    doc_retrieval_impl: Literal["none", "pgvector", "openai"] = "none"
+    blob_store_impl: Literal["disk", "s3"] = "disk"
+    blob_store_path: str = "/tmp/mentee-bot-uploads"  # Railway volume mount in prod
+    max_upload_bytes: int = 25 * 1024 * 1024
+    allowed_upload_mimes: Annotated[
+        list[str], NoDecode, BeforeValidator(_split_csv)
+    ] = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]
+    llama_cloud_api_key: SecretStr | None = None  # plan Phase 5 only
+
     # Agent
     openai_api_key: SecretStr | None = None
     # Separate admin-scoped key for the /v1/organization/costs endpoint —
