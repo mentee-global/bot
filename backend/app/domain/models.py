@@ -59,6 +59,8 @@ class Document(BaseModel):
     mime_type: str
     size_bytes: int
     status: str = "pending"  # pending | processing | ready | failed
+    attempts: int = 0
+    processing_started_at: datetime | None = None
     provider: str | None = None
     file_hash: str
     summary: str | None = None

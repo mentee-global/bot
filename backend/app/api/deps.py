@@ -63,8 +63,15 @@ def _build_blob_store(s: Settings) -> BlobStorePort:
 
 
 def _build_doc_processor(s: Settings) -> DocumentProcessorPort:
-    # "openai"/"llamacloud" are wired in plan Phase 1/5. Until then the
-    # dependency-free local parser is the default so Phase 0 needs no keys.
+    # "openai" needs a key (model-written summaries + future OCR); falls back to
+    # the dependency-free local parser otherwise. "llamacloud" is plan Phase 5.
+    if s.doc_processor_impl == "openai" and s.openai_api_key is not None:
+        from app.documents.processors.openai import OpenAIDocumentProcessor
+
+        return OpenAIDocumentProcessor(
+            api_key=s.openai_api_key.get_secret_value(),
+            model=s.agent_model,
+        )
     return LocalProcessor()
 
 

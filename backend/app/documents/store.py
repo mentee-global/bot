@@ -41,6 +41,8 @@ def _doc_from_record(r: DocumentRecord) -> Document:
         mime_type=r.mime_type,
         size_bytes=r.size_bytes,
         status=r.status,
+        attempts=r.attempts,
+        processing_started_at=r.processing_started_at,
         provider=r.provider,
         file_hash=r.file_hash,
         summary=r.summary,
@@ -107,6 +109,18 @@ class DocumentStore(ABC):
     async def update_document(self, document_id: str, /, **fields) -> Document:
         """Patch processing-result fields (see `_MUTABLE`). Not user-scoped —
         called from the background worker which already resolved ownership."""
+
+    @abstractmethod
+    async def claim_for_processing(self, document_id: str) -> Document:
+        """Mark a document `processing`: set processing_started_at=now and
+        increment attempts, atomically. Called as a worker picks it up."""
+
+    @abstractmethod
+    async def list_recoverable(self, *, stale_before: datetime) -> list[Document]:
+        """Documents needing attention: still `pending`, or `processing` but
+        started before `stale_before` (orphaned by a crash/redeploy). The
+        attempts/retry decision is the caller's (recover_stuck), so rows at the
+        attempt cap still surface here and can be failed (plan #11)."""
 
     @abstractmethod
     async def delete_document(self, document_id: str, user_id: str) -> None: ...
@@ -188,6 +202,33 @@ class InMemoryDocumentStore(DocumentStore):
         )
         self._docs[document_id] = updated
         return updated
+
+    async def claim_for_processing(self, document_id: str) -> Document:
+        doc = self._docs.get(document_id)
+        if doc is None:
+            raise DocumentNotFoundError(document_id)
+        updated = doc.model_copy(
+            update={
+                "status": "processing",
+                "processing_started_at": _now(),
+                "attempts": doc.attempts + 1,
+                "updated_at": _now(),
+            }
+        )
+        self._docs[document_id] = updated
+        return updated
+
+    async def list_recoverable(self, *, stale_before: datetime) -> list[Document]:
+        out: list[Document] = []
+        for d in self._docs.values():
+            if d.status == "pending":
+                out.append(d)
+            elif d.status == "processing" and (
+                d.processing_started_at is None
+                or d.processing_started_at < stale_before
+            ):
+                out.append(d)
+        return out
 
     async def delete_document(self, document_id: str, user_id: str) -> None:
         doc = self._docs.get(document_id)
@@ -299,6 +340,45 @@ class PostgresDocumentStore(DocumentStore):
                 raise DocumentNotFoundError(document_id)
             await session.commit()
             return _doc_from_record(record)
+
+    async def claim_for_processing(self, document_id: str) -> Document:
+        now = _now()
+        async with self._factory() as session:
+            stmt = (
+                update(DocumentRecord)
+                .where(DocumentRecord.id == _as_uuid(document_id))
+                .values(
+                    status="processing",
+                    processing_started_at=now,
+                    attempts=DocumentRecord.attempts + 1,
+                    updated_at=now,
+                )
+                .returning(DocumentRecord)
+            )
+            record = (await session.execute(stmt)).scalar_one_or_none()
+            if record is None:
+                raise DocumentNotFoundError(document_id)
+            await session.commit()
+            return _doc_from_record(record)
+
+    async def list_recoverable(self, *, stale_before: datetime) -> list[Document]:
+        async with self._factory() as session:
+            stmt = (
+                select(DocumentRecord)
+                .where(
+                    (DocumentRecord.status == "pending")
+                    | (
+                        (DocumentRecord.status == "processing")
+                        & (
+                            (DocumentRecord.processing_started_at.is_(None))
+                            | (DocumentRecord.processing_started_at < stale_before)
+                        )
+                    )
+                )
+                .order_by(DocumentRecord.created_at.asc())
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_doc_from_record(r) for r in rows]
 
     async def delete_document(self, document_id: str, user_id: str) -> None:
         async with self._factory() as session:

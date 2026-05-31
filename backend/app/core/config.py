@@ -88,7 +88,12 @@ class Settings(BaseSettings):
     doc_processor_impl: Literal["openai", "local", "llamacloud"] = "local"
     doc_retrieval_impl: Literal["none", "pgvector", "openai"] = "none"
     blob_store_impl: Literal["disk", "s3"] = "disk"
-    blob_store_path: str = "/tmp/mentee-bot-uploads"  # Railway volume mount in prod
+    # PROD: set BLOB_STORE_PATH to a MOUNTED Railway Volume (e.g. /data/uploads)
+    # and attach the volume to the service — otherwise files land on the
+    # ephemeral container FS and vanish on the next deploy. The /tmp default is
+    # dev-only. Single-replica only; multi-replica needs object storage (S3/R2,
+    # plan Phase 3) behind the same BlobStorePort.
+    blob_store_path: str = "/tmp/mentee-bot-uploads"
     max_upload_bytes: int = 25 * 1024 * 1024
     allowed_upload_mimes: Annotated[
         list[str], NoDecode, BeforeValidator(_split_csv)
