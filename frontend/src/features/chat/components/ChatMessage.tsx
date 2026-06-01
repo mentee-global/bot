@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2, Paperclip } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { MessageActions } from "#/features/chat/components/MessageActions";
 import { MessageBody } from "#/features/chat/components/MessageBody";
@@ -149,9 +149,37 @@ export function ChatMessage({
 				aria-busy={message.streaming || undefined}
 			>
 				{isUser ? (
-					<p className="m-0 whitespace-pre-wrap leading-relaxed">
-						{message.body}
-					</p>
+					<>
+						{message.attachments && message.attachments.length > 0 ? (
+							<ul className="mb-1.5 flex flex-wrap gap-1.5">
+								{message.attachments.map((a) => (
+									<li
+										key={a.filename}
+										className={cn(
+											"flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]",
+											a.status === "failed"
+												? "bg-[var(--theme-danger)]/20"
+												: "bg-[var(--theme-bg)]/15",
+										)}
+										title={a.filename}
+									>
+										{a.status === "uploading" ? (
+											<Loader2 size={11} className="animate-spin" />
+										) : (
+											<Paperclip size={11} />
+										)}
+										<span className="max-w-[10rem] truncate">{a.filename}</span>
+										{a.status === "failed" ? (
+											<span>· {m.chat_attachment_status_failed()}</span>
+										) : null}
+									</li>
+								))}
+							</ul>
+						) : null}
+						<p className="m-0 whitespace-pre-wrap leading-relaxed">
+							{message.body}
+						</p>
+					</>
 				) : hasText ? (
 					<MessageBody body={message.body} streaming={message.streaming} />
 				) : tools.length > 0 ? (

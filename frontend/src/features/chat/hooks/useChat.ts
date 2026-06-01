@@ -8,6 +8,7 @@ import { useActivePersona } from "#/features/admin/hooks/usePersonaStore";
 import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import type {
+	SendInput,
 	SendMessageResponse,
 	Thread,
 } from "#/features/chat/data/chat.types";
@@ -104,13 +105,20 @@ export function useSendMessageMutation(
 	const queryClient = useQueryClient();
 	const persona = useActivePersona();
 
-	return useMutation<SendMessageResponse, Error, string>({
-		mutationFn: (body) => {
+	return useMutation<SendMessageResponse, Error, string | SendInput>({
+		mutationFn: async (input) => {
+			const v = typeof input === "string" ? { body: input } : input;
 			// Bump the lifetime interaction counter — drives the session rating
 			// card cadence (see `useSessionRatingTrigger`). The streaming path
 			// bumps in its own hook; this is the non-streaming fallback.
 			bumpInteractionCount();
-			return chatService.sendMessage(body, threadId ?? undefined, persona);
+			// Upload staged files before the turn so the agent can read them.
+			if (v.prepare) await v.prepare();
+			return chatService.sendMessage(
+				v.body,
+				v.threadId ?? threadId ?? undefined,
+				persona,
+			);
 		},
 		onSuccess: (response) => {
 			queryClient.setQueryData<Thread>(

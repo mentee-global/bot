@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { documentsService } from "#/features/chat/data/documents.service";
 import {
@@ -6,19 +6,12 @@ import {
 	type DocumentStatus,
 	MAX_UPLOAD_BYTES,
 } from "#/features/chat/data/documents.types";
-import { ApiError } from "#/lib/api/errors";
 import { m } from "#/paraglide/messages";
-
-/** `staged` = picked but not yet uploaded; the rest mirror backend status. */
-export type StagedStatus = "staged" | "uploading" | DocumentStatus;
 
 export interface StagedAttachment {
 	localId: string;
 	file: File;
 	filename: string;
-	status: StagedStatus;
-	documentId?: string;
-	error?: string;
 }
 
 const POLL_MS = 1500;
@@ -33,27 +26,14 @@ function nextLocalId(): string {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Client-side attachment staging. Files are held in memory and only uploaded
- * at send time via `commit(threadId)`, so:
- *   - nothing hits the backend until the user actually sends (no orphan
- *     threads, no upload-without-a-question), and
- *   - a file can be attached before the thread exists.
- * `commit` uploads each staged file and polls until processing settles, so the
- * agent sees the document on the very message it was attached to.
+ * Composer-side attachment staging. Files are held in memory until send; on
+ * send the caller grabs `staged` (for display + the File list), clears, and
+ * runs `commit(threadId, files)` in the background to upload + wait for each to
+ * process. Nothing hits the backend until send → no orphan threads, no upload
+ * without a question.
  */
 export function useStagedAttachments() {
 	const [staged, setStaged] = useState<StagedAttachment[]>([]);
-	const stagedRef = useRef(staged);
-	stagedRef.current = staged;
-
-	const patch = useCallback(
-		(localId: string, next: Partial<StagedAttachment>) => {
-			setStaged((prev) =>
-				prev.map((a) => (a.localId === localId ? { ...a, ...next } : a)),
-			);
-		},
-		[],
-	);
 
 	const addFiles = useCallback((files: FileList | File[]) => {
 		for (const file of Array.from(files)) {
@@ -67,45 +47,27 @@ export function useStagedAttachments() {
 			}
 			setStaged((prev) => [
 				...prev,
-				{
-					localId: nextLocalId(),
-					file,
-					filename: file.name,
-					status: "staged",
-				},
+				{ localId: nextLocalId(), file, filename: file.name },
 			]);
 		}
 	}, []);
 
 	const remove = useCallback((localId: string) => {
-		setStaged((prev) => {
-			const target = prev.find((a) => a.localId === localId);
-			// If it was already uploaded (mid/post-commit), best-effort cleanup.
-			if (target?.documentId) {
-				void documentsService.remove(target.documentId).catch(() => {});
-			}
-			return prev.filter((a) => a.localId !== localId);
-		});
+		setStaged((prev) => prev.filter((a) => a.localId !== localId));
 	}, []);
 
 	const clear = useCallback(() => setStaged([]), []);
 
-	/**
-	 * Upload every still-staged (or previously-failed) file to `threadId` and
-	 * wait until each settles. Returns true only if all reached "ready".
-	 */
+	/** Upload the given files to `threadId` and wait until each settles.
+	 * Returns true only if all reached "ready". Independent of `staged` state
+	 * so the composer can clear immediately on send. */
 	const commit = useCallback(
-		async (threadId: string): Promise<boolean> => {
-			const items = stagedRef.current.filter(
-				(a) => a.status === "staged" || a.status === "failed",
-			);
+		async (threadId: string, files: File[]): Promise<boolean> => {
 			let allReady = true;
 			await Promise.all(
-				items.map(async (item) => {
+				files.map(async (file) => {
 					try {
-						patch(item.localId, { status: "uploading", error: undefined });
-						const doc = await documentsService.upload(threadId, item.file);
-						patch(item.localId, { status: doc.status, documentId: doc.id });
+						const doc = await documentsService.upload(threadId, file);
 						let status: DocumentStatus = doc.status;
 						const deadline = performance.now() + POLL_TIMEOUT_MS;
 						while (
@@ -114,28 +76,18 @@ export function useStagedAttachments() {
 							performance.now() < deadline
 						) {
 							await sleep(POLL_MS);
-							const cur = await documentsService.get(doc.id);
-							status = cur.status;
-							patch(item.localId, {
-								status,
-								error: cur.error_message ?? undefined,
-							});
+							status = (await documentsService.get(doc.id)).status;
 						}
 						if (status !== "ready") allReady = false;
-					} catch (err) {
+					} catch {
 						allReady = false;
-						const message =
-							err instanceof ApiError && err.status === 413
-								? m.chat_attachment_error_too_large()
-								: m.chat_attachment_error_upload();
-						patch(item.localId, { status: "failed", error: message });
-						toast.error(message);
+						toast.error(m.chat_attachment_error_upload());
 					}
 				}),
 			);
 			return allReady;
 		},
-		[patch],
+		[],
 	);
 
 	return { staged, addFiles, remove, clear, commit };
