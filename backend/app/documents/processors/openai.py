@@ -10,14 +10,15 @@ Structured CV extraction (`extract`) lands in plan Phase 2.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from openai import AsyncOpenAI
 
 from app.documents.base import (
+    DocumentError,
     DocumentProcessorPort,
     ParsedDocument,
-    UnsupportedDocumentError,
 )
 from app.documents.processors.local import LocalProcessor, _summarize
 
@@ -28,6 +29,17 @@ _SUMMARY_SYSTEM = (
     "a conversation. Write a dense factual fact-sheet of at most 600 characters: "
     "what the document is, who/what it's about, and the key facts. No preamble."
 )
+
+_EXTRACT_SYSTEM = (
+    "You extract structured data from a document and return JSON matching the "
+    "provided schema. Use only information present in the document — never "
+    "invent values. Leave optional fields null when the document doesn't state "
+    "them. No commentary, JSON only."
+)
+
+# Cap extraction input so a huge document can't blow the call's context/cost;
+# a CV/resume is comfortably within this.
+_EXTRACT_CHAR_CAP = 24_000
 
 
 class OpenAIDocumentProcessor(DocumentProcessorPort):
@@ -82,8 +94,59 @@ class OpenAIDocumentProcessor(DocumentProcessorPort):
     async def extract(
         self, *, data: bytes, filename: str, mime_type: str, schema: dict
     ) -> ParsedDocument:
-        raise UnsupportedDocumentError(
-            "Structured extraction is wired in plan Phase 2 (CV profile)."
+        """Pull text locally, then ask the model for JSON matching `schema`.
+
+        Launch scope is typed PDF/DOCX (plan #10a): if there's no text layer
+        (scanned), we don't OCR — we raise so the caller marks the document
+        failed and the UI offers manual entry. The returned `structured` is the
+        raw model JSON; validating it against a concrete schema (ResumeSchema)
+        is the engine-agnostic service's job, keeping this port generic."""
+        parsed = await self._local.parse(
+            data=data, filename=filename, mime_type=mime_type
+        )
+        text = parsed.markdown.strip()
+        if not text:
+            raise DocumentError(
+                f"{filename}: no machine-readable text found (likely scanned). "
+                "OCR is not enabled in this release."
+            )
+        excerpt = text[:_EXTRACT_CHAR_CAP]
+        try:
+            resp = await self._client.responses.create(
+                model=self._model,
+                input=[
+                    {"role": "system", "content": _EXTRACT_SYSTEM},
+                    {"role": "user", "content": f"Filename: {filename}\n\n{excerpt}"},
+                ],
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "extraction",
+                        # Non-strict: a CV has many optional/nullable fields, and
+                        # OpenAI strict mode requires every property in `required`
+                        # + additionalProperties:false everywhere. The service
+                        # validates the result against ResumeSchema regardless.
+                        "strict": False,
+                        "schema": schema,
+                    }
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — surface as an extraction failure
+            raise DocumentError(f"extraction call failed: {exc}") from exc
+
+        raw = (resp.output_text or "").strip()
+        try:
+            structured = json.loads(raw)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise DocumentError("model did not return valid JSON") from exc
+        if not isinstance(structured, dict):
+            raise DocumentError("model returned non-object JSON")
+
+        return ParsedDocument(
+            markdown=parsed.markdown,
+            page_count=parsed.page_count,
+            structured=structured,
+            provider=self.provider_id,
         )
 
     async def _summarize(self, markdown: str, *, filename: str) -> str:

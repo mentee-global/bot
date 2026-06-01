@@ -14,13 +14,17 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
+from pydantic import ValidationError
+
 from app.documents.base import (
     BlobStorePort,
     DocPurpose,
     DocStatus,
+    DocumentError,
     DocumentProcessorPort,
     DocumentRetrievalPort,
 )
+from app.documents.schemas import ResumeSchema
 from app.documents.store import DocumentNotFoundError, DocumentStore
 from app.services.thread_store import ThreadNotFoundError, ThreadStore
 
@@ -39,6 +43,59 @@ DOC_CONTEXT_CHAR_CAP = 12_000
 def blob_key(user_id: str, document_id: str) -> str:
     """Deterministic BlobStore key for a document's raw bytes."""
     return f"{user_id}/{document_id}"
+
+
+# Compact CV facts (a few hundred chars) injected into every chat once the user
+# confirms (plan decision #14: CV keeps compact facts, not raw text). Built
+# deterministically from the validated schema — no extra LLM call, nothing to
+# hallucinate. Mirrors the density of `_build_profile_lines` in the agent.
+_CV_SUMMARY_CHAR_CAP = 1_200
+
+
+def _build_cv_summary(resume: ResumeSchema) -> str:
+    parts: list[str] = [f"Name: {resume.name}"]
+    if resume.location:
+        parts.append(f"Location: {resume.location}")
+    if resume.work_experience:
+        recent = resume.work_experience[:3]
+        roles = "; ".join(
+            " ".join(
+                seg
+                for seg in (
+                    w.position,
+                    w.company and f"at {w.company}",
+                    (w.start_date or w.end_date)
+                    and f"({w.start_date or '?'}–{w.end_date or '?'})",
+                )
+                if seg
+            )
+            for w in recent
+        )
+        parts.append(f"Experience: {roles}")
+    if resume.education:
+        edu = "; ".join(
+            " ".join(
+                seg
+                for seg in (
+                    e.degree,
+                    e.field_of_study and f"in {e.field_of_study}",
+                    e.institution and f"at {e.institution}",
+                    e.graduation_date and f"({e.graduation_date})",
+                )
+                if seg
+            )
+            for e in resume.education[:3]
+        )
+        parts.append(f"Education: {edu}")
+    if resume.skills:
+        parts.append("Skills: " + ", ".join(resume.skills[:15]))
+    if resume.languages:
+        parts.append("Languages: " + ", ".join(resume.languages))
+    if resume.certifications:
+        parts.append("Certifications: " + ", ".join(resume.certifications[:8]))
+    if resume.summary:
+        parts.append(f"Summary: {resume.summary}")
+    return "\n".join(parts)[:_CV_SUMMARY_CHAR_CAP]
 
 
 class ThreadOwnershipError(Exception):
@@ -136,15 +193,72 @@ class DocumentService:
                     thread_id=doc.thread_id,
                     document_id=doc.id,
                 )
-            # profile_cv recovery is wired with extraction in plan Phase 2.
+            elif doc.purpose == DocPurpose.PROFILE_CV:
+                await self.extract_cv_profile(
+                    user_id=doc.user_id, document_id=doc.id
+                )
         if acted:
             logger.info("recover_stuck: re-dispatched/failed %d document(s)", acted)
         return acted
 
     async def extract_cv_profile(self, *, user_id: str, document_id: str) -> None:
-        """Phase 2: processor.extract(ResumeSchema) → upsert_cv_draft (UNCONFIRMED).
-        Injection waits until the user confirms (plan decision #10)."""
-        raise NotImplementedError("Wired in plan Phase 2")
+        """Load bytes → processor.extract(ResumeSchema) → store an UNCONFIRMED
+        CV draft (plan decision #10). The draft prefills /profile immediately
+        but is NOT injected into chats until the user clicks Save.
+
+        Runs in a BackgroundTask. Like process_chat_upload it never raises —
+        failures land as status='failed' so the recovery loop and the UI can
+        react (the /profile page then offers manual entry, decision #10)."""
+        try:
+            doc = await self._store.claim_for_processing(document_id)
+            data = await self._blobs.get(key=blob_key(user_id, document_id))
+            parsed = await self._processor.extract(
+                data=data,
+                filename=doc.filename,
+                mime_type=doc.mime_type,
+                schema=ResumeSchema.model_json_schema(),
+            )
+            # Validate the model's JSON against the canonical schema. Engine
+            # -agnostic on purpose: the processor stays a generic dict-in/out
+            # vendor seam (plan decision #4); CV semantics live here.
+            try:
+                resume = ResumeSchema.model_validate(parsed.structured or {})
+            except ValidationError as exc:
+                raise DocumentError(
+                    f"extracted CV did not match the expected shape: {exc}"
+                ) from exc
+            structured = resume.model_dump()
+            summary = _build_cv_summary(resume)
+            # Draft → promote: cv_confirmed_at stays NULL (upsert_cv_draft), so
+            # build_profile_context won't inject this until the user saves.
+            await self._store.upsert_cv_draft(
+                user_id=user_id,
+                cv_document_id=document_id,
+                structured=structured,
+                summary=summary,
+            )
+            await self._store.update_document(
+                document_id,
+                status=DocStatus.READY,
+                summary=summary,
+                # CV is PII (decision #14): keep compact structured facts, not
+                # the raw text. extracted_json holds the validated CV.
+                extracted_json=structured,
+                page_count=parsed.page_count,
+                provider=parsed.provider,
+                provider_file_id=parsed.provider_file_id,
+                error_message=None,
+            )
+        except DocumentNotFoundError:
+            logger.warning("extract_cv_profile: document %s vanished", document_id)
+        except Exception as exc:  # noqa: BLE001 — record, don't crash the worker
+            logger.warning("extract_cv_profile failed for %s: %s", document_id, exc)
+            try:
+                await self._store.update_document(
+                    document_id, status=DocStatus.FAILED, error_message=str(exc)[:500]
+                )
+            except DocumentNotFoundError:
+                pass
 
     async def build_thread_document_context(
         self, *, user_id: str, thread_id: str, latest_user_message: str
@@ -172,6 +286,22 @@ class DocumentService:
         return (
             "Full text of documents the user attached in this conversation:\n\n"
             + "\n\n".join(blocks)
+        )
+
+    async def get_cv_profile(self, *, user_id: str):
+        """The user's CV profile row (draft or confirmed), or None."""
+        return await self._store.get_profile(user_id)
+
+    async def confirm_cv_profile(self, *, user_id: str, resume: ResumeSchema):
+        """Persist the user-edited CV and mark it confirmed (plan decision #10).
+
+        Recomputes the compact summary from the (possibly edited) fields, then
+        sets cv_confirmed_at — from here `build_profile_context` injects it into
+        every chat."""
+        structured = resume.model_dump()
+        summary = _build_cv_summary(resume)
+        return await self._store.confirm_cv(
+            user_id=user_id, structured=structured, summary=summary
         )
 
     async def build_profile_context(self, *, user_id: str) -> str:

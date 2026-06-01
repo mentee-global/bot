@@ -85,17 +85,20 @@ async def upload_document(
     purpose: Annotated[str, Form()] = DocPurpose.CHAT_ATTACHMENT,
     thread_id: Annotated[str | None, Form()] = None,
 ) -> DocumentResponse:
-    # CV upload (profile_cv) ships in plan Phase 2.
-    if purpose != DocPurpose.CHAT_ATTACHMENT:
+    if purpose not in (DocPurpose.CHAT_ATTACHMENT, DocPurpose.PROFILE_CV):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported purpose {purpose!r} (only chat_attachment in this release)",
+            detail=f"Unsupported purpose {purpose!r}",
         )
-    if not thread_id:
+    is_chat = purpose == DocPurpose.CHAT_ATTACHMENT
+    if is_chat and not thread_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="thread_id is required for a chat attachment",
         )
+    # profile_cv is user-scoped, not thread-scoped — ignore any thread_id.
+    if not is_chat:
+        thread_id = None
 
     mime = file.content_type or "application/octet-stream"
     if mime not in settings.allowed_upload_mimes:
@@ -115,19 +118,20 @@ async def upload_document(
             detail=f"File exceeds {settings.max_upload_bytes} bytes",
         )
 
-    # Ownership BEFORE any write (plan decision #15).
-    try:
-        await service.assert_thread_owned(user_id=user.id, thread_id=thread_id)
-    except ThreadOwnershipError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
-        ) from exc
+    # Ownership BEFORE any write (plan decision #15) — chat attachments only.
+    if is_chat:
+        try:
+            await service.assert_thread_owned(user_id=user.id, thread_id=thread_id)
+        except ThreadOwnershipError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
+            ) from exc
 
     file_hash = hashlib.sha256(data).hexdigest()
     doc = await store.create_document(
         user_id=user.id,
         thread_id=thread_id,
-        purpose=DocPurpose.CHAT_ATTACHMENT,
+        purpose=purpose,
         filename=file.filename or "upload",
         mime_type=mime,
         size_bytes=len(data),
@@ -137,12 +141,19 @@ async def upload_document(
     uri = await blobs.put(key=key, data=data, content_type=mime)
     doc = await store.update_document(doc.id, storage_uri=uri)
 
-    background.add_task(
-        service.process_chat_upload,
-        user_id=user.id,
-        thread_id=thread_id,
-        document_id=doc.id,
-    )
+    if is_chat:
+        background.add_task(
+            service.process_chat_upload,
+            user_id=user.id,
+            thread_id=thread_id,
+            document_id=doc.id,
+        )
+    else:
+        background.add_task(
+            service.extract_cv_profile,
+            user_id=user.id,
+            document_id=doc.id,
+        )
     return DocumentResponse.from_document(doc)
 
 

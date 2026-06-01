@@ -26,9 +26,10 @@ class MockAgent(AgentPort):
         perplexity_enabled: bool = True,
         ui_locale: str | None = None,
         document_context: str | None = None,
+        cv_context: str | None = None,
     ) -> str:
         # mock agent ignores these
-        del usage_out, perplexity_enabled, ui_locale, document_context
+        del usage_out, perplexity_enabled, ui_locale, document_context, cv_context
         # Small delay so the frontend loading state is observable during dev.
         await asyncio.sleep(0.2)
 
