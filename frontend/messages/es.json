@@ -200,5 +200,7 @@
   "chat_attachment_status_failed": "Failed",
   "chat_attachment_error_too_large": "File is too large (max 25 MB)",
   "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
-  "chat_attachment_error_upload": "Upload failed"
+  "chat_attachment_error_upload": "Upload failed",
+  "chat_attachment_status_staged": "Attached",
+  "chat_attachment_needs_question": "Add a question about your file…"
 }

@@ -16,20 +16,20 @@ import {
 	useRef,
 	useState,
 } from "react";
-import {
-	ALLOWED_UPLOAD_MIMES,
-	type DocumentStatus,
-} from "#/features/chat/data/documents.types";
+import { ALLOWED_UPLOAD_MIMES } from "#/features/chat/data/documents.types";
 import { useDraft } from "#/features/chat/hooks/useDraftsStore";
-import {
-	type Attachment,
-	useThreadAttachments,
-} from "#/features/chat/hooks/useThreadAttachments";
+import type { StagedAttachment } from "#/features/chat/hooks/useStagedAttachments";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
-function attachmentStatusLabel(status: Attachment["status"]): string {
+const MAX_LEN = 4000;
+const COUNTER_THRESHOLD = 0.8;
+const MAX_ROWS_PX = 200;
+
+function attachmentStatusLabel(status: StagedAttachment["status"]): string {
 	switch (status) {
+		case "staged":
+			return m.chat_attachment_status_staged();
 		case "uploading":
 			return m.chat_attachment_status_uploading();
 		case "pending":
@@ -42,19 +42,17 @@ function attachmentStatusLabel(status: Attachment["status"]): string {
 	}
 }
 
-const NON_TERMINAL: ReadonlySet<DocumentStatus | "uploading"> = new Set([
+const SPINNING: ReadonlySet<StagedAttachment["status"]> = new Set([
 	"uploading",
 	"pending",
 	"processing",
 ]);
 
-const MAX_LEN = 4000;
-const COUNTER_THRESHOLD = 0.8;
-const MAX_ROWS_PX = 200;
-
 interface ChatInputProps {
 	threadId: string | null;
-	onSend: (body: string) => void;
+	/** Resolves false to keep the typed text (e.g. attachment upload failed),
+	 * otherwise the composer clears on submit. */
+	onSend: (body: string) => boolean | Promise<boolean>;
 	onStop?: () => void;
 	isSending: boolean;
 	canStop?: boolean;
@@ -64,6 +62,11 @@ interface ChatInputProps {
 	 * paused globally — sending is impossible until the next reset.
 	 */
 	disabledReason?: string | null;
+	attachments: StagedAttachment[];
+	onAttachFiles: (files: FileList) => void;
+	onRemoveAttachment: (localId: string) => void;
+	/** Disable the attach button (e.g. while a send is preparing uploads). */
+	attachDisabled?: boolean;
 }
 
 export interface ChatInputHandle {
@@ -79,6 +82,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			isSending,
 			canStop = false,
 			disabledReason = null,
+			attachments,
+			onAttachFiles,
+			onRemoveAttachment,
+			attachDisabled = false,
 		},
 		ref,
 	) {
@@ -88,7 +95,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 		const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
 		const fileInputRef = useRef<HTMLInputElement>(null);
-		const { attachments, addFiles, remove } = useThreadAttachments(threadId);
 
 		useImperativeHandle(ref, () => ({
 			focus: () => textareaRef.current?.focus(),
@@ -126,14 +132,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
 		const isBlocked = disabledReason !== null && disabledReason !== "";
 
-		const handleSubmit = (e?: FormEvent) => {
+		const handleSubmit = async (e?: FormEvent) => {
 			e?.preventDefault();
 			if (isBlocked) return;
 			const trimmed = text.trim();
 			if (!trimmed || isSending) return;
-			onSend(trimmed);
-			setText("");
-			clearDraft();
+			const result = onSend(trimmed);
+			const ok = result instanceof Promise ? await result : result;
+			// Keep the text when the send reported failure (false) so the user
+			// doesn't lose their message — e.g. an attachment upload failed.
+			if (ok !== false) {
+				setText("");
+				clearDraft();
+			}
 		};
 
 		const handleChange = (next: string) => {
@@ -141,14 +152,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			setDraft(next);
 		};
 
-		// Attaching requires a thread; on a brand-new chat the thread is created
-		// on first send, so the button stays disabled until then.
-		const canAttach = !!threadId && !isBlocked;
-
+		const canAttach = !isBlocked && !attachDisabled;
 		const handleAttachClick = () => fileInputRef.current?.click();
-
 		const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-			if (e.target.files && e.target.files.length > 0) addFiles(e.target.files);
+			if (e.target.files && e.target.files.length > 0)
+				onAttachFiles(e.target.files);
 			e.target.value = ""; // allow re-selecting the same file
 		};
 
@@ -159,7 +167,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			if (e.shiftKey) return; // Shift+Enter → newline
 			if (isCoarsePointer) return; // Touch keyboards: Enter → newline
 			e.preventDefault();
-			handleSubmit();
+			void handleSubmit();
 		};
 
 		const isStopMode = isSending && canStop && !isBlocked;
@@ -173,7 +181,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			? (disabledReason ?? m.chat_input_placeholder_blocked())
 			: isSending
 				? m.chat_input_placeholder_waiting()
-				: m.chat_input_placeholder();
+				: // Nudge the user that an attachment needs an accompanying question.
+					attachments.length > 0 && trimmedLen === 0
+					? m.chat_attachment_needs_question()
+					: m.chat_input_placeholder();
 
 		return (
 			<form
@@ -193,7 +204,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 											: "border-[var(--theme-border)] text-[var(--theme-secondary)]",
 									)}
 								>
-									{NON_TERMINAL.has(a.status) ? (
+									{SPINNING.has(a.status) ? (
 										<Loader2 size={12} className="animate-spin" />
 									) : (
 										<Paperclip size={12} />
@@ -206,7 +217,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 									</span>
 									<button
 										type="button"
-										onClick={() => remove(a.localId)}
+										onClick={() => onRemoveAttachment(a.localId)}
 										aria-label={m.chat_attachment_remove_aria()}
 										className="ml-0.5 rounded text-[var(--theme-muted)] hover:text-[var(--theme-primary)]"
 									>
@@ -231,9 +242,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 							onClick={handleAttachClick}
 							disabled={!canAttach}
 							aria-label={m.chat_attach_aria()}
-							title={
-								canAttach ? m.chat_attach_aria() : m.chat_attach_disabled_hint()
-							}
+							title={m.chat_attach_aria()}
 							className={cn(
 								"flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-lg border transition",
 								canAttach

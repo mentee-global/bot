@@ -44,6 +44,7 @@ import { RenameThreadDialog } from "#/features/chat/components/RenameThreadDialo
 import { SessionRatingCard } from "#/features/chat/components/SessionRatingCard";
 import { ShortcutsDialog } from "#/features/chat/components/ShortcutsDialog";
 import { ThreadSidebar } from "#/features/chat/components/ThreadSidebar";
+import { chatService } from "#/features/chat/data/chat.service";
 import type {
 	Message,
 	Thread,
@@ -68,6 +69,7 @@ import {
 	clearSessionRatingState,
 	useSessionRatingTrigger,
 } from "#/features/chat/hooks/useSessionRatingTrigger";
+import { useStagedAttachments } from "#/features/chat/hooks/useStagedAttachments";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
 // Feature commented out — "Request more credits" CTA is hidden from users.
 // To reactivate: uncomment this import, the `showRequestCredits` prop on
@@ -228,6 +230,68 @@ function ChatView({
 
 	const me = useMeQuery();
 	const block = useChatBlockState(me.data);
+
+	// Client-side attachment staging: files are held in memory and only
+	// uploaded at send time (no orphan threads, no upload without a question).
+	const {
+		staged,
+		addFiles,
+		remove: removeStaged,
+		clear: clearStaged,
+		commit: commitStaged,
+	} = useStagedAttachments();
+	const [isPreparingAttachments, setIsPreparingAttachments] = useState(false);
+	const [pendingAttachSend, setPendingAttachSend] = useState<{
+		body: string;
+		threadId: string;
+	} | null>(null);
+
+	const handleComposerSend = useCallback(
+		async (body: string): Promise<boolean> => {
+			if (staged.length === 0) {
+				send.mutate(body);
+				return true;
+			}
+			setIsPreparingAttachments(true);
+			try {
+				let tid = activeThreadId;
+				const isNewThread = !tid;
+				if (!tid) {
+					// Create the thread only now that the user is actually sending —
+					// so abandoning a staged file leaves nothing behind.
+					tid = (await chatService.createThread()).thread_id;
+				}
+				await commitStaged(tid);
+				if (isNewThread) {
+					// Switch to the new thread; the effect below fires the send once
+					// the send hook re-binds to it (a stale closure would otherwise
+					// mint a second thread).
+					navigate({ search: { threadId: tid }, replace: true });
+					setPendingAttachSend({ body, threadId: tid });
+				} else {
+					send.mutate(body);
+					clearStaged();
+				}
+				return true;
+			} catch {
+				toast.error(m.chat_attachment_error_upload());
+				return false; // keep the typed text so the user can retry
+			} finally {
+				setIsPreparingAttachments(false);
+			}
+		},
+		[staged.length, activeThreadId, commitStaged, send, navigate, clearStaged],
+	);
+
+	// Deferred send for the new-thread-with-attachments case: once the route
+	// (and thus the send hook) has switched to the freshly-created thread, send.
+	useEffect(() => {
+		if (pendingAttachSend && activeThreadId === pendingAttachSend.threadId) {
+			send.mutate(pendingAttachSend.body);
+			setPendingAttachSend(null);
+			clearStaged();
+		}
+	}, [activeThreadId, pendingAttachSend, send, clearStaged]);
 
 	const handleCreate = () => {
 		// Don't persist a thread until the user sends a message — otherwise
@@ -634,11 +698,15 @@ function ChatView({
 				<ChatInput
 					ref={inputRef}
 					threadId={activeThreadId}
-					onSend={(body) => send.mutate(body)}
+					onSend={handleComposerSend}
 					onStop={STREAMING_ENABLED ? streamMessage.stop : undefined}
-					canStop={STREAMING_ENABLED}
-					isSending={send.isPending}
+					canStop={STREAMING_ENABLED && send.isPending}
+					isSending={send.isPending || isPreparingAttachments}
 					disabledReason={block?.placeholder ?? null}
+					attachments={staged}
+					onAttachFiles={addFiles}
+					onRemoveAttachment={removeStaged}
+					attachDisabled={isPreparingAttachments}
 				/>
 			</div>
 
