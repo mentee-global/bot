@@ -46,6 +46,17 @@ class MessageService:
         )
         return ctx or None
 
+    async def _cv_context(self, user_id: str) -> str | None:
+        """Confirmed-CV facts for this user, injected into every chat, or None.
+
+        Returns content only once the user has saved/confirmed their CV
+        (cv_confirmed_at set) — the gate lives in build_profile_context
+        (plan decision #10)."""
+        if self.documents is None:
+            return None
+        ctx = await self.documents.build_profile_context(user_id=user_id)
+        return ctx or None
+
     async def _resolve_thread(
         self, user_id: str, thread_id: str | None, *, create_new: bool = False
     ) -> Thread:
@@ -89,6 +100,7 @@ class MessageService:
             await self._maybe_auto_title(thread, body)
 
         document_context = await self._document_context(user_id, thread, body)
+        cv_context = await self._cv_context(user_id)
         usage = UsageSummary()
         reply_body = await self.agent.reply(
             user_message,
@@ -98,6 +110,7 @@ class MessageService:
             perplexity_enabled=not snap.perplexity_degraded,
             ui_locale=ui_locale,
             document_context=document_context,
+            cv_context=cv_context,
         )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
@@ -152,6 +165,7 @@ class MessageService:
         )
 
         document_context = await self._document_context(user_id, thread, body)
+        cv_context = await self._cv_context(user_id)
         usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
@@ -162,6 +176,7 @@ class MessageService:
             perplexity_enabled=not snap.perplexity_degraded,
             ui_locale=ui_locale,
             document_context=document_context,
+            cv_context=cv_context,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:

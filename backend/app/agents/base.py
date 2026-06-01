@@ -26,6 +26,7 @@ class AgentPort(ABC):
         perplexity_enabled: bool = True,
         ui_locale: str | None = None,
         document_context: str | None = None,
+        cv_context: str | None = None,
     ) -> str:
         """Return the assistant's reply body for the given user message.
 
@@ -38,6 +39,8 @@ class AgentPort(ABC):
         `document_context` is a compact, pre-built block describing files the
         user attached in this thread (summaries/facts) — agents inject it as
         untrusted data; None when there are no attachments.
+        `cv_context` is the user's confirmed CV facts (plan Phase 2) injected
+        the same way; None until the user uploads and saves a CV.
         """
         ...
 
@@ -51,6 +54,7 @@ class AgentPort(ABC):
         perplexity_enabled: bool = True,
         ui_locale: str | None = None,
         document_context: str | None = None,
+        cv_context: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Yield assistant reply deltas and tool lifecycle events.
 
@@ -67,5 +71,6 @@ class AgentPort(ABC):
                 perplexity_enabled=perplexity_enabled,
                 ui_locale=ui_locale,
                 document_context=document_context,
+                cv_context=cv_context,
             )
         )

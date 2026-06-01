@@ -25,6 +25,7 @@ from app.api.routes import (
     documents,
     health,
     me,
+    profile,
     reports,
 )
 from app.auth.session_store import SessionStore
@@ -275,6 +276,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(documents.router)
+app.include_router(profile.router)
 app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(admin.router)
