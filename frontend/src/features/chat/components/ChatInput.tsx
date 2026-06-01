@@ -263,14 +263,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 							rows={1}
 							maxLength={MAX_LEN + 200}
 							spellCheck
-							disabled={isBlocked}
-							aria-disabled={isBlocked || undefined}
+							disabled={isBlocked || attachDisabled}
+							aria-disabled={isBlocked || attachDisabled || undefined}
 							data-gramm="false"
 							data-gramm_editor="false"
 							data-enable-grammarly="false"
 							className={cn(
 								"block w-full flex-1 resize-none rounded-lg border bg-[var(--theme-bg)] px-3.5 py-2 text-base leading-6 text-[var(--theme-primary)] placeholder:text-[var(--theme-muted)] outline-none transition md:text-sm",
-								isBlocked && "cursor-not-allowed opacity-60",
+								(isBlocked || attachDisabled) &&
+									"cursor-not-allowed opacity-60",
 								overLimit
 									? "border-[var(--theme-danger)] focus:border-[var(--theme-danger)] focus:ring-2 focus:ring-[var(--theme-danger)]/25"
 									: "border-[var(--theme-border)] focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-accent-ring)]",

@@ -44,7 +44,6 @@ import { RenameThreadDialog } from "#/features/chat/components/RenameThreadDialo
 import { SessionRatingCard } from "#/features/chat/components/SessionRatingCard";
 import { ShortcutsDialog } from "#/features/chat/components/ShortcutsDialog";
 import { ThreadSidebar } from "#/features/chat/components/ThreadSidebar";
-import { chatService } from "#/features/chat/data/chat.service";
 import type {
 	Message,
 	Thread,
@@ -52,6 +51,7 @@ import type {
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import {
+	useCreateThreadMutation,
 	useDeleteThreadMutation,
 	useRenameThreadMutation,
 	useSendMessageMutation,
@@ -173,6 +173,7 @@ function ChatView({
 
 	const threads = useThreadsQuery(debouncedQuery || undefined);
 	const deleteThread = useDeleteThreadMutation();
+	const createThread = useCreateThreadMutation();
 	const renameThread = useRenameThreadMutation();
 	const logout = useLogoutMutation();
 
@@ -258,8 +259,10 @@ function ChatView({
 				const isNewThread = !tid;
 				if (!tid) {
 					// Create the thread only now that the user is actually sending —
-					// so abandoning a staged file leaves nothing behind.
-					tid = (await chatService.createThread()).thread_id;
+					// so abandoning a staged file leaves nothing behind. The mutation
+					// seeds the thread cache (empty messages), so when we navigate the
+					// thread query won't refetch-and-clobber the optimistic stream.
+					tid = (await createThread.mutateAsync(undefined)).thread_id;
 				}
 				await commitStaged(tid);
 				if (isNewThread) {
@@ -280,7 +283,15 @@ function ChatView({
 				setIsPreparingAttachments(false);
 			}
 		},
-		[staged.length, activeThreadId, commitStaged, send, navigate, clearStaged],
+		[
+			staged.length,
+			activeThreadId,
+			commitStaged,
+			send,
+			navigate,
+			clearStaged,
+			createThread,
+		],
 	);
 
 	// Deferred send for the new-thread-with-attachments case: once the route
@@ -443,9 +454,9 @@ function ChatView({
 		(text: string) => {
 			if (block) return;
 			track("chat.suggestion_picked");
-			send.mutate(text);
+			void handleComposerSend(text);
 		},
-		[block, send],
+		[block, handleComposerSend],
 	);
 
 	const handleExportThread = useCallback(() => {
@@ -650,7 +661,7 @@ function ChatView({
 								onPickStarter={(prompt) => {
 									if (block) return;
 									track("chat.starter_picked", { kind: "starter" });
-									send.mutate(prompt);
+									void handleComposerSend(prompt);
 								}}
 								onContinue={(threadId) => {
 									track("chat.starter_picked", { kind: "continue" });
