@@ -1,9 +1,11 @@
 import { Link } from "@tanstack/react-router";
+import { FileUser } from "lucide-react";
 import ParaglideLocaleSwitcher from "#/components/LocaleSwitcher";
 import { MenteeLogo } from "#/components/Logo";
 import ThemeToggle from "#/components/ThemeToggle";
 import { useSession } from "#/features/auth/hooks/useSession";
 import { BugReportTrigger } from "#/features/reports/components/BugReportTrigger";
+import { m } from "#/paraglide/messages";
 
 export default function Header() {
 	const session = useSession();
@@ -29,6 +31,17 @@ export default function Header() {
 				</Link>
 
 				<div className="flex items-center gap-1.5">
+					{session.data ? (
+						<Link
+							to="/profile"
+							aria-label={m.profile_nav_link()}
+							title={m.profile_nav_link()}
+							className="flex h-9 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2.5 text-xs font-medium text-[var(--theme-primary)] transition-colors hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-elevated)]"
+						>
+							<FileUser size={14} strokeWidth={2} aria-hidden="true" />
+							<span className="hidden sm:inline">{m.profile_nav_link()}</span>
+						</Link>
+					) : null}
 					<BugReportTrigger user={session.data ?? null} variant="header" />
 					<ParaglideLocaleSwitcher />
 					<ThemeToggle />
