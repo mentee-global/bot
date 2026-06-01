@@ -241,11 +241,6 @@ function ChatView({
 		clear: clearStaged,
 		commit: commitStaged,
 	} = useStagedAttachments();
-	const [isPreparingAttachments, setIsPreparingAttachments] = useState(false);
-	const [pendingAttachSend, setPendingAttachSend] = useState<{
-		body: string;
-		threadId: string;
-	} | null>(null);
 
 	const handleComposerSend = useCallback(
 		async (body: string): Promise<boolean> => {
@@ -253,56 +248,47 @@ function ChatView({
 				send.mutate(body);
 				return true;
 			}
-			setIsPreparingAttachments(true);
+			// ChatGPT-style: the user bubble (with the file chip) + an assistant
+			// "thinking" bubble appear instantly; the upload runs in the
+			// background (prepare) before the agent turn. The composer clears now.
+			const files = staged.map((s) => s.file);
+			const attachments = staged.map((s) => ({
+				filename: s.filename,
+				status: "uploading" as const,
+			}));
 			try {
 				let tid = activeThreadId;
-				const isNewThread = !tid;
 				if (!tid) {
-					// Create the thread only now that the user is actually sending —
-					// so abandoning a staged file leaves nothing behind. The mutation
-					// seeds the thread cache (empty messages), so when we navigate the
-					// thread query won't refetch-and-clobber the optimistic stream.
+					// Create the thread only now (no orphan threads); the mutation
+					// seeds its cache so navigating doesn't refetch-and-clobber the
+					// stream.
 					tid = (await createThread.mutateAsync(undefined)).thread_id;
-				}
-				await commitStaged(tid);
-				if (isNewThread) {
-					// Switch to the new thread; the effect below fires the send once
-					// the send hook re-binds to it (a stale closure would otherwise
-					// mint a second thread).
 					navigate({ search: { threadId: tid }, replace: true });
-					setPendingAttachSend({ body, threadId: tid });
-				} else {
-					send.mutate(body);
-					clearStaged();
 				}
+				clearStaged();
+				send.mutate({
+					body,
+					threadId: tid,
+					attachments,
+					prepare: () => commitStaged(tid, files),
+				});
 				return true;
 			} catch {
+				// Thread creation failed — keep the staged files + typed text.
 				toast.error(m.chat_attachment_error_upload());
-				return false; // keep the typed text so the user can retry
-			} finally {
-				setIsPreparingAttachments(false);
+				return false;
 			}
 		},
 		[
-			staged.length,
+			staged,
 			activeThreadId,
-			commitStaged,
-			send,
+			createThread,
 			navigate,
 			clearStaged,
-			createThread,
+			send,
+			commitStaged,
 		],
 	);
-
-	// Deferred send for the new-thread-with-attachments case: once the route
-	// (and thus the send hook) has switched to the freshly-created thread, send.
-	useEffect(() => {
-		if (pendingAttachSend && activeThreadId === pendingAttachSend.threadId) {
-			send.mutate(pendingAttachSend.body);
-			setPendingAttachSend(null);
-			clearStaged();
-		}
-	}, [activeThreadId, pendingAttachSend, send, clearStaged]);
 
 	const handleCreate = () => {
 		// Don't persist a thread until the user sends a message — otherwise
@@ -712,12 +698,11 @@ function ChatView({
 					onSend={handleComposerSend}
 					onStop={STREAMING_ENABLED ? streamMessage.stop : undefined}
 					canStop={STREAMING_ENABLED && send.isPending}
-					isSending={send.isPending || isPreparingAttachments}
+					isSending={send.isPending}
 					disabledReason={block?.placeholder ?? null}
 					attachments={staged}
 					onAttachFiles={addFiles}
 					onRemoveAttachment={removeStaged}
-					attachDisabled={isPreparingAttachments}
 				/>
 			</div>
 

@@ -1,10 +1,4 @@
-import {
-	CircleStop,
-	Loader2,
-	Paperclip,
-	SendHorizontal,
-	X,
-} from "lucide-react";
+import { CircleStop, Paperclip, SendHorizontal, X } from "lucide-react";
 import {
 	type ChangeEvent,
 	type FormEvent,
@@ -26,28 +20,6 @@ const MAX_LEN = 4000;
 const COUNTER_THRESHOLD = 0.8;
 const MAX_ROWS_PX = 200;
 
-function attachmentStatusLabel(status: StagedAttachment["status"]): string {
-	switch (status) {
-		case "staged":
-			return m.chat_attachment_status_staged();
-		case "uploading":
-			return m.chat_attachment_status_uploading();
-		case "pending":
-		case "processing":
-			return m.chat_attachment_status_processing();
-		case "ready":
-			return m.chat_attachment_status_ready();
-		case "failed":
-			return m.chat_attachment_status_failed();
-	}
-}
-
-const SPINNING: ReadonlySet<StagedAttachment["status"]> = new Set([
-	"uploading",
-	"pending",
-	"processing",
-]);
-
 interface ChatInputProps {
 	threadId: string | null;
 	/** Resolves false to keep the typed text (e.g. attachment upload failed),
@@ -62,11 +34,11 @@ interface ChatInputProps {
 	 * paused globally — sending is impossible until the next reset.
 	 */
 	disabledReason?: string | null;
+	/** Files staged in the composer (not yet sent). On send they move to the
+	 * message bubble in the chat area. */
 	attachments: StagedAttachment[];
 	onAttachFiles: (files: FileList) => void;
 	onRemoveAttachment: (localId: string) => void;
-	/** Disable the attach button (e.g. while a send is preparing uploads). */
-	attachDisabled?: boolean;
 }
 
 export interface ChatInputHandle {
@@ -85,7 +57,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			attachments,
 			onAttachFiles,
 			onRemoveAttachment,
-			attachDisabled = false,
 		},
 		ref,
 	) {
@@ -137,13 +108,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			if (isBlocked) return;
 			const trimmed = text.trim();
 			if (!trimmed || isSending) return;
+			// Clear immediately (ChatGPT-style): the message + any file move to the
+			// chat area. onSend resolves false only on failure → restore the text.
+			setText("");
+			clearDraft();
 			const result = onSend(trimmed);
 			const ok = result instanceof Promise ? await result : result;
-			// Keep the text when the send reported failure (false) so the user
-			// doesn't lose their message — e.g. an attachment upload failed.
-			if (ok !== false) {
-				setText("");
-				clearDraft();
+			if (ok === false) {
+				setText(trimmed);
+				setDraft(trimmed);
 			}
 		};
 
@@ -152,7 +125,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			setDraft(next);
 		};
 
-		const canAttach = !isBlocked && !attachDisabled;
+		const canAttach = !isBlocked;
 		const handleAttachClick = () => fileInputRef.current?.click();
 		const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
 			if (e.target.files && e.target.files.length > 0)
@@ -197,23 +170,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 							{attachments.map((a) => (
 								<li
 									key={a.localId}
-									className={cn(
-										"flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
-										a.status === "failed"
-											? "border-[var(--theme-danger)] text-[var(--theme-danger)]"
-											: "border-[var(--theme-border)] text-[var(--theme-secondary)]",
-									)}
+									className="flex items-center gap-1.5 rounded-md border border-[var(--theme-border)] px-2 py-1 text-xs text-[var(--theme-secondary)]"
 								>
-									{SPINNING.has(a.status) ? (
-										<Loader2 size={12} className="animate-spin" />
-									) : (
-										<Paperclip size={12} />
-									)}
+									<Paperclip size={12} />
 									<span className="max-w-[12rem] truncate" title={a.filename}>
 										{a.filename}
 									</span>
 									<span className="text-[var(--theme-muted)]">
-										· {attachmentStatusLabel(a.status)}
+										· {m.chat_attachment_status_staged()}
 									</span>
 									<button
 										type="button"
@@ -263,15 +227,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 							rows={1}
 							maxLength={MAX_LEN + 200}
 							spellCheck
-							disabled={isBlocked || attachDisabled}
-							aria-disabled={isBlocked || attachDisabled || undefined}
+							disabled={isBlocked}
+							aria-disabled={isBlocked || undefined}
 							data-gramm="false"
 							data-gramm_editor="false"
 							data-enable-grammarly="false"
 							className={cn(
 								"block w-full flex-1 resize-none rounded-lg border bg-[var(--theme-bg)] px-3.5 py-2 text-base leading-6 text-[var(--theme-primary)] placeholder:text-[var(--theme-muted)] outline-none transition md:text-sm",
-								(isBlocked || attachDisabled) &&
-									"cursor-not-allowed opacity-60",
+								isBlocked && "cursor-not-allowed opacity-60",
 								overLimit
 									? "border-[var(--theme-danger)] focus:border-[var(--theme-danger)] focus:ring-2 focus:ring-[var(--theme-danger)]/25"
 									: "border-[var(--theme-border)] focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-accent-ring)]",

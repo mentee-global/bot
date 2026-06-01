@@ -5,7 +5,9 @@ import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import { streamChatMessage } from "#/features/chat/data/chat.stream";
 import type {
+	AttachmentStatus,
 	Message,
+	SendInput,
 	StreamDone,
 	StreamMeta,
 	StreamSuggestions,
@@ -68,12 +70,18 @@ export function useStreamMessage(
 	const abortRef = useRef<AbortController | null>(null);
 	const persona = useActivePersona();
 
-	const mutation = useMutation<void, Error, string>({
-		mutationFn: async (body: string) => {
+	const mutation = useMutation<void, Error, string | SendInput>({
+		mutationFn: async (input) => {
+			const {
+				body,
+				threadId: explicitThreadId,
+				attachments,
+				prepare,
+			} = typeof input === "string" ? { body: input } : input;
 			const pendingUserId = `pending-user-${crypto.randomUUID()}`;
 			const pendingAssistantId = `pending-assistant-${crypto.randomUUID()}`;
 			const pendingThreadId = `pending-thread-${crypto.randomUUID()}`;
-			const activeThreadId = threadId ?? undefined;
+			const activeThreadId = explicitThreadId ?? threadId ?? undefined;
 			const cacheKey = chatKeys.thread(activeThreadId);
 			const startedAt = Date.now();
 
@@ -96,6 +104,7 @@ export function useStreamMessage(
 				role: "user",
 				body,
 				created_at: nowIso(),
+				attachments,
 			};
 			const optimisticAssistant: Message = {
 				id: pendingAssistantId,
@@ -122,7 +131,7 @@ export function useStreamMessage(
 			// backend can take several seconds to emit `meta` (it generates the
 			// title first), so waiting on that feels like the sidebar lags
 			// behind the agent's reply.
-			const isDraftNewChat = !threadId;
+			const isDraftNewChat = !activeThreadId;
 			if (isDraftNewChat) {
 				const nowTs = nowIso();
 				const placeholder: ThreadSummary = {
@@ -134,6 +143,48 @@ export function useStreamMessage(
 				patchThreadsLists(queryClient, (data) => ({
 					threads: [placeholder, ...data.threads],
 				}));
+			}
+
+			// Attachment uploads run AFTER the optimistic bubbles are shown (so the
+			// chat area reflects the send instantly) but BEFORE the agent turn (so
+			// it can read the docs). The assistant placeholder shows "thinking"
+			// meanwhile; the user bubble's file chip resolves uploading → ready.
+			if (prepare) {
+				const ok = await prepare();
+				const status: AttachmentStatus = ok ? "ready" : "failed";
+				patchThreadByKey(
+					queryClient,
+					cacheKey,
+					(t) => ({
+						thread_id: t.thread_id || activeThreadId || "",
+						title: t.title,
+						messages: t.messages.map((mm) =>
+							mm.id === pendingUserId && mm.attachments
+								? {
+										...mm,
+										attachments: mm.attachments.map((a) => ({ ...a, status })),
+									}
+								: mm,
+						),
+					}),
+					activeThreadId,
+				);
+				if (!ok) {
+					// Upload failed: drop the assistant placeholder (no turn will run);
+					// the user bubble stays with a failed chip so they can retry.
+					patchThreadByKey(
+						queryClient,
+						cacheKey,
+						(t) => ({
+							thread_id: t.thread_id,
+							title: t.title,
+							messages: t.messages.filter((mm) => mm.id !== pendingAssistantId),
+						}),
+						activeThreadId,
+					);
+					if (abortRef.current === controller) abortRef.current = null;
+					return;
+				}
 			}
 
 			let meta: StreamMeta | null = null;
@@ -354,7 +405,7 @@ export function useStreamMessage(
 						activeThreadId,
 						persona,
 					);
-					if (!threadId) options?.onThreadResolved?.(fallback.thread_id);
+					if (isDraftNewChat) options?.onThreadResolved?.(fallback.thread_id);
 					const fallbackKey = chatKeys.thread(fallback.thread_id);
 					patchThreadByKey(
 						queryClient,
