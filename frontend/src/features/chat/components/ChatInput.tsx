@@ -1,5 +1,12 @@
-import { CircleStop, SendHorizontal } from "lucide-react";
 import {
+	CircleStop,
+	Loader2,
+	Paperclip,
+	SendHorizontal,
+	X,
+} from "lucide-react";
+import {
+	type ChangeEvent,
 	type FormEvent,
 	forwardRef,
 	type KeyboardEvent,
@@ -9,9 +16,37 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	ALLOWED_UPLOAD_MIMES,
+	type DocumentStatus,
+} from "#/features/chat/data/documents.types";
 import { useDraft } from "#/features/chat/hooks/useDraftsStore";
+import {
+	type Attachment,
+	useThreadAttachments,
+} from "#/features/chat/hooks/useThreadAttachments";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+
+function attachmentStatusLabel(status: Attachment["status"]): string {
+	switch (status) {
+		case "uploading":
+			return m.chat_attachment_status_uploading();
+		case "pending":
+		case "processing":
+			return m.chat_attachment_status_processing();
+		case "ready":
+			return m.chat_attachment_status_ready();
+		case "failed":
+			return m.chat_attachment_status_failed();
+	}
+}
+
+const NON_TERMINAL: ReadonlySet<DocumentStatus | "uploading"> = new Set([
+	"uploading",
+	"pending",
+	"processing",
+]);
 
 const MAX_LEN = 4000;
 const COUNTER_THRESHOLD = 0.8;
@@ -52,6 +87,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 		const [isComposing, setIsComposing] = useState(false);
 		const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
+		const fileInputRef = useRef<HTMLInputElement>(null);
+		const { attachments, addFiles, remove } = useThreadAttachments(threadId);
 
 		useImperativeHandle(ref, () => ({
 			focus: () => textareaRef.current?.focus(),
@@ -63,6 +100,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
 		// Auto-grow: reset to auto then pin to scrollHeight (clamped) so the
 		// textarea hugs its content until the cap, then scrolls.
+		// biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on every text change — `text` is the trigger, not read in the body.
 		useLayoutEffect(() => {
 			const el = textareaRef.current;
 			if (!el) return;
@@ -103,6 +141,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			setDraft(next);
 		};
 
+		// Attaching requires a thread; on a brand-new chat the thread is created
+		// on first send, so the button stays disabled until then.
+		const canAttach = !!threadId && !isBlocked;
+
+		const handleAttachClick = () => fileInputRef.current?.click();
+
+		const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+			if (e.target.files && e.target.files.length > 0) addFiles(e.target.files);
+			e.target.value = ""; // allow re-selecting the same file
+		};
+
 		const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 			if (e.key !== "Enter") return;
 			// IME safety — submitting while composing eats the pending character.
@@ -132,7 +181,68 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 				className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-3 sm:px-4"
 			>
 				<div className="mx-auto w-full max-w-3xl lg:max-w-4xl">
+					{attachments.length > 0 ? (
+						<ul className="mb-2 flex flex-wrap gap-2">
+							{attachments.map((a) => (
+								<li
+									key={a.localId}
+									className={cn(
+										"flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
+										a.status === "failed"
+											? "border-[var(--theme-danger)] text-[var(--theme-danger)]"
+											: "border-[var(--theme-border)] text-[var(--theme-secondary)]",
+									)}
+								>
+									{NON_TERMINAL.has(a.status) ? (
+										<Loader2 size={12} className="animate-spin" />
+									) : (
+										<Paperclip size={12} />
+									)}
+									<span className="max-w-[12rem] truncate" title={a.filename}>
+										{a.filename}
+									</span>
+									<span className="text-[var(--theme-muted)]">
+										· {attachmentStatusLabel(a.status)}
+									</span>
+									<button
+										type="button"
+										onClick={() => remove(a.localId)}
+										aria-label={m.chat_attachment_remove_aria()}
+										className="ml-0.5 rounded text-[var(--theme-muted)] hover:text-[var(--theme-primary)]"
+									>
+										<X size={12} />
+									</button>
+								</li>
+							))}
+						</ul>
+					) : null}
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept={ALLOWED_UPLOAD_MIMES.join(",")}
+						multiple
+						onChange={handleFileChange}
+						className="hidden"
+						tabIndex={-1}
+					/>
 					<div className="flex w-full items-center gap-2">
+						<button
+							type="button"
+							onClick={handleAttachClick}
+							disabled={!canAttach}
+							aria-label={m.chat_attach_aria()}
+							title={
+								canAttach ? m.chat_attach_aria() : m.chat_attach_disabled_hint()
+							}
+							className={cn(
+								"flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-lg border transition",
+								canAttach
+									? "border-[var(--theme-border)] text-[var(--theme-secondary)] hover:border-[var(--theme-primary)] hover:text-[var(--theme-primary)]"
+									: "cursor-not-allowed border-[var(--theme-border)] bg-[var(--theme-surface)] text-[var(--theme-muted)]",
+							)}
+						>
+							<Paperclip size={16} />
+						</button>
 						<textarea
 							ref={textareaRef}
 							value={text}

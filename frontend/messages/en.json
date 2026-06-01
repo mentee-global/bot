@@ -4,12 +4,9 @@
   "language_label": "Language",
   "theme_toggle_to_dark": "Switch to dark mode",
   "theme_toggle_to_light": "Switch to light mode",
-
   "meta_title": "Mentee Bot",
   "meta_description": "Mentor for scholarships, study-abroad programs, careers, and mobility for the Mentee community.",
-
   "footer_rights": "© {year} MENTEE. All rights reserved.",
-
   "landing_kicker": "Mentee Bot",
   "landing_title": "Scholarships, study-abroad, careers, and mobility in one chat.",
   "landing_subtitle": "Sign in with your MENTEE account to learn about funded programs, learning paths, and international mobility. Every opportunity comes with a link to the official source.",
@@ -49,7 +46,6 @@
   "landing_about_heading": "About MENTEE",
   "landing_about_body": "MENTEE is a global community supporting women, displaced people, and members navigating systemic barriers to education and careers. This bot is one of the tools the community offers its members. Learn more at",
   "landing_about_link_text": "menteeglobal.org",
-
   "chat_signed_in_as": "Signed in as {name}",
   "chat_kicker": "Mentee Mentor",
   "chat_sign_out": "Sign out",
@@ -177,7 +173,6 @@
   "chat_shortcut_search_thread": "Search this conversation",
   "chat_shortcut_show_help": "Show this help",
   "chat_message_just_now": "just now",
-
   "about_bot_open_aria": "About this bot",
   "about_bot_title": "Good to know",
   "about_bot_subtitle": "A few things to keep in mind while you chat with the bot.",
@@ -190,14 +185,12 @@
   "about_bot_credits_title": "Make your credits count",
   "about_bot_credits_body": "Be specific (deadlines, target country, field of study), keep related questions in the same thread instead of opening a new one, and use the suggestion chips when they fit.",
   "about_bot_close": "Got it",
-
   "welcome_tips_kicker": "Good to know",
   "welcome_tips_files": "No file uploads or downloads — paste any text you want me to look at directly.",
   "welcome_tips_memory": "Each chat starts fresh, but I already know your Mentee Global profile.",
   "welcome_tips_credits": "Be specific and keep related questions in the same thread to save credits.",
   "welcome_tips_more": "Read more",
   "welcome_tips_dismiss_aria": "Dismiss tips",
-
   "credits_pill_aria": "How credits work",
   "credits_pill_units": "credits",
   "credits_pill_renews": "Renews {date}",
@@ -217,13 +210,11 @@
   "credits_refresh_in_days": "in {days} days",
   "credits_popover_hard_stopped": "You've used this month's credits — chat resumes after the reset.",
   "credits_popover_perplexity_degraded": "Real-time web search is paused this month so you can keep chatting; the mentor will rely on what it already knows.",
-
   "chat_thread_actions_aria": "Conversation actions",
   "chat_typing_aria": "Mentor is thinking",
   "chat_search_prev_aria": "Previous match",
   "chat_search_next_aria": "Next match",
   "chat_search_close_aria": "Close search",
-
   "auth_error_title": "Sign-in didn't complete",
   "auth_error_denied": "Your Mentee account can't access this app. Either you declined to share it, or it isn't enabled for the bot.",
   "auth_error_login_required": "You need to be signed in to Mentee first.",
@@ -232,9 +223,18 @@
   "auth_error_hint_oauth": "If this keeps happening, try opening the bot in a private/incognito window, or clear cookies for menteeglobal.org and try again.",
   "auth_error_hint_access_denied": "Your account may not have access to the bot yet. Reach out to your Mentee contact if you think this is a mistake.",
   "auth_back_home": "Back to home",
-
   "notfound_kicker": "404",
   "notfound_title": "We couldn't find that page.",
   "notfound_body": "The page you're looking for doesn't exist or may have moved.",
-  "notfound_back_home": "Back to home"
+  "notfound_back_home": "Back to home",
+  "chat_attach_aria": "Attach a document",
+  "chat_attach_disabled_hint": "Send a message first to attach files",
+  "chat_attachment_remove_aria": "Remove attachment",
+  "chat_attachment_status_uploading": "Uploading…",
+  "chat_attachment_status_processing": "Processing…",
+  "chat_attachment_status_ready": "Ready",
+  "chat_attachment_status_failed": "Failed",
+  "chat_attachment_error_too_large": "File is too large (max 25 MB)",
+  "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
+  "chat_attachment_error_upload": "Upload failed"
 }
