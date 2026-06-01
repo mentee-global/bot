@@ -64,6 +64,9 @@ class Document(BaseModel):
     provider: str | None = None
     file_hash: str
     summary: str | None = None
+    # Full parsed text (chat attachments) — injected into the agent so it can
+    # read the whole document, not just the summary.
+    extracted_text: str | None = None
     extracted_json: dict | None = None
     error_message: str | None = None
     page_count: int | None = None

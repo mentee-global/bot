@@ -62,6 +62,32 @@ def test_document_context_includes_ready_summary(tmp_path):
     asyncio.run(scenario())
 
 
+def test_document_context_injects_full_text(tmp_path):
+    svc, threads, docstore = _message_service(tmp_path)
+
+    async def scenario():
+        thread = await threads.create_thread("u1")
+        doc = await docstore.create_document(
+            user_id="u1",
+            thread_id=thread.id,
+            purpose="chat_attachment",
+            filename="cv.pdf",
+            mime_type="application/pdf",
+            size_bytes=10,
+            file_hash="h",
+        )
+        full = "EXPERIENCE\nAcme Corp — Engineer\nEDUCATION\nBSc CS"
+        # Full text wins over the (thin) summary so the agent sees the whole doc.
+        await docstore.update_document(
+            doc.id, status="ready", summary="short stub", extracted_text=full
+        )
+        ctx = await svc._document_context("u1", thread, "review my CV")
+        assert ctx is not None
+        assert "EXPERIENCE" in ctx and "EDUCATION" in ctx
+
+    asyncio.run(scenario())
+
+
 def test_document_context_excludes_other_users(tmp_path):
     svc, threads, docstore = _message_service(tmp_path)
 

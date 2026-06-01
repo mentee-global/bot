@@ -46,6 +46,7 @@ def _doc_from_record(r: DocumentRecord) -> Document:
         provider=r.provider,
         file_hash=r.file_hash,
         summary=r.summary,
+        extracted_text=r.extracted_text,
         extracted_json=r.extracted_json,
         error_message=r.error_message,
         page_count=r.page_count,

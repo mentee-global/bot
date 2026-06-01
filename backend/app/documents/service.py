@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 MAX_PROCESSING_ATTEMPTS = 3
 STALE_PROCESSING_SECONDS = 300
 
+# Per-document cap on text injected into the agent prompt. ~12k chars ≈ ~3k
+# tokens — generous for a typed CV/letter, bounded so a large doc can't blow
+# the turn's context. (Retrieval/RAG is the Phase 4 answer for big documents.)
+DOC_CONTEXT_CHAR_CAP = 12_000
+
 
 def blob_key(user_id: str, document_id: str) -> str:
     """Deterministic BlobStore key for a document's raw bytes."""
@@ -83,6 +88,9 @@ class DocumentService:
                 document_id,
                 status=DocStatus.READY,
                 summary=parsed.summary,
+                # Persist the full parsed text so the agent can read the whole
+                # document (a 600-char summary is too thin for e.g. CV review).
+                extracted_text=parsed.markdown or None,
                 page_count=parsed.page_count,
                 provider=parsed.provider,
                 provider_file_id=parsed.provider_file_id,
@@ -148,11 +156,23 @@ class DocumentService:
         (thread_id, user_id) so it can never surface another user's files.
         """
         docs = await self._store.list_thread_documents(thread_id, user_id)
-        ready = [d for d in docs if d.status == "ready" and d.summary]
-        if not ready:
+        ready = [d for d in docs if d.status == "ready"]
+        blocks: list[str] = []
+        for d in ready:
+            # Prefer the full parsed text so the agent can read the whole
+            # document; fall back to the summary for older/empty rows.
+            content = (d.extracted_text or d.summary or "").strip()
+            if not content:
+                continue
+            if len(content) > DOC_CONTEXT_CHAR_CAP:
+                content = content[:DOC_CONTEXT_CHAR_CAP] + "\n…[truncated]"
+            blocks.append(f"### {d.filename}\n{content}")
+        if not blocks:
             return ""
-        lines = [f"- {d.filename}: {d.summary}" for d in ready]
-        return "Documents attached in this conversation:\n" + "\n".join(lines)
+        return (
+            "Full text of documents the user attached in this conversation:\n\n"
+            + "\n\n".join(blocks)
+        )
 
     async def build_profile_context(self, *, user_id: str) -> str:
         """Compact CV facts for every chat — ONLY when the user has confirmed
