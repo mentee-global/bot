@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -26,6 +27,11 @@ import { Route as AdminActivityIndexRouteImport } from './routes/admin.activity.
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
 import { Route as AdminActivityThreadIdRouteImport } from './routes/admin.activity.$threadId'
 
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -111,6 +117,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/chat': typeof ChatRoute
+  '/profile': typeof ProfileRoute
   '/admin/activity': typeof AdminActivityRouteWithChildren
   '/admin/budget': typeof AdminBudgetRoute
   '/admin/bug-reports': typeof AdminBugReportsRoute
@@ -128,6 +135,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
+  '/profile': typeof ProfileRoute
   '/admin/budget': typeof AdminBudgetRoute
   '/admin/bug-reports': typeof AdminBugReportsRoute
   '/admin/credit-requests': typeof AdminCreditRequestsRoute
@@ -145,6 +153,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/chat': typeof ChatRoute
+  '/profile': typeof ProfileRoute
   '/admin/activity': typeof AdminActivityRouteWithChildren
   '/admin/budget': typeof AdminBudgetRoute
   '/admin/bug-reports': typeof AdminBugReportsRoute
@@ -165,6 +174,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/chat'
+    | '/profile'
     | '/admin/activity'
     | '/admin/budget'
     | '/admin/bug-reports'
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/chat'
+    | '/profile'
     | '/admin/budget'
     | '/admin/bug-reports'
     | '/admin/credit-requests'
@@ -198,6 +209,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/chat'
+    | '/profile'
     | '/admin/activity'
     | '/admin/budget'
     | '/admin/bug-reports'
@@ -217,11 +229,19 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   ChatRoute: typeof ChatRoute
+  ProfileRoute: typeof ProfileRoute
   AuthErrorRoute: typeof AuthErrorRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/chat': {
       id: '/chat'
       path: '/chat'
@@ -393,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   ChatRoute: ChatRoute,
+  ProfileRoute: ProfileRoute,
   AuthErrorRoute: AuthErrorRoute,
 }
 export const routeTree = rootRouteImport
