@@ -1,15 +1,17 @@
 """Raw-byte storage.
 
-`DiskBlobStore` is the MVP default — writes under `settings.blob_store_path`
-(a Railway volume in prod, a temp dir in dev). Owning the bytes (rather than
-relying only on an OpenAI file id) lets us serve originals back and re-process
-with a different engine later. S3/R2 is plan Phase 3, added behind this port.
+`DiskBlobStore` is the local/dev default — writes under
+`settings.blob_store_path`. `S3BlobStore` is the durable cloud implementation
+for S3-compatible stores such as Railway Buckets and Cloudflare R2. Owning the
+bytes (rather than relying only on an OpenAI file id) lets us serve originals
+back and re-process with a different engine later.
 """
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any, Literal
 
 from app.documents.base import BlobStorePort
 
@@ -50,3 +52,91 @@ class DiskBlobStore(BlobStorePort):
         # authenticated backend route (added in Phase 1); the S3 impl (Phase 3)
         # returns a real presigned URL. Return the internal API path for now.
         return f"/api/documents/{key}/raw"
+
+
+class S3BlobStore(BlobStorePort):
+    """S3-compatible blob store for Railway Buckets/R2/S3.
+
+    The boto3 client is sync, so calls run in worker threads to keep FastAPI's
+    event loop from blocking on network I/O.
+    """
+
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        endpoint_url: str | None,
+        region_name: str | None,
+        access_key_id: str,
+        secret_access_key: str,
+        url_style: Literal["virtual", "path"] = "virtual",
+        client: Any | None = None,
+    ) -> None:
+        self._bucket = bucket
+        self._client = client or self._build_client(
+            endpoint_url=endpoint_url,
+            region_name=region_name,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            url_style=url_style,
+        )
+
+    @staticmethod
+    def _build_client(
+        *,
+        endpoint_url: str | None,
+        region_name: str | None,
+        access_key_id: str,
+        secret_access_key: str,
+        url_style: Literal["virtual", "path"],
+    ) -> Any:
+        import boto3
+        from botocore.config import Config
+
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            region_name=region_name or "auto",
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            config=Config(s3={"addressing_style": url_style}),
+        )
+
+    async def put(self, *, key: str, data: bytes, content_type: str) -> str:
+        await asyncio.to_thread(
+            self._client.put_object,
+            Bucket=self._bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        return f"s3://{self._bucket}/{key}"
+
+    async def get(self, *, key: str) -> bytes:
+        response = await asyncio.to_thread(
+            self._client.get_object,
+            Bucket=self._bucket,
+            Key=key,
+        )
+        body = response["Body"]
+        try:
+            return await asyncio.to_thread(body.read)
+        finally:
+            close = getattr(body, "close", None)
+            if close is not None:
+                await asyncio.to_thread(close)
+
+    async def delete(self, *, key: str) -> None:
+        await asyncio.to_thread(
+            self._client.delete_object,
+            Bucket=self._bucket,
+            Key=key,
+        )
+
+    async def signed_url(self, *, key: str, ttl_s: int = 300) -> str:
+        return await asyncio.to_thread(
+            self._client.generate_presigned_url,
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=ttl_s,
+        )

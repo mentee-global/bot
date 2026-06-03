@@ -6,8 +6,14 @@ export type AttachmentStatus = "uploading" | "ready" | "failed";
 
 /** A file attached to a user message, shown on the bubble in the chat area. */
 export interface MessageAttachment {
+	document_id?: string;
 	filename: string;
 	status: AttachmentStatus;
+}
+
+export interface PreparedAttachments {
+	ok: boolean;
+	attachments: MessageAttachment[];
 }
 
 /** Input to the send/stream mutations. A bare string is shorthand for
@@ -17,7 +23,7 @@ export interface SendInput {
 	body: string;
 	threadId?: string;
 	attachments?: MessageAttachment[];
-	prepare?: () => Promise<boolean>;
+	prepare?: () => Promise<PreparedAttachments>;
 }
 
 export interface Message {

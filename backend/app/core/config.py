@@ -94,6 +94,14 @@ class Settings(BaseSettings):
     # dev-only. Single-replica only; multi-replica needs object storage (S3/R2,
     # plan Phase 3) behind the same BlobStorePort.
     blob_store_path: str = "/tmp/mentee-bot-uploads"
+    # S3-compatible object storage (Railway Buckets, R2, S3). Railway's
+    # credentials preset uses these AWS_* names, so keep them as-is.
+    aws_endpoint_url: str | None = None
+    aws_access_key_id: SecretStr | None = None
+    aws_secret_access_key: SecretStr | None = None
+    aws_s3_bucket_name: str | None = None
+    aws_default_region: str = "auto"
+    aws_s3_url_style: Literal["virtual", "path"] = "virtual"
     max_upload_bytes: int = 25 * 1024 * 1024
     allowed_upload_mimes: Annotated[
         list[str], NoDecode, BeforeValidator(_split_csv)

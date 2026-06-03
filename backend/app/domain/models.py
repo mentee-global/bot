@@ -14,6 +14,14 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class MessageAttachment(BaseModel):
+    """Document metadata attached to a specific user message."""
+
+    document_id: str
+    filename: str
+    status: str
+
+
 class Message(BaseModel):
     id: str = Field(default_factory=_uuid)
     thread_id: str
@@ -25,6 +33,7 @@ class Message(BaseModel):
     # requesting user — never global, never aggregated, so each user only
     # sees their own rating.
     rating: int | None = None
+    attachments: list[MessageAttachment] = Field(default_factory=list)
 
 
 class Thread(BaseModel):

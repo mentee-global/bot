@@ -8,6 +8,7 @@ import { useActivePersona } from "#/features/admin/hooks/usePersonaStore";
 import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import type {
+	PreparedAttachments,
 	SendInput,
 	SendMessageResponse,
 	Thread,
@@ -16,6 +17,16 @@ import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import { bumpInteractionCount } from "#/features/chat/hooks/useSessionRatingTrigger";
 
 export { useStreamMessage } from "#/features/chat/hooks/useStreamMessage";
+
+function readyAttachmentIds(
+	prepared: PreparedAttachments | undefined,
+): string[] {
+	return (
+		prepared?.attachments
+			.filter((a) => a.status === "ready" && a.document_id)
+			.map((a) => a.document_id as string) ?? []
+	);
+}
 
 export function threadsQueryOptions(query?: string) {
 	return queryOptions({
@@ -113,11 +124,15 @@ export function useSendMessageMutation(
 			// bumps in its own hook; this is the non-streaming fallback.
 			bumpInteractionCount();
 			// Upload staged files before the turn so the agent can read them.
-			if (v.prepare) await v.prepare();
+			const prepared = v.prepare ? await v.prepare() : undefined;
+			if (prepared && !prepared.ok) {
+				throw new Error("Attachment upload failed");
+			}
 			return chatService.sendMessage(
 				v.body,
 				v.threadId ?? threadId ?? undefined,
 				persona,
+				readyAttachmentIds(prepared),
 			);
 		},
 		onSuccess: (response) => {

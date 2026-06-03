@@ -23,6 +23,7 @@ from app.budget.service import (
 from app.core import posthog_client
 from app.core.observability import user_attrs
 from app.core.rate_limit import limiter
+from app.documents.store import DocumentNotFoundError
 from app.domain.models import (
     FeedbackTriggerConfig,
     MenteeProfile,
@@ -58,6 +59,7 @@ class ChatPersona(BaseModel):
 class SendMessageRequest(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = None
+    attachment_ids: list[str] = Field(default_factory=list, max_length=10)
     persona: ChatPersona | None = None
 
 
@@ -170,6 +172,7 @@ async def send_message(
                 body=payload.body,
                 user=user,
                 thread_id=payload.thread_id,
+                attachment_ids=payload.attachment_ids,
                 agent_user=_maybe_apply_persona(user, payload.persona),
                 ui_locale=ui_locale,
             )
@@ -229,6 +232,23 @@ async def send_message(
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
+            ) from err
+        except DocumentNotFoundError as err:
+            span.set_attribute("status", "attachment_not_found")
+            span.set_attribute("error_type", type(err).__name__)
+            posthog_client.capture(
+                user,
+                "server.chat.failed",
+                {
+                    "thread_id": payload.thread_id,
+                    "stream": False,
+                    "error_type": type(err).__name__,
+                    "status_code": 404,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Attachment not found",
             ) from err
         span.set_attribute("status", "ok")
         span.set_attribute("resolved_thread_id", thread.id)
@@ -295,6 +315,7 @@ async def stream_message(
                     body=payload.body,
                     user=user,
                     thread_id=payload.thread_id,
+                    attachment_ids=payload.attachment_ids,
                     agent_user=_maybe_apply_persona(user, payload.persona),
                     ui_locale=ui_locale,
                 ):
@@ -347,6 +368,17 @@ async def stream_message(
                 yield _sse(
                     "error",
                     {"code": "thread_not_found", "message": "Thread not found"},
+                )
+            except DocumentNotFoundError as err:
+                span.set_attribute("status", "attachment_not_found")
+                span.set_attribute("error_type", type(err).__name__)
+                failure = (type(err).__name__, 404)
+                yield _sse(
+                    "error",
+                    {
+                        "code": "attachment_not_found",
+                        "message": "Attachment not found",
+                    },
                 )
             except Exception as exc:  # noqa: BLE001 — surface to client as an error event
                 span.set_attribute("status", "agent_failure")
