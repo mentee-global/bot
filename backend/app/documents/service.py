@@ -26,6 +26,7 @@ from app.documents.base import (
 )
 from app.documents.schemas import ResumeSchema
 from app.documents.store import DocumentNotFoundError, DocumentStore
+from app.domain.models import MessageAttachment
 from app.services.thread_store import ThreadNotFoundError, ThreadStore
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,39 @@ class DocumentService:
             await self._threads.get_thread(thread_id, user_id)
         except ThreadNotFoundError as exc:
             raise ThreadOwnershipError(thread_id) from exc
+
+    async def message_attachments(
+        self, *, user_id: str, thread_id: str, document_ids: list[str]
+    ) -> list[MessageAttachment]:
+        """Validate document ids supplied with a chat turn.
+
+        Every id must resolve to a ready chat attachment owned by `user_id` and
+        scoped to `thread_id`; anything else is treated as not found.
+        """
+        attachments: list[MessageAttachment] = []
+        seen: set[str] = set()
+        for document_id in document_ids:
+            if document_id in seen:
+                continue
+            seen.add(document_id)
+            try:
+                doc = await self._store.get_document(document_id, user_id)
+            except (DocumentNotFoundError, ValueError) as exc:
+                raise DocumentNotFoundError(document_id) from exc
+            if (
+                doc.thread_id != thread_id
+                or doc.purpose != DocPurpose.CHAT_ATTACHMENT
+                or doc.status != DocStatus.READY
+            ):
+                raise DocumentNotFoundError(document_id)
+            attachments.append(
+                MessageAttachment(
+                    document_id=doc.id,
+                    filename=doc.filename,
+                    status=doc.status,
+                )
+            )
+        return attachments
 
     async def process_chat_upload(
         self, *, user_id: str, thread_id: str, document_id: str

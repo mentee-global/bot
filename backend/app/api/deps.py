@@ -18,7 +18,7 @@ from app.documents.base import (
     DocumentProcessorPort,
     DocumentRetrievalPort,
 )
-from app.documents.blob_store import DiskBlobStore
+from app.documents.blob_store import DiskBlobStore, S3BlobStore
 from app.documents.processors.local import LocalProcessor
 from app.documents.service import DocumentService
 from app.documents.store import (
@@ -58,7 +58,24 @@ def _build_document_store(s: Settings) -> DocumentStore:
 
 
 def _build_blob_store(s: Settings) -> BlobStorePort:
-    # Only "disk" exists in the MVP; S3 lands in plan Phase 3 behind this port.
+    if s.blob_store_impl == "s3":
+        if (
+            s.aws_s3_bucket_name is None
+            or s.aws_access_key_id is None
+            or s.aws_secret_access_key is None
+        ):
+            raise RuntimeError(
+                "BLOB_STORE_IMPL=s3 requires AWS_S3_BUCKET_NAME, "
+                "AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY"
+            )
+        return S3BlobStore(
+            bucket=s.aws_s3_bucket_name,
+            endpoint_url=s.aws_endpoint_url,
+            region_name=s.aws_default_region,
+            access_key_id=s.aws_access_key_id.get_secret_value(),
+            secret_access_key=s.aws_secret_access_key.get_secret_value(),
+            url_style=s.aws_s3_url_style,
+        )
     return DiskBlobStore(s.blob_store_path)
 
 

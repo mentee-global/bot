@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import io
+from typing import Any
 
 import pytest
 
 from app.documents.base import UnsupportedDocumentError
-from app.documents.blob_store import DiskBlobStore
+from app.documents.blob_store import DiskBlobStore, S3BlobStore
 from app.documents.processors.local import LocalProcessor
 from app.documents.service import DocumentService, ThreadOwnershipError
 from app.documents.store import DocumentNotFoundError, InMemoryDocumentStore
@@ -37,6 +38,65 @@ def test_disk_blob_store_rejects_traversal(tmp_path):
     store = DiskBlobStore(tmp_path)
     with pytest.raises(ValueError):
         asyncio.run(store.put(key="../escape", data=b"x", content_type="text/plain"))
+
+
+class _FakeBody:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self.closed = False
+
+    def read(self) -> bytes:
+        return self._data
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeS3Client:
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], tuple[bytes, str]] = {}
+
+    def put_object(self, **kwargs: Any) -> None:
+        self.objects[(kwargs["Bucket"], kwargs["Key"])] = (
+            kwargs["Body"],
+            kwargs["ContentType"],
+        )
+
+    def get_object(self, **kwargs: Any) -> dict[str, Any]:
+        data, _content_type = self.objects[(kwargs["Bucket"], kwargs["Key"])]
+        return {"Body": _FakeBody(data)}
+
+    def delete_object(self, **kwargs: Any) -> None:
+        self.objects.pop((kwargs["Bucket"], kwargs["Key"]), None)
+
+    def generate_presigned_url(self, operation: str, **kwargs: Any) -> str:
+        assert operation == "get_object"
+        params = kwargs["Params"]
+        return f"https://signed.test/{params['Bucket']}/{params['Key']}?ttl={kwargs['ExpiresIn']}"
+
+
+def test_s3_blob_store_round_trip():
+    client = _FakeS3Client()
+    store = S3BlobStore(
+        bucket="bucket",
+        endpoint_url="https://storage.example",
+        region_name="auto",
+        access_key_id="key",
+        secret_access_key="secret",
+        client=client,
+    )
+
+    async def scenario():
+        uri = await store.put(key="u1/doc1", data=b"hello", content_type="text/plain")
+        assert uri == "s3://bucket/u1/doc1"
+        assert await store.get(key="u1/doc1") == b"hello"
+        assert await store.signed_url(key="u1/doc1", ttl_s=600) == (
+            "https://signed.test/bucket/u1/doc1?ttl=600"
+        )
+        await store.delete(key="u1/doc1")
+        assert ("bucket", "u1/doc1") not in client.objects
+
+    asyncio.run(scenario())
 
 
 def test_local_processor_parses_text():

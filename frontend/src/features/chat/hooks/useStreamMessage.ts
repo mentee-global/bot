@@ -7,6 +7,7 @@ import { streamChatMessage } from "#/features/chat/data/chat.stream";
 import type {
 	AttachmentStatus,
 	Message,
+	PreparedAttachments,
 	SendInput,
 	StreamDone,
 	StreamMeta,
@@ -57,6 +58,16 @@ function patchThreadsLists(
 function placeholderTitleFromBody(body: string): string {
 	const trimmed = body.trim().replace(/\s+/g, " ");
 	return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed;
+}
+
+function readyAttachmentIds(
+	prepared: PreparedAttachments | undefined,
+): string[] {
+	return (
+		prepared?.attachments
+			.filter((a) => a.status === "ready" && a.document_id)
+			.map((a) => a.document_id as string) ?? []
+	);
 }
 
 // On error, we roll back the optimistic bubbles and fall back to the
@@ -149,9 +160,10 @@ export function useStreamMessage(
 			// chat area reflects the send instantly) but BEFORE the agent turn (so
 			// it can read the docs). The assistant placeholder shows "thinking"
 			// meanwhile; the user bubble's file chip resolves uploading → ready.
+			let prepared: PreparedAttachments | undefined;
 			if (prepare) {
-				const ok = await prepare();
-				const status: AttachmentStatus = ok ? "ready" : "failed";
+				prepared = await prepare();
+				const status: AttachmentStatus = prepared.ok ? "ready" : "failed";
 				patchThreadByKey(
 					queryClient,
 					cacheKey,
@@ -162,14 +174,16 @@ export function useStreamMessage(
 							mm.id === pendingUserId && mm.attachments
 								? {
 										...mm,
-										attachments: mm.attachments.map((a) => ({ ...a, status })),
+										attachments: prepared?.attachments.length
+											? prepared.attachments
+											: mm.attachments.map((a) => ({ ...a, status })),
 									}
 								: mm,
 						),
 					}),
 					activeThreadId,
 				);
-				if (!ok) {
+				if (!prepared.ok) {
 					// Upload failed: drop the assistant placeholder (no turn will run);
 					// the user bubble stays with a failed chip so they can retry.
 					patchThreadByKey(
@@ -186,6 +200,7 @@ export function useStreamMessage(
 					return;
 				}
 			}
+			const attachmentIds = readyAttachmentIds(prepared);
 
 			let meta: StreamMeta | null = null;
 			let resolvedCacheKey = cacheKey;
@@ -198,6 +213,7 @@ export function useStreamMessage(
 					activeThreadId,
 					controller.signal,
 					persona,
+					attachmentIds,
 				)) {
 					if (evt.event === "meta") {
 						meta = JSON.parse(evt.data) as StreamMeta;
@@ -404,6 +420,7 @@ export function useStreamMessage(
 						body,
 						activeThreadId,
 						persona,
+						attachmentIds,
 					);
 					if (isDraftNewChat) options?.onThreadResolved?.(fallback.thread_id);
 					const fallbackKey = chatKeys.thread(fallback.thread_id);
@@ -451,6 +468,7 @@ export function useStreamMessage(
 						role: "user",
 						body,
 						created_at: nowIso(),
+						attachments: prepared?.attachments ?? attachments,
 						error: { message: errorMessage },
 					};
 					patchThreadByKey(

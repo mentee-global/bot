@@ -1,5 +1,9 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import type {
+	MessageAttachment,
+	PreparedAttachments,
+} from "#/features/chat/data/chat.types";
 import { documentsService } from "#/features/chat/data/documents.service";
 import {
 	ALLOWED_UPLOAD_MIMES,
@@ -59,12 +63,11 @@ export function useStagedAttachments() {
 	const clear = useCallback(() => setStaged([]), []);
 
 	/** Upload the given files to `threadId` and wait until each settles.
-	 * Returns true only if all reached "ready". Independent of `staged` state
+	 * Returns document ids for ready uploads. Independent of `staged` state
 	 * so the composer can clear immediately on send. */
 	const commit = useCallback(
-		async (threadId: string, files: File[]): Promise<boolean> => {
-			let allReady = true;
-			await Promise.all(
+		async (threadId: string, files: File[]): Promise<PreparedAttachments> => {
+			const attachments = await Promise.all(
 				files.map(async (file) => {
 					try {
 						const doc = await documentsService.upload(threadId, file);
@@ -78,14 +81,24 @@ export function useStagedAttachments() {
 							await sleep(POLL_MS);
 							status = (await documentsService.get(doc.id)).status;
 						}
-						if (status !== "ready") allReady = false;
+						return {
+							document_id: doc.id,
+							filename: doc.filename,
+							status: status === "ready" ? "ready" : "failed",
+						} satisfies MessageAttachment;
 					} catch {
-						allReady = false;
 						toast.error(m.chat_attachment_error_upload());
+						return {
+							filename: file.name,
+							status: "failed",
+						} satisfies MessageAttachment;
 					}
 				}),
 			);
-			return allReady;
+			return {
+				ok: attachments.every((a) => a.status === "ready" && a.document_id),
+				attachments,
+			};
 		},
 		[],
 	);
