@@ -10,3 +10,5 @@ This is a monorepo with two independent projects — no root-level package manag
 - [`frontend/`](./frontend) — TanStack Start app (React 19, Vite, Tailwind 4)
 
 See each subproject's `README.md` for setup and development instructions.
+
+<img width="1216" height="809" alt="Screenshot 2026-06-05 at 4 55 17 PM" src="https://github.com/user-attachments/assets/98675a9f-8d51-4541-85e9-3a7b8167b2bd" />
