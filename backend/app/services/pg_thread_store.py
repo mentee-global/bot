@@ -343,6 +343,15 @@ class PostgresThreadStore(ThreadStore):
                     created_at=message.created_at,
                 )
             )
+            # Flush the parent row before adding the child association rows.
+            # There is no ORM relationship() between MessageRecord and
+            # MessageDocumentRecord, so SQLAlchemy's unit-of-work does not know
+            # to order the `messages` INSERT before `message_documents` — the
+            # bare table-level FK alone doesn't drive flush ordering. Without
+            # this flush, the autoflush triggered by the SELECT below can emit
+            # the association INSERTs first and violate the message_id FK.
+            if message.attachments:
+                await session.flush()
             for attachment in message.attachments:
                 session.add(
                     MessageDocumentRecord(
