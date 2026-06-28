@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # Processor is the only vendor-swappable surface; "openai" (multimodal +
     # structured outputs) is the MVP target, "local" (pypdf/python-docx) needs
     # no keys, "llamacloud" is plan Phase 5. Retrieval stays "none" in the MVP.
-    doc_processor_impl: Literal["openai", "local", "llamacloud"] = "local"
+    doc_processor_impl: Literal["openai", "local", "llamacloud"] = "openai"
     doc_retrieval_impl: Literal["none", "pgvector", "openai"] = "none"
     blob_store_impl: Literal["disk", "s3"] = "disk"
     # PROD: set BLOB_STORE_PATH to a MOUNTED Railway Volume (e.g. /data/uploads)
@@ -103,11 +103,19 @@ class Settings(BaseSettings):
     aws_default_region: str = "auto"
     aws_s3_url_style: Literal["virtual", "path"] = "virtual"
     max_upload_bytes: int = 25 * 1024 * 1024
+    # CVs are small; cap them tighter than generic chat attachments so an
+    # image-heavy scan still fits but a giant file is rejected up front.
+    max_cv_upload_bytes: int = 10 * 1024 * 1024
     allowed_upload_mimes: Annotated[
         list[str], NoDecode, BeforeValidator(_split_csv)
     ] = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        # ChatGPT-style attachments + scanned/photographed CVs: images go
+        # through gpt-5.4 vision OCR (see OpenAIDocumentProcessor).
+        "image/png",
+        "image/jpeg",
+        "image/webp",
     ]
     llama_cloud_api_key: SecretStr | None = None  # plan Phase 5 only
 
@@ -121,6 +129,11 @@ class Settings(BaseSettings):
     perplexity_model: str = "sonar"
     agent_impl: Literal["mock", "mentee"] = "mock"
     agent_model: str = "gpt-5.4"
+    # Model used for document OCR / transcription (CVs + chat attachments).
+    # Multimodal: reads PDFs + images and transcribes them to faithful
+    # Markdown via the Responses API. Kept separate from `agent_model` so the
+    # OCR tier can be tuned independently; defaults to the same gpt-5.4.
+    doc_model: str = "gpt-5.4"
     # gpt-5.4 is rated "Highest" reasoning / "Medium" speed — under default
     # effort on heavy multi-step search turns the OpenAI request can run
     # 30-60s. 30s tripped 3/26 cases in the post-swap eval; 60s clears

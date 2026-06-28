@@ -69,17 +69,10 @@ class DocumentProcessorPort(ABC):
     async def parse(
         self, *, data: bytes, filename: str, mime_type: str
     ) -> ParsedDocument:
-        """Extract portable markdown (+ a short summary) from the document."""
-
-    @abstractmethod
-    async def extract(
-        self, *, data: bytes, filename: str, mime_type: str, schema: dict
-    ) -> ParsedDocument:
-        """Extract structured data matching `schema` (JSON Schema).
-
-        On success `ParsedDocument.structured` is populated. Implementations
-        that cannot extract (e.g. a pure local text parser) raise
-        `UnsupportedDocumentError`."""
+        """Transcribe the document into faithful, portable Markdown (+ a short
+        summary). For PDFs/images this is multimodal OCR; for typed text
+        formats it's a direct decode. Both CVs and chat attachments use this —
+        the CV pipeline injects the full Markdown into every chat."""
 
     def supports(self, mime_type: str) -> bool:
         """Routing hint: can this processor handle the MIME type? Default True."""

@@ -1,24 +1,25 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, CheckCircle2, FileUp, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, CheckCircle2, FileUp, Loader2, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { InfoTooltip } from "#/components/ui/info-tooltip";
+import { Textarea } from "#/components/ui/textarea";
 import type { User } from "#/features/auth/data/auth.types";
 import { useSession } from "#/features/auth/hooks/useSession";
+import { MessageBody } from "#/features/chat/components/MessageBody";
 import {
 	ALLOWED_UPLOAD_MIMES,
-	MAX_UPLOAD_BYTES,
+	MAX_CV_BYTES,
 } from "#/features/chat/data/documents.types";
-import { CvForm } from "#/features/profile/components/CvForm";
 import { MenteeProfilePanel } from "#/features/profile/components/MenteeProfilePanel";
-import { profileService } from "#/features/profile/data/profile.service";
 import {
-	EMPTY_RESUME,
-	type ResumeData,
-} from "#/features/profile/data/profile.types";
+	profileQueryOptions,
+	profileService,
+} from "#/features/profile/data/profile.service";
 import {
 	useProfileQuery,
-	useSaveCvMutation,
+	useSaveAboutMutation,
 } from "#/features/profile/hooks/useProfile";
 import { ApiError } from "#/lib/api/errors";
 import { m } from "#/paraglide/messages";
@@ -42,104 +43,6 @@ function ProfilePage() {
 
 function ProfileEditor({ user }: { user: User }) {
 	const profileQuery = useProfileQuery();
-	const saveCv = useSaveCvMutation();
-
-	const [form, setForm] = useState<ResumeData>(EMPTY_RESUME);
-	const [docId, setDocId] = useState<string | null>(null);
-	const [uploading, setUploading] = useState(false);
-	const [extractError, setExtractError] = useState<string | null>(null);
-	// Bumped each time we load server data into the form, so the dirty-check
-	// baseline tracks the latest extracted/confirmed CV rather than EMPTY.
-	const baselineRef = useRef<string>(JSON.stringify(EMPTY_RESUME));
-	const fileInputRef = useRef<HTMLInputElement>(null);
-
-	const confirmed = profileQuery.data?.confirmed ?? false;
-
-	// Seed the form from server data on first load (and whenever the cached
-	// profile changes, e.g. after extraction completes).
-	const serverStructured = profileQuery.data?.cv_structured ?? null;
-	const serverKey = serverStructured ? JSON.stringify(serverStructured) : null;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: serverKey is the value-identity of serverStructured
-	useEffect(() => {
-		if (serverStructured) {
-			setForm(serverStructured);
-			baselineRef.current = JSON.stringify(serverStructured);
-		}
-	}, [serverKey]);
-
-	// Poll the document while extraction runs. Refetch stops at a terminal state.
-	const docQuery = useQuery({
-		queryKey: ["profile-doc", docId] as const,
-		queryFn: ({ signal }) =>
-			profileService.getDocument(docId as string, signal),
-		enabled: !!docId,
-		refetchInterval: (q) => {
-			const s = q.state.data?.status;
-			return s === "pending" || s === "processing" ? 1500 : false;
-		},
-	});
-
-	useEffect(() => {
-		const doc = docQuery.data;
-		if (!doc) return;
-		if (doc.status === "ready") {
-			setDocId(null);
-			void profileQuery.refetch();
-			toast.success(m.profile_extract_done());
-		} else if (doc.status === "failed") {
-			setDocId(null);
-			setExtractError(doc.error_message || m.profile_extract_failed());
-		}
-	}, [docQuery.data, profileQuery]);
-
-	const processing =
-		uploading ||
-		docQuery.data?.status === "pending" ||
-		docQuery.data?.status === "processing";
-
-	async function handleFile(file: File) {
-		setExtractError(null);
-		if (!ALLOWED_UPLOAD_MIMES.includes(file.type as never)) {
-			toast.error(m.profile_upload_bad_type());
-			return;
-		}
-		if (file.size > MAX_UPLOAD_BYTES) {
-			toast.error(m.profile_upload_too_big());
-			return;
-		}
-		setUploading(true);
-		try {
-			const doc = await profileService.uploadCv(file);
-			setDocId(doc.id);
-		} catch (err) {
-			const detail =
-				err instanceof ApiError ? err.message : m.profile_extract_failed();
-			toast.error(detail);
-		} finally {
-			setUploading(false);
-		}
-	}
-
-	const dirty = useMemo(
-		() => JSON.stringify(form) !== baselineRef.current,
-		[form],
-	);
-	const canSave = form.name.trim().length > 0 && (!confirmed || dirty);
-
-	async function handleSave() {
-		try {
-			await saveCv.mutateAsync(form);
-			baselineRef.current = JSON.stringify(form);
-			toast.success(m.profile_saved());
-		} catch (err) {
-			const detail =
-				err instanceof ApiError ? err.message : m.profile_save_failed();
-			toast.error(detail);
-		}
-	}
-
-	const hasCv = profileQuery.data?.has_cv ?? false;
-	const showForm = hasCv || extractError !== null || form.name.length > 0;
 
 	return (
 		<main className="page-wrap px-4 pb-20 pt-10">
@@ -161,98 +64,276 @@ function ProfileEditor({ user }: { user: User }) {
 				{/* Read-only data from the Mentee platform (top). */}
 				<MenteeProfilePanel user={user} />
 
-				{/* CV section (bottom). */}
-				<section className="mt-10">
-					<h2 className="display-title mb-1 text-xl font-bold text-[var(--theme-primary)]">
-						{m.profile_title()}
-					</h2>
-					<p className="mb-4 text-sm text-[var(--theme-muted)]">
-						{m.profile_subtitle()}
-					</p>
+				{/* Free-text "about you" (injected into every chat). */}
+				<AboutSection
+					initial={profileQuery.data?.about_me ?? ""}
+					loading={profileQuery.isPending}
+				/>
 
-					{/* Injection-state banner */}
-					{hasCv ? (
-						confirmed ? (
-							<div className="mb-6 flex items-center gap-2 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-secondary)]">
-								<CheckCircle2 className="size-4 text-[var(--theme-accent)]" />
-								{m.profile_state_confirmed()}
-							</div>
-						) : (
-							<div className="mb-6 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-secondary)]">
-								{m.profile_state_draft()}
-							</div>
-						)
-					) : null}
-
-					{/* Upload zone */}
-					<UploadZone
-						processing={processing}
-						hasCv={hasCv}
-						onPick={() => fileInputRef.current?.click()}
-						onDropFile={handleFile}
-					/>
-					<input
-						ref={fileInputRef}
-						type="file"
-						accept={ALLOWED_UPLOAD_MIMES.join(",")}
-						className="hidden"
-						onChange={(e) => {
-							const file = e.target.files?.[0];
-							if (file) void handleFile(file);
-							e.target.value = "";
-						}}
-					/>
-
-					{extractError ? (
-						<div className="mt-4 rounded-lg border border-[var(--theme-danger)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-danger-fg)]">
-							<p className="font-medium">{m.profile_extract_failed()}</p>
-							<p className="mt-1 text-[var(--theme-secondary)]">
-								{extractError}
-							</p>
-							<p className="mt-1 text-[var(--theme-muted)]">
-								{m.profile_manual_hint()}
-							</p>
-						</div>
-					) : null}
-
-					{profileQuery.isPending ? (
-						<div className="mt-8 flex items-center gap-2 text-sm text-[var(--theme-muted)]">
-							<Loader2 className="size-4 animate-spin" /> {m.profile_loading()}
-						</div>
-					) : showForm ? (
-						<div className="mt-8">
-							<CvForm value={form} onChange={setForm} />
-							<div className="mt-6 flex items-center gap-3">
-								<button
-									type="button"
-									className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
-									disabled={!canSave || saveCv.isPending}
-									onClick={() => void handleSave()}
-								>
-									{saveCv.isPending ? (
-										<Loader2 className="size-4 animate-spin" />
-									) : null}
-									{m.profile_save()}
-								</button>
-								{!confirmed ? (
-									<span className="text-xs text-[var(--theme-muted)]">
-										{m.profile_save_hint()}
-									</span>
-								) : null}
-							</div>
-						</div>
-					) : (
-						<button
-							type="button"
-							className="mt-4 text-sm text-[var(--theme-accent)] underline-offset-4 hover:underline"
-							onClick={() => setForm({ ...EMPTY_RESUME })}
-						>
-							{m.profile_enter_manually()}
-						</button>
-					)}
-				</section>
+				{/* CV upload + transcription (injected into every chat). */}
+				<CvSection />
 			</div>
 		</main>
+	);
+}
+
+function SectionHeading({
+	title,
+	tooltip,
+}: {
+	title: string;
+	tooltip: string;
+}) {
+	return (
+		<h2 className="display-title mb-1 flex items-center gap-2 text-xl font-bold text-[var(--theme-primary)]">
+			{title}
+			<InfoTooltip title={title}>{tooltip}</InfoTooltip>
+		</h2>
+	);
+}
+
+function AboutSection({
+	initial,
+	loading,
+}: {
+	initial: string;
+	loading: boolean;
+}) {
+	const saveAbout = useSaveAboutMutation();
+	const [value, setValue] = useState(initial);
+	const baseline = useRef(initial);
+
+	// Re-seed when the server value arrives / changes (e.g. after a save).
+	useEffect(() => {
+		setValue(initial);
+		baseline.current = initial;
+	}, [initial]);
+
+	const dirty = value.trim() !== baseline.current.trim();
+
+	async function handleSave() {
+		const next = value.trim();
+		try {
+			await saveAbout.mutateAsync(next);
+			baseline.current = next;
+			setValue(next);
+			toast.success(m.profile_about_saved());
+		} catch (err) {
+			toast.error(
+				err instanceof ApiError ? err.message : m.profile_about_save_failed(),
+			);
+		}
+	}
+
+	return (
+		<section className="mt-10">
+			<SectionHeading
+				title={m.profile_about_title()}
+				tooltip={m.profile_about_tooltip()}
+			/>
+			<p className="mb-3 text-sm text-[var(--theme-muted)]">
+				{m.profile_about_subtitle()}
+			</p>
+			<Textarea
+				rows={5}
+				value={value}
+				disabled={loading}
+				placeholder={m.profile_about_placeholder()}
+				onChange={(e) => setValue(e.target.value)}
+			/>
+			<div className="mt-3">
+				<button
+					type="button"
+					className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+					disabled={!dirty || saveAbout.isPending}
+					onClick={() => void handleSave()}
+				>
+					{saveAbout.isPending ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : null}
+					{m.profile_about_save()}
+				</button>
+			</div>
+		</section>
+	);
+}
+
+function CvSection() {
+	const queryClient = useQueryClient();
+	const profileQuery = useProfileQuery();
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	const [docId, setDocId] = useState<string | null>(null);
+	const [uploading, setUploading] = useState(false);
+	const [extractError, setExtractError] = useState<string | null>(null);
+	const [showText, setShowText] = useState(true);
+
+	const removeCv = useMutation({
+		mutationFn: (documentId: string) => profileService.removeCv(documentId),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: profileQueryOptions.queryKey,
+			});
+			toast.success(m.profile_cv_removed());
+		},
+		onError: (err) =>
+			toast.error(
+				err instanceof ApiError ? err.message : m.profile_cv_remove_failed(),
+			),
+	});
+
+	// Poll the document while OCR runs; stop at a terminal state.
+	const docQuery = useQuery({
+		queryKey: ["profile-doc", docId] as const,
+		queryFn: ({ signal }) =>
+			profileService.getDocument(docId as string, signal),
+		enabled: !!docId,
+		refetchInterval: (q) => {
+			const s = q.state.data?.status;
+			return s === "pending" || s === "processing" ? 1500 : false;
+		},
+	});
+
+	useEffect(() => {
+		const doc = docQuery.data;
+		if (!doc) return;
+		if (doc.status === "ready") {
+			setDocId(null);
+			void profileQuery.refetch();
+			toast.success(m.profile_cv_ready());
+		} else if (doc.status === "failed") {
+			setDocId(null);
+			setExtractError(doc.error_message || m.profile_extract_failed());
+		}
+	}, [docQuery.data, profileQuery]);
+
+	const processing =
+		uploading ||
+		docQuery.data?.status === "pending" ||
+		docQuery.data?.status === "processing";
+
+	async function handleFile(file: File) {
+		setExtractError(null);
+		if (!ALLOWED_UPLOAD_MIMES.includes(file.type as never)) {
+			toast.error(m.profile_upload_bad_type());
+			return;
+		}
+		if (file.size > MAX_CV_BYTES) {
+			toast.error(m.profile_upload_too_big());
+			return;
+		}
+		setUploading(true);
+		try {
+			const doc = await profileService.uploadCv(file);
+			setDocId(doc.id);
+		} catch (err) {
+			toast.error(
+				err instanceof ApiError ? err.message : m.profile_extract_failed(),
+			);
+		} finally {
+			setUploading(false);
+		}
+	}
+
+	const data = profileQuery.data;
+	const hasCv = !!(data?.has_cv && data.cv_markdown);
+
+	return (
+		<section className="mt-10">
+			<SectionHeading
+				title={m.profile_title()}
+				tooltip={m.profile_cv_tooltip()}
+			/>
+			<p className="mb-4 text-sm text-[var(--theme-muted)]">
+				{m.profile_subtitle()}
+			</p>
+
+			{hasCv ? (
+				<div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-secondary)]">
+					<CheckCircle2 className="size-4 shrink-0 text-[var(--theme-accent)]" />
+					<span>{m.profile_cv_active()}</span>
+				</div>
+			) : null}
+
+			<UploadZone
+				processing={processing}
+				hasCv={hasCv}
+				onPick={() => fileInputRef.current?.click()}
+				onDropFile={handleFile}
+			/>
+			<input
+				ref={fileInputRef}
+				type="file"
+				accept={ALLOWED_UPLOAD_MIMES.join(",")}
+				className="hidden"
+				onChange={(e) => {
+					const file = e.target.files?.[0];
+					if (file) void handleFile(file);
+					e.target.value = "";
+				}}
+			/>
+
+			{extractError ? (
+				<div className="mt-4 rounded-lg border border-[var(--theme-danger)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-danger-fg)]">
+					<p className="font-medium">{m.profile_extract_failed()}</p>
+					<p className="mt-1 text-[var(--theme-secondary)]">{extractError}</p>
+				</div>
+			) : null}
+
+			{hasCv && data ? (
+				<div className="mt-5 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)]">
+					<div className="flex items-center justify-between gap-3 border-b border-[var(--theme-border)] px-4 py-3">
+						<div className="min-w-0">
+							<p className="truncate text-sm font-medium text-[var(--theme-primary)]">
+								{data.cv_filename}
+							</p>
+							<p className="text-xs text-[var(--theme-muted)]">
+								{m.profile_cv_transcription_title()}
+							</p>
+						</div>
+						<div className="flex shrink-0 items-center gap-3">
+							<button
+								type="button"
+								className="text-xs text-[var(--theme-accent)] underline-offset-4 hover:underline"
+								onClick={() => setShowText((v) => !v)}
+							>
+								{showText
+									? m.profile_cv_hide_transcription()
+									: m.profile_cv_show_transcription()}
+							</button>
+							<button
+								type="button"
+								aria-label={m.profile_cv_remove()}
+								title={m.profile_cv_remove()}
+								className="inline-flex items-center gap-1 text-xs text-[var(--theme-muted)] transition hover:text-[var(--theme-danger-fg)] disabled:opacity-50"
+								disabled={!data.cv_document_id || removeCv.isPending}
+								onClick={() =>
+									data.cv_document_id && removeCv.mutate(data.cv_document_id)
+								}
+							>
+								{removeCv.isPending ? (
+									<Loader2 className="size-3.5 animate-spin" />
+								) : (
+									<Trash2 className="size-3.5" />
+								)}
+								{m.profile_cv_remove()}
+							</button>
+						</div>
+					</div>
+					{showText ? (
+						<div className="max-h-[28rem] overflow-y-auto px-4 py-3">
+							<MessageBody body={data.cv_markdown ?? ""} />
+						</div>
+					) : null}
+				</div>
+			) : null}
+
+			{profileQuery.isPending ? (
+				<div className="mt-4 flex items-center gap-2 text-sm text-[var(--theme-muted)]">
+					<Loader2 className="size-4 animate-spin" /> {m.profile_loading()}
+				</div>
+			) : null}
+		</section>
 	);
 }
 

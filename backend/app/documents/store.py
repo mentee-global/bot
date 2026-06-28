@@ -59,9 +59,8 @@ def _profile_from_record(r: UserProfileRecord) -> CvProfile:
     return CvProfile(
         user_id=str(r.user_id),
         cv_document_id=str(r.cv_document_id) if r.cv_document_id else None,
-        cv_structured=r.cv_structured,
-        cv_summary=r.cv_summary,
         cv_confirmed_at=r.cv_confirmed_at,
+        about_me=r.about_me,
         updated_at=r.updated_at,
     )
 
@@ -130,21 +129,15 @@ class DocumentStore(ABC):
     async def get_profile(self, user_id: str) -> CvProfile | None: ...
 
     @abstractmethod
-    async def upsert_cv_draft(
-        self,
-        *,
-        user_id: str,
-        cv_document_id: str,
-        structured: dict,
-        summary: str,
-    ) -> CvProfile:
-        """Write an UNCONFIRMED draft (cv_confirmed_at stays NULL)."""
+    async def set_cv(self, *, user_id: str, cv_document_id: str) -> CvProfile:
+        """Point the profile at a freshly-OCR'd CV and mark it active
+        (cv_confirmed_at = now). Preserves any existing `about_me`."""
 
     @abstractmethod
-    async def confirm_cv(
-        self, *, user_id: str, structured: dict, summary: str
+    async def set_about_me(
+        self, *, user_id: str, about_me: str | None
     ) -> CvProfile:
-        """Persist the (possibly edited) CV and set cv_confirmed_at."""
+        """Persist the user's free-text 'about me'. Preserves the CV link."""
 
 
 class InMemoryDocumentStore(DocumentStore):
@@ -240,29 +233,26 @@ class InMemoryDocumentStore(DocumentStore):
     async def get_profile(self, user_id: str) -> CvProfile | None:
         return self._profiles.get(user_id)
 
-    async def upsert_cv_draft(
-        self, *, user_id: str, cv_document_id: str, structured: dict, summary: str
-    ) -> CvProfile:
+    async def set_cv(self, *, user_id: str, cv_document_id: str) -> CvProfile:
+        existing = self._profiles.get(user_id)
         profile = CvProfile(
             user_id=user_id,
             cv_document_id=cv_document_id,
-            cv_structured=structured,
-            cv_summary=summary,
-            cv_confirmed_at=None,
+            cv_confirmed_at=_now(),
+            about_me=existing.about_me if existing else None,
         )
         self._profiles[user_id] = profile
         return profile
 
-    async def confirm_cv(
-        self, *, user_id: str, structured: dict, summary: str
+    async def set_about_me(
+        self, *, user_id: str, about_me: str | None
     ) -> CvProfile:
         existing = self._profiles.get(user_id)
         profile = CvProfile(
             user_id=user_id,
             cv_document_id=existing.cv_document_id if existing else None,
-            cv_structured=structured,
-            cv_summary=summary,
-            cv_confirmed_at=_now(),
+            cv_confirmed_at=existing.cv_confirmed_at if existing else None,
+            about_me=about_me,
         )
         self._profiles[user_id] = profile
         return profile
@@ -394,36 +384,23 @@ class PostgresDocumentStore(DocumentStore):
             record = await session.get(UserProfileRecord, _as_uuid(user_id))
             return _profile_from_record(record) if record else None
 
-    async def upsert_cv_draft(
-        self, *, user_id: str, cv_document_id: str, structured: dict, summary: str
-    ) -> CvProfile:
-        return await self._upsert_profile(
-            user_id=user_id,
-            cv_document_id=cv_document_id,
-            structured=structured,
-            summary=summary,
-            confirmed_at=None,
-        )
+    async def set_cv(self, *, user_id: str, cv_document_id: str) -> CvProfile:
+        uid = _as_uuid(user_id)
+        async with self._factory() as session:
+            record = await session.get(UserProfileRecord, uid)
+            now = _now()
+            if record is None:
+                record = UserProfileRecord(user_id=uid, updated_at=now)
+                session.add(record)
+            record.cv_document_id = _as_uuid(cv_document_id)
+            record.cv_confirmed_at = now
+            record.updated_at = now
+            await session.commit()
+            await session.refresh(record)
+            return _profile_from_record(record)
 
-    async def confirm_cv(
-        self, *, user_id: str, structured: dict, summary: str
-    ) -> CvProfile:
-        return await self._upsert_profile(
-            user_id=user_id,
-            cv_document_id=None,
-            structured=structured,
-            summary=summary,
-            confirmed_at=_now(),
-        )
-
-    async def _upsert_profile(
-        self,
-        *,
-        user_id: str,
-        cv_document_id: str | None,
-        structured: dict,
-        summary: str,
-        confirmed_at: datetime | None,
+    async def set_about_me(
+        self, *, user_id: str, about_me: str | None
     ) -> CvProfile:
         uid = _as_uuid(user_id)
         async with self._factory() as session:
@@ -432,11 +409,7 @@ class PostgresDocumentStore(DocumentStore):
             if record is None:
                 record = UserProfileRecord(user_id=uid, updated_at=now)
                 session.add(record)
-            record.cv_structured = structured
-            record.cv_summary = summary
-            record.cv_confirmed_at = confirmed_at
-            if cv_document_id is not None:
-                record.cv_document_id = _as_uuid(cv_document_id)
+            record.about_me = about_me
             record.updated_at = now
             await session.commit()
             await session.refresh(record)

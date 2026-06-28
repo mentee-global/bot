@@ -57,8 +57,12 @@ class MenteeDeps:
     # Compact, confirmed-CV facts for this user (name, recent roles, education,
     # skills), assembled by DocumentService.build_profile_context. Injected as
     # untrusted data via an @agent.instructions hook (plan Phase 2). None until
-    # the user uploads a CV AND clicks Save (cv_confirmed_at set, decision #10).
+    # the user uploads a CV; the full Markdown transcription is injected once
+    # OCR completes (cv_confirmed_at set).
     cv_context: str | None = None
+    # The mentee's free-text "about me" prose (DocumentService.build_about_context),
+    # injected into every chat as untrusted data. None until the user writes one.
+    about_context: str | None = None
     # Per-run citation ledger keyed by normalized URL. Populated by tools
     # (Perplexity, OpenAI web_search) and the streaming harness as searches
     # complete; consulted by the post-output validator to strip URLs the

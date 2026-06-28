@@ -72,11 +72,13 @@ class DocumentRecord(SQLModel, table=True):
 
 
 class UserProfileRecord(SQLModel, table=True):
-    """1:1 with users — holds the canonical, current CV.
+    """1:1 with users — the things the bot should know about a mentee beyond
+    their Mentee-platform profile: an uploaded CV and a free-text "about me".
 
-    Draft → promote (plan decision #10): extraction populates `cv_structured`
-    / `cv_summary` with `cv_confirmed_at = NULL`. `cv_summary` is injected into
-    chats ONLY once `cv_confirmed_at IS NOT NULL` (the user clicked Save).
+    The CV's faithful Markdown transcription lives on its `DocumentRecord`
+    (`extracted_text`); this row just points at the active CV
+    (`cv_document_id`) and stamps `cv_confirmed_at` when it's ready to inject.
+    `about_me` is user-authored prose, injected into every chat as-is.
     """
 
     __tablename__ = "user_profile"
@@ -93,11 +95,12 @@ class UserProfileRecord(SQLModel, table=True):
         sa_type=PG_UUID(as_uuid=True),
         ondelete="SET NULL",
     )
-    cv_structured: dict | None = Field(
-        default=None, sa_column=Column(JSONB, nullable=True)
-    )
-    cv_summary: str | None = Field(default=None, sa_type=Text())
+    # Set when a CV finishes OCR; the confirmed CV's Markdown is injected into
+    # chats while this is non-NULL and `cv_document_id` still resolves.
     cv_confirmed_at: datetime | None = Field(
         default=None, sa_type=DateTime(timezone=True)
     )
+    # Free-text prose the mentee wants the bot to remember about them, so they
+    # don't have to repeat it in every thread. Injected into every chat.
+    about_me: str | None = Field(default=None, sa_type=Text())
     updated_at: datetime = Field(sa_type=DateTime(timezone=True))

@@ -11,6 +11,5 @@ Hexagonal-lite, mirroring `app/agents/base.py::AgentPort` and
                 layer that never changes when a processor is swapped.
 - `processors/` — concrete `DocumentProcessorPort` implementations.
 - `store.py`  — `DocumentStore` port + in-memory / Postgres implementations.
-- `blob_store.py` — `BlobStorePort` (raw bytes) + disk implementation.
-- `schemas.py`— `ResumeSchema` fed to structured CV extraction.
+- `blob_store.py` — `BlobStorePort` (raw bytes) + disk / S3 implementations.
 """

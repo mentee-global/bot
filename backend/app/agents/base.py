@@ -27,6 +27,7 @@ class AgentPort(ABC):
         ui_locale: str | None = None,
         document_context: str | None = None,
         cv_context: str | None = None,
+        about_context: str | None = None,
     ) -> str:
         """Return the assistant's reply body for the given user message.
 
@@ -55,6 +56,7 @@ class AgentPort(ABC):
         ui_locale: str | None = None,
         document_context: str | None = None,
         cv_context: str | None = None,
+        about_context: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Yield assistant reply deltas and tool lifecycle events.
 
@@ -72,5 +74,6 @@ class AgentPort(ABC):
                 ui_locale=ui_locale,
                 document_context=document_context,
                 cv_context=cv_context,
+                about_context=about_context,
             )
         )

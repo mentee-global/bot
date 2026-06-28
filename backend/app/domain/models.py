@@ -84,14 +84,15 @@ class Document(BaseModel):
 
 
 class CvProfile(BaseModel):
-    """The canonical CV attached to a user profile (draft until confirmed)."""
+    """What the bot knows about a mentee beyond their Mentee-platform profile:
+    the active CV (its Markdown lives on the document) and free-text prose."""
 
     user_id: str
     cv_document_id: str | None = None
-    cv_structured: dict | None = None
-    cv_summary: str | None = None
-    # None = unconfirmed draft; facts are injected into chats only once set.
+    # None until a CV finishes OCR; the CV is injected into chats only once set
+    # AND cv_document_id still resolves to a ready document.
     cv_confirmed_at: datetime | None = None
+    about_me: str | None = None
     updated_at: datetime = Field(default_factory=_now)
 
     @property
