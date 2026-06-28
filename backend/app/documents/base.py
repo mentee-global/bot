@@ -60,7 +60,12 @@ class DocChunk:
 class ParsedDocument:
     """Portable output of a parse/extract. `markdown` is always present;
     `structured` is set only by `extract()` (e.g. a CV). `chunks` stay empty
-    until retrieval (Phase 4) needs them."""
+    until retrieval (Phase 4) needs them.
+
+    `input_tokens` / `output_tokens` / `model_sku` capture the model spend of a
+    model-backed parse (multimodal OCR) so the caller can debit credits for it.
+    They stay 0/None for local-decode paths (DOCX / typed text) which cost
+    nothing."""
 
     markdown: str
     page_count: int
@@ -69,6 +74,9 @@ class ParsedDocument:
     chunks: list[DocChunk] = field(default_factory=list)
     provider: str = "unknown"
     provider_file_id: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model_sku: str | None = None
 
 
 class DocumentProcessorPort(ABC):

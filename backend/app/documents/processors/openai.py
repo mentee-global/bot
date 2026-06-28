@@ -81,7 +81,7 @@ class OpenAIDocumentProcessor(DocumentProcessorPort):
                 data=data, filename=filename, mime_type=mime_type
             )
 
-        markdown = await self._ocr_markdown(
+        markdown, input_tokens, output_tokens = await self._ocr_markdown(
             data=data, filename=filename, mime_type=mime_type
         )
         if not markdown:
@@ -98,11 +98,16 @@ class OpenAIDocumentProcessor(DocumentProcessorPort):
             page_count=page_count,
             summary=_summarize(markdown, limit=_SUMMARY_CHAR_CAP),
             provider=self.provider_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model_sku=self._model,
         )
 
     async def _ocr_markdown(
         self, *, data: bytes, filename: str, mime_type: str
-    ) -> str:
+    ) -> tuple[str, int, int]:
+        """OCR the bytes into Markdown; also return (input, output) token usage
+        so the caller can charge credits for the model spend."""
         b64 = base64.b64encode(data).decode("ascii")
         if mime_type in _IMAGES:
             file_part = {
@@ -137,7 +142,10 @@ class OpenAIDocumentProcessor(DocumentProcessorPort):
             )
         except Exception as exc:  # noqa: BLE001 — surface as a processing failure
             raise DocumentError(f"OCR call failed: {exc}") from exc
-        return (resp.output_text or "").strip()
+        usage = getattr(resp, "usage", None)
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return (resp.output_text or "").strip(), input_tokens, output_tokens
 
 
 def _pdf_page_count(data: bytes) -> int:

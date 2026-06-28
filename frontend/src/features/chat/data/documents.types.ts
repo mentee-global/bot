@@ -12,6 +12,8 @@ export interface DocumentResponse {
 	summary: string | null;
 	page_count: number | null;
 	error_message: string | null;
+	/** Credits debited to OCR this document (CVs); 0 for chat attachments. */
+	ocr_credits_charged: number;
 	created_at: string;
 	updated_at: string;
 }

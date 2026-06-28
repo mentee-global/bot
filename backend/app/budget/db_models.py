@@ -64,6 +64,11 @@ class MessageUsage(SQLModel, table=True):
         ondelete="SET NULL",
     )
     model: str = Field(max_length=64)
+    # What produced this spend: "chat" for a normal turn, "cv_ocr" for the
+    # background CV transcription (which has no thread/message). Lets the ledger
+    # distinguish chat spend from document-processing spend without inferring it
+    # from a NULL message_id.
+    source: str = Field(default="chat", max_length=32)
     # Specific model SKU as called (e.g. "gpt-5.4-mini", "sonar-pro"). Captured
     # at write-time from settings so a future model swap stays observable in
     # historical analytics without per-SKU pricing.

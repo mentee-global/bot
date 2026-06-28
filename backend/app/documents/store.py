@@ -50,6 +50,7 @@ def _doc_from_record(r: DocumentRecord) -> Document:
         extracted_json=r.extracted_json,
         error_message=r.error_message,
         page_count=r.page_count,
+        ocr_credits_charged=r.ocr_credits_charged,
         created_at=r.created_at,
         updated_at=r.updated_at,
     )
@@ -76,6 +77,7 @@ _MUTABLE = {
     "extracted_json",
     "error_message",
     "page_count",
+    "ocr_credits_charged",
     "attempts",
     "processing_started_at",
 }

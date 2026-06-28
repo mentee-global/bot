@@ -673,6 +673,86 @@ class BudgetService:
             await session.commit()
             return credits_charged
 
+    async def record_document_usage(
+        self,
+        *,
+        user_id: str | UUID,
+        usage: UsageSummary,
+        document_id: str | None = None,
+    ) -> int:
+        """Debit credits for a model-backed document parse (CV OCR).
+
+        Same accounting as `record_turn` — one `MessageUsage` row, a quota
+        debit, and a global-spend roll — but the call happens in a background
+        task with no thread/message to attach to, so both are NULL and the row
+        is tagged `source="cv_ocr"`. Only the OpenAI side of `usage` is billed
+        (OCR makes no Perplexity / web_search calls). Returns credits charged
+        (0 for admins, zero-cost parses, and non-prod/test instances).
+        """
+        uid = _as_uuid(user_id)
+        is_test = not settings.is_prod
+        async with self._factory() as session:
+            cfg = await self._load_config(session)
+            state = await self._load_global_state(session)
+            breakdown = compute_cost(usage, cfg)
+            now = _now()
+
+            if (
+                usage.openai_input_tokens <= 0
+                and usage.openai_output_tokens <= 0
+                and breakdown.openai_micros <= 0
+            ):
+                # Nothing to bill (e.g. a local-decode CV) — no row, no debit.
+                return 0
+
+            # Admins are unlimited; mirror the role gate in `record_turn`.
+            role = (
+                await session.execute(
+                    select(UserRecord.role).where(UserRecord.id == uid)
+                )
+            ).scalar_one_or_none()
+            is_admin = role == "admin"
+
+            credits_charged = 0
+            if not is_test and not is_admin:
+                credits_charged = micros_to_credits(
+                    breakdown.openai_micros, cfg.credit_usd_value_micros
+                )
+                if credits_charged > 0:
+                    quota = await self._load_quota(session, uid, cfg)
+                    quota.credits_remaining = max(
+                        0, quota.credits_remaining - credits_charged
+                    )
+                    quota.credits_used_period += credits_charged
+                    quota.updated_at = now
+                    session.add(quota)
+
+            session.add(
+                MessageUsage(
+                    user_id=uid,
+                    message_id=None,
+                    thread_id=None,
+                    model="openai",
+                    source="cv_ocr",
+                    model_sku=usage.openai_model_sku,
+                    input_tokens=usage.openai_input_tokens,
+                    output_tokens=usage.openai_output_tokens,
+                    request_count=1,
+                    cost_usd_micros=breakdown.openai_micros,
+                    credits_charged=credits_charged,
+                    is_test=is_test,
+                    created_at=now,
+                )
+            )
+
+            if not is_test:
+                state.openai_spend_micros += breakdown.openai_micros
+                state.updated_at = now
+                session.add(state)
+
+            await session.commit()
+            return credits_charged
+
     # ---- Admin mutations ------------------------------------------------
 
     async def grant_credits(

@@ -31,9 +31,20 @@ class FakeProcessor:
 
     provider_id = "fake"
 
-    def __init__(self, *, markdown: str = "cv markdown", raises: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        markdown: str = "cv markdown",
+        raises: Exception | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        model_sku: str | None = None,
+    ):
         self._markdown = markdown
         self._raises = raises
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+        self._model_sku = model_sku
 
     def supports(self, mime_type: str) -> bool:
         return True
@@ -48,14 +59,42 @@ class FakeProcessor:
             page_count=1,
             summary=self._markdown[:80],
             provider=self.provider_id,
+            input_tokens=self._input_tokens,
+            output_tokens=self._output_tokens,
+            model_sku=self._model_sku,
         )
 
 
-def _service(tmp_path, processor):
+class FakeBudget:
+    """Records the usage handed to record_document_usage and returns a fixed
+    credit charge, so we can assert the charging seam without a DB."""
+
+    def __init__(self, *, charge: int = 0):
+        self._charge = charge
+        self.calls: list[dict] = []
+
+    async def record_document_usage(self, *, user_id, usage, document_id=None):
+        self.calls.append(
+            {
+                "user_id": user_id,
+                "document_id": document_id,
+                "input_tokens": usage.openai_input_tokens,
+                "output_tokens": usage.openai_output_tokens,
+                "model_sku": usage.openai_model_sku,
+            }
+        )
+        return self._charge
+
+
+def _service(tmp_path, processor, *, budget=None):
     store = InMemoryDocumentStore()
     blobs = DiskBlobStore(tmp_path)
     service = DocumentService(
-        store=store, blobs=blobs, processor=processor, threads=InMemoryThreadStore()
+        store=store,
+        blobs=blobs,
+        processor=processor,
+        threads=InMemoryThreadStore(),
+        budget=budget,
     )
     return service, store, blobs
 
@@ -102,8 +141,10 @@ def test_cv_ocr_stores_markdown_and_activates(tmp_path):
         assert "Ada Lovelace" in ctx and "Mathematician" in ctx
 
         # The /profile page reads the transcription back.
-        fname, md = await service.get_cv_markdown(user_id="u1")
+        fname, md, credits = await service.get_cv_markdown(user_id="u1")
         assert fname == "cv.pdf" and md == _CV_MD
+        # No budget wired in this fixture → nothing charged.
+        assert credits == 0
 
     asyncio.run(scenario())
 
@@ -160,6 +201,63 @@ def test_reupload_replaces_active_cv(tmp_path):
                 await blobs.get(key=key)
         # The new CV's markdown blob is present.
         assert await blobs.get(key=cv_markdown_key("u1", doc2.id))
+
+    asyncio.run(scenario())
+
+
+def test_cv_ocr_charges_credits_and_records_on_document(tmp_path):
+    budget = FakeBudget(charge=7)
+    service, store, blobs = _service(
+        tmp_path,
+        FakeProcessor(
+            markdown=_CV_MD,
+            input_tokens=1234,
+            output_tokens=567,
+            model_sku="gpt-5.4",
+        ),
+        budget=budget,
+    )
+
+    async def scenario():
+        doc = await _upload_cv(store, blobs)
+        await service.process_cv_upload(user_id="u1", document_id=doc.id)
+
+        # The OCR usage was handed to the budget with the parsed token counts.
+        assert len(budget.calls) == 1
+        call = budget.calls[0]
+        assert call["user_id"] == "u1" and call["document_id"] == doc.id
+        assert call["input_tokens"] == 1234 and call["output_tokens"] == 567
+        assert call["model_sku"] == "gpt-5.4"
+
+        # The charge is persisted on the document and surfaced via get_cv_markdown.
+        result = await store.get_document(doc.id, "u1")
+        assert result.status == "ready" and result.ocr_credits_charged == 7
+        _, _, credits = await service.get_cv_markdown(user_id="u1")
+        assert credits == 7
+
+    asyncio.run(scenario())
+
+
+def test_cv_ocr_charge_failure_still_ships_cv(tmp_path):
+    """A billing hiccup must not fail the upload — the model spend already
+    happened, so the CV still goes ready (with 0 recorded credits)."""
+
+    class BoomBudget(FakeBudget):
+        async def record_document_usage(self, *, user_id, usage, document_id=None):
+            raise RuntimeError("billing down")
+
+    service, store, blobs = _service(
+        tmp_path,
+        FakeProcessor(markdown=_CV_MD, input_tokens=10, output_tokens=5),
+        budget=BoomBudget(),
+    )
+
+    async def scenario():
+        doc = await _upload_cv(store, blobs)
+        await service.process_cv_upload(user_id="u1", document_id=doc.id)
+        result = await store.get_document(doc.id, "u1")
+        assert result.status == "ready" and result.ocr_credits_charged == 0
+        assert result.extracted_text == _CV_MD
 
     asyncio.run(scenario())
 
