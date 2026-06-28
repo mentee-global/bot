@@ -146,13 +146,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  color: var(--theme-primary);
-  text-decoration: none;
-}
+/* In @layer base so a text-* utility (e.g. text-inherit on a link inside a
+   colored bubble) can override this default. An unlayered rule beats all
+   Tailwind utilities and forced primary-on-primary on colored backgrounds. */
+@layer base {
+  a {
+    color: var(--theme-primary);
+    text-decoration: none;
+  }
 
-a:hover {
-  color: var(--theme-accent-hover);
+  a:hover {
+    color: var(--theme-accent-hover);
+  }
 }
 
 code {
