@@ -76,6 +76,14 @@ def _build_blob_store(s: Settings) -> BlobStorePort:
             secret_access_key=s.aws_secret_access_key.get_secret_value(),
             url_style=s.aws_s3_url_style,
         )
+    # Disk is ephemeral and local-dev only — fail loudly rather than let a
+    # deployed service silently lose uploads on the next redeploy.
+    if s.environment != "local":
+        raise RuntimeError(
+            f"BLOB_STORE_IMPL=disk is only allowed when ENVIRONMENT=local "
+            f"(got {s.environment!r}). Deployed environments must use object "
+            "storage: set BLOB_STORE_IMPL=s3 and the bucket's AWS_* variables."
+        )
     return DiskBlobStore(s.blob_store_path)
 
 
