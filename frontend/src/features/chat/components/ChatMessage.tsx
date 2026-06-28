@@ -6,6 +6,7 @@ import { ToolChipRow } from "#/features/chat/components/ToolChip";
 import { TypingIndicator } from "#/features/chat/components/TypingIndicator";
 import type { Message } from "#/features/chat/data/chat.types";
 import { useToolActivityForMessage } from "#/features/chat/hooks/useToolActivity";
+import { API_URL } from "#/lib/api/client";
 import { formatFullTimestamp, formatTime } from "#/lib/datetime";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -163,12 +164,31 @@ export function ChatMessage({
 										)}
 										title={a.filename}
 									>
-										{a.status === "uploading" ? (
-											<Loader2 size={11} className="animate-spin" />
+										{a.status === "ready" && a.document_id ? (
+											<a
+												href={`${API_URL}/api/documents/${encodeURIComponent(a.document_id)}/raw`}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="flex items-center gap-1 hover:underline"
+												title={m.chat_attachment_open()}
+											>
+												<Paperclip size={11} />
+												<span className="max-w-[10rem] truncate">
+													{a.filename}
+												</span>
+											</a>
 										) : (
-											<Paperclip size={11} />
+											<>
+												{a.status === "uploading" ? (
+													<Loader2 size={11} className="animate-spin" />
+												) : (
+													<Paperclip size={11} />
+												)}
+												<span className="max-w-[10rem] truncate">
+													{a.filename}
+												</span>
+											</>
 										)}
-										<span className="max-w-[10rem] truncate">{a.filename}</span>
 										{a.status === "failed" ? (
 											<span>· {m.chat_attachment_status_failed()}</span>
 										) : null}
