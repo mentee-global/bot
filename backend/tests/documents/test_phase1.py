@@ -2,7 +2,7 @@
 
 Chat attachments are stored and handed to the agent as raw bytes
 (pydantic-ai BinaryContent), so there's no server-side OCR; the upload route
-marks them ready immediately and `load_turn_attachments` returns the bytes for
+marks them ready immediately and `load_thread_attachments` returns the bytes for
 the turn. Drives coroutines with asyncio.run() (no pytest-asyncio in this repo).
 """
 
@@ -48,14 +48,12 @@ async def _ready_attachment(
     return doc
 
 
-def test_load_turn_attachments_returns_raw_bytes(tmp_path):
+def test_load_thread_attachments_returns_raw_bytes(tmp_path):
     service, store, blobs = _service(tmp_path)
 
     async def scenario():
-        doc = await _ready_attachment(store, blobs, data=b"\x89PNG-rawbytes")
-        files = await service.load_turn_attachments(
-            user_id="u1", thread_id="t1", document_ids=[doc.id]
-        )
+        await _ready_attachment(store, blobs, data=b"\x89PNG-rawbytes")
+        files = await service.load_thread_attachments(user_id="u1", thread_id="t1")
         assert len(files) == 1
         assert files[0].filename == "pic.png"
         assert files[0].mime_type == _PNG
@@ -64,29 +62,26 @@ def test_load_turn_attachments_returns_raw_bytes(tmp_path):
     asyncio.run(scenario())
 
 
-def test_load_turn_attachments_skips_unready_wrong_thread_or_user(tmp_path):
+def test_load_thread_attachments_scopes_and_skips_unready(tmp_path):
     service, store, blobs = _service(tmp_path)
 
     async def scenario():
-        ready = await _ready_attachment(store, blobs)
+        await _ready_attachment(store, blobs)
         # Not ready yet → skipped.
-        pending = await store.create_document(
+        await store.create_document(
             user_id="u1", thread_id="t1", purpose="chat_attachment",
             filename="x.png", mime_type=_PNG, size_bytes=1, file_hash="h",
         )
         # Ready but a different thread → skipped.
-        other = await _ready_attachment(store, blobs, thread_id="t2")
+        await _ready_attachment(store, blobs, thread_id="t2")
 
-        files = await service.load_turn_attachments(
-            user_id="u1", thread_id="t1",
-            document_ids=[ready.id, pending.id, other.id],
-        )
+        files = await service.load_thread_attachments(user_id="u1", thread_id="t1")
         assert len(files) == 1 and files[0].filename == "pic.png"
 
         # A different user gets nothing.
         assert (
-            await service.load_turn_attachments(
-                user_id="intruder", thread_id="t1", document_ids=[ready.id]
+            await service.load_thread_attachments(
+                user_id="intruder", thread_id="t1"
             )
             == []
         )

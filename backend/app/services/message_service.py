@@ -84,14 +84,15 @@ class MessageService:
         )
 
     async def _attachment_files(
-        self, user_id: str, thread: Thread, attachment_ids: list[str] | None
+        self, user_id: str, thread: Thread
     ) -> list[AttachmentFile] | None:
-        """Raw bytes of this turn's chat attachments, handed to the agent as
-        native multimodal input (read directly by the model — no OCR)."""
-        if not attachment_ids or self.documents is None:
+        """Raw bytes of every ready chat attachment in the thread, handed to the
+        agent as native multimodal input (read directly by the model — no OCR) so
+        a file stays available across the whole conversation, not just its turn."""
+        if self.documents is None:
             return None
-        files = await self.documents.load_turn_attachments(
-            user_id=user_id, thread_id=thread.id, document_ids=attachment_ids
+        files = await self.documents.load_thread_attachments(
+            user_id=user_id, thread_id=thread.id
         )
         return files or None
 
@@ -147,9 +148,7 @@ class MessageService:
         document_context = await self._document_context(user_id, thread, body)
         cv_context = await self._cv_context(user_id)
         about_context = await self._about_context(user_id)
-        attachment_files = await self._attachment_files(
-            user_id, thread, attachment_ids
-        )
+        attachment_files = await self._attachment_files(user_id, thread)
         usage = UsageSummary()
         reply_body = await self.agent.reply(
             user_message,
@@ -225,9 +224,7 @@ class MessageService:
         document_context = await self._document_context(user_id, thread, body)
         cv_context = await self._cv_context(user_id)
         about_context = await self._about_context(user_id)
-        attachment_files = await self._attachment_files(
-            user_id, thread, attachment_ids
-        )
+        attachment_files = await self._attachment_files(user_id, thread)
         usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
