@@ -40,15 +40,29 @@ DOC_CONTEXT_CHAR_CAP = 12_000
 ABOUT_CONTEXT_CHAR_CAP = 4_000
 
 
-def blob_key(user_id: str, document_id: str) -> str:
-    """Deterministic BlobStore key for a document's raw bytes."""
-    return f"{user_id}/{document_id}"
+# Top-level bucket folders, one per document purpose, so CVs and chat
+# attachments are stored separately (matches the bot-bucket layout).
+_PURPOSE_FOLDER = {
+    DocPurpose.PROFILE_CV: "CVs",
+    DocPurpose.CHAT_ATTACHMENT: "ChatDocuments",
+}
+
+
+def _folder(purpose: str) -> str:
+    return _PURPOSE_FOLDER.get(DocPurpose(purpose), "misc")
+
+
+def blob_key(user_id: str, document_id: str, purpose: str) -> str:
+    """Deterministic BlobStore key for a document's raw bytes, namespaced by
+    purpose-folder then user (e.g. `CVs/<user>/<doc>`)."""
+    return f"{_folder(purpose)}/{user_id}/{document_id}"
 
 
 def cv_markdown_key(user_id: str, document_id: str) -> str:
     """BlobStore key for a CV's faithful Markdown transcription, stored next to
-    the raw file (user ask: keep the OCR output in the bucket with the file)."""
-    return f"{user_id}/{document_id}.md"
+    the raw file in the CVs/ folder (user ask: keep the OCR output in the
+    bucket with the file)."""
+    return f"{_folder(DocPurpose.PROFILE_CV)}/{user_id}/{document_id}.md"
 
 
 class ThreadOwnershipError(Exception):
@@ -123,7 +137,9 @@ class DocumentService:
         status='failed' with an error message."""
         try:
             doc = await self._store.claim_for_processing(document_id)
-            data = await self._blobs.get(key=blob_key(user_id, document_id))
+            data = await self._blobs.get(
+                key=blob_key(user_id, document_id, doc.purpose)
+            )
             parsed = await self._processor.parse(
                 data=data, filename=doc.filename, mime_type=doc.mime_type
             )
@@ -200,7 +216,12 @@ class DocumentService:
         status='failed' so the recovery loop and the UI can react."""
         try:
             doc = await self._store.claim_for_processing(document_id)
-            data = await self._blobs.get(key=blob_key(user_id, document_id))
+            # The CV currently active (if any) — replaced once this one is ready.
+            prev = await self._store.get_profile(user_id)
+            prev_cv_id = prev.cv_document_id if prev else None
+            data = await self._blobs.get(
+                key=blob_key(user_id, document_id, doc.purpose)
+            )
             parsed = await self._processor.parse(
                 data=data, filename=doc.filename, mime_type=doc.mime_type
             )
@@ -231,6 +252,10 @@ class DocumentService:
             # Activate immediately: the transcription is faithful, so there's
             # nothing to "confirm" — the user can replace or remove it instead.
             await self._store.set_cv(user_id=user_id, cv_document_id=document_id)
+            # Re-upload: drop the previous CV (row + raw + markdown blobs) so we
+            # keep exactly one CV per user and don't orphan storage.
+            if prev_cv_id and prev_cv_id != document_id:
+                await self.purge_document(user_id=user_id, document_id=prev_cv_id)
         except DocumentNotFoundError:
             logger.warning("process_cv_upload: document %s vanished", document_id)
         except Exception as exc:  # noqa: BLE001 — record, don't crash the worker
@@ -241,6 +266,29 @@ class DocumentService:
                 )
             except DocumentNotFoundError:
                 pass
+
+    async def purge_document(self, *, user_id: str, document_id: str) -> None:
+        """Best-effort removal of a document's row + all its blobs (raw, and the
+        Markdown sidecar for a CV). Used on CV re-upload and hard deletes so the
+        DB and bucket don't accumulate orphans. Never raises."""
+        purpose = DocPurpose.CHAT_ATTACHMENT
+        try:
+            doc = await self._store.get_document(document_id, user_id)
+            purpose = DocPurpose(doc.purpose)
+        except (DocumentNotFoundError, ValueError):
+            pass
+        try:
+            await self._store.delete_document(document_id, user_id)
+        except DocumentNotFoundError:
+            pass
+        keys = [blob_key(user_id, document_id, purpose)]
+        if purpose == DocPurpose.PROFILE_CV:
+            keys.append(cv_markdown_key(user_id, document_id))
+        for key in keys:
+            try:
+                await self._blobs.delete(key=key)
+            except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+                logger.warning("blob delete failed for %s: %s", key, exc)
 
     async def build_thread_document_context(
         self, *, user_id: str, thread_id: str, latest_user_message: str
