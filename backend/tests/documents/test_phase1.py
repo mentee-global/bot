@@ -42,7 +42,9 @@ def test_process_chat_upload_happy_path(tmp_path):
             file_hash="h",
         )
         await blobs.put(
-            key=blob_key("u1", doc.id), data=b"Hello world", content_type=_TEXT
+            key=blob_key("u1", doc.id, "chat_attachment"),
+            data=b"Hello world",
+            content_type=_TEXT,
         )
         await service.process_chat_upload(user_id="u1", thread_id="t1", document_id=doc.id)
 
@@ -90,7 +92,11 @@ def test_recover_stuck_redispatches_and_fails_over_limit(tmp_path):
             size_bytes=2,
             file_hash="h",
         )
-        await blobs.put(key=blob_key("u1", ok.id), data=b"Recovered text", content_type=_TEXT)
+        await blobs.put(
+            key=blob_key("u1", ok.id, "chat_attachment"),
+            data=b"Recovered text",
+            content_type=_TEXT,
+        )
 
         # A doc already past the retry limit → recovery should fail it.
         dead = await store.create_document(

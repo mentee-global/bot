@@ -139,7 +139,7 @@ async def upload_document(
         size_bytes=len(data),
         file_hash=file_hash,
     )
-    key = blob_key(user.id, doc.id)
+    key = blob_key(user.id, doc.id, purpose)
     uri = await blobs.put(key=key, data=data, content_type=mime)
     doc = await store.update_document(doc.id, storage_uri=uri)
 
@@ -189,7 +189,7 @@ async def get_document_raw(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         ) from exc
-    data = await blobs.get(key=blob_key(user.id, document_id))
+    data = await blobs.get(key=blob_key(user.id, document_id, doc.purpose))
     return Response(
         content=data,
         media_type=doc.mime_type,
@@ -203,16 +203,14 @@ async def delete_document(
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
     store: Annotated[DocumentStore, Depends(get_document_store)],
-    blobs: Annotated[BlobStorePort, Depends(get_blob_store)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> None:
+    # 404 if it isn't the caller's document; then purge row + all blobs
+    # (raw + the CV Markdown sidecar).
     try:
-        await store.delete_document(document_id, user.id)
+        await store.get_document(document_id, user.id)
     except DocumentNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         ) from exc
-    # Best-effort blob cleanup; the row is already gone.
-    try:
-        await blobs.delete(key=blob_key(user.id, document_id))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("blob delete failed for %s: %s", document_id, exc)
+    await service.purge_document(user_id=user.id, document_id=document_id)
