@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
+from app.budget.service import BudgetService
+from app.budget.usage import UsageSummary
 from app.documents.base import (
     AttachmentFile,
     BlobStorePort,
@@ -85,12 +87,16 @@ class DocumentService:
         processor: DocumentProcessorPort,
         threads: ThreadStore,
         retrieval: DocumentRetrievalPort | None = None,
+        budget: BudgetService | None = None,
     ) -> None:
         self._store = store
         self._blobs = blobs
         self._processor = processor
         self._threads = threads
         self._retrieval = retrieval
+        # Optional so tests / non-billing deployments construct without it.
+        # When set, CV OCR debits credits for its model spend.
+        self._budget = budget
 
     async def assert_thread_owned(self, *, user_id: str, thread_id: str) -> None:
         """Plan decision #15: prove the thread belongs to the user BEFORE any
@@ -253,6 +259,25 @@ class DocumentService:
                 logger.warning(
                     "cv markdown blob write failed for %s: %s", document_id, exc
                 )
+            # Charge the user for the OCR model spend. The money is already
+            # spent, so a billing hiccup must not fail the upload — log and ship
+            # the CV anyway (credits_charged stays 0). Local-decode CVs carry no
+            # tokens, so record_document_usage no-ops.
+            credits_charged = 0
+            if self._budget is not None:
+                usage = UsageSummary(
+                    openai_input_tokens=parsed.input_tokens,
+                    openai_output_tokens=parsed.output_tokens,
+                    openai_model_sku=parsed.model_sku,
+                )
+                try:
+                    credits_charged = await self._budget.record_document_usage(
+                        user_id=user_id, usage=usage, document_id=document_id
+                    )
+                except Exception as exc:  # noqa: BLE001 — never fail OCR on billing
+                    logger.warning(
+                        "cv ocr credit charge failed for %s: %s", document_id, exc
+                    )
             await self._store.update_document(
                 document_id,
                 status=DocStatus.READY,
@@ -261,6 +286,7 @@ class DocumentService:
                 page_count=parsed.page_count,
                 provider=parsed.provider,
                 provider_file_id=parsed.provider_file_id,
+                ocr_credits_charged=credits_charged,
                 error_message=None,
             )
             # Activate immediately: the transcription is faithful, so there's
@@ -338,19 +364,21 @@ class DocumentService:
 
     async def get_cv_markdown(
         self, *, user_id: str
-    ) -> tuple[str | None, str | None]:
-        """(filename, Markdown) of the active CV document, or (None, None).
+    ) -> tuple[str | None, str | None, int]:
+        """(filename, Markdown, ocr_credits_charged) of the active CV document,
+        or (None, None, 0).
 
-        Used by the /profile page to show the transcription back to the user.
+        Used by the /profile page to show the transcription back to the user
+        and how many credits reading it cost.
         """
         profile = await self._store.get_profile(user_id)
         if profile is None or not profile.cv_document_id:
-            return None, None
+            return None, None, 0
         try:
             doc = await self._store.get_document(profile.cv_document_id, user_id)
         except DocumentNotFoundError:
-            return None, None
-        return doc.filename, (doc.extracted_text or None)
+            return None, None, 0
+        return doc.filename, (doc.extracted_text or None), doc.ocr_credits_charged
 
     async def set_about_me(self, *, user_id: str, about_me: str | None):
         """Persist the user's free-text 'about me' (injected into every chat)."""

@@ -66,6 +66,10 @@ class DocumentRecord(SQLModel, table=True):
     )
     error_message: str | None = Field(default=None, sa_type=Text())
     page_count: int | None = Field(default=None, sa_type=Integer())
+    # Credits debited for model-backed OCR of this document (CVs). 0 for chat
+    # attachments and local-decode formats, which cost no model spend. Surfaced
+    # to the user so they can see what reading their CV cost.
+    ocr_credits_charged: int = Field(default=0, sa_type=Integer())
 
     created_at: datetime = Field(sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(sa_type=DateTime(timezone=True))

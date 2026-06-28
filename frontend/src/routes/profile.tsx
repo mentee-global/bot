@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Textarea } from "#/components/ui/textarea";
 import type { User } from "#/features/auth/data/auth.types";
 import { useSession } from "#/features/auth/hooks/useSession";
+import { useMeQuery } from "#/features/budget/hooks/useBudget";
 import { MessageBody } from "#/features/chat/components/MessageBody";
 import {
 	ALLOWED_UPLOAD_MIMES,
@@ -170,7 +171,13 @@ function AboutSection({
 function CvSection() {
 	const queryClient = useQueryClient();
 	const profileQuery = useProfileQuery();
+	const me = useMeQuery();
 	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	// CV OCR costs credits (gated server-side too) — block & explain when the
+	// mentee has none left. Admins are unlimited, so never blocked.
+	const outOfCredits =
+		!!me.data && !me.data.credits.unlimited && me.data.credits.remaining <= 0;
 
 	const [docId, setDocId] = useState<string | null>(null);
 	const [uploading, setUploading] = useState(false);
@@ -209,12 +216,17 @@ function CvSection() {
 		if (doc.status === "ready") {
 			setDocId(null);
 			void profileQuery.refetch();
-			toast.success(m.profile_cv_ready());
+			void me.refetch();
+			toast.success(
+				doc.ocr_credits_charged > 0
+					? m.profile_cv_ready_credits({ amount: doc.ocr_credits_charged })
+					: m.profile_cv_ready(),
+			);
 		} else if (doc.status === "failed") {
 			setDocId(null);
 			setExtractError(doc.error_message || m.profile_extract_failed());
 		}
-	}, [docQuery.data, profileQuery]);
+	}, [docQuery.data, profileQuery, me]);
 
 	// Driven by docId (set the moment an upload starts, cleared only when a
 	// terminal status arrives), NOT by the poll's current data — otherwise the
@@ -223,6 +235,10 @@ function CvSection() {
 
 	async function handleFile(file: File) {
 		setExtractError(null);
+		if (outOfCredits) {
+			toast.error(m.profile_upload_no_credits());
+			return;
+		}
 		if (!ALLOWED_UPLOAD_MIMES.includes(file.type as never)) {
 			toast.error(m.profile_upload_bad_type());
 			return;
@@ -268,6 +284,7 @@ function CvSection() {
 			<UploadZone
 				processing={processing}
 				hasCv={hasCv}
+				blockedReason={outOfCredits ? m.profile_upload_no_credits() : null}
 				onPick={() => fileInputRef.current?.click()}
 				onDropFile={handleFile}
 			/>
@@ -300,6 +317,13 @@ function CvSection() {
 							<p className="text-xs text-[var(--theme-muted)]">
 								{m.profile_cv_transcription_title()}
 							</p>
+							{data.cv_credits_charged > 0 ? (
+								<p className="mt-0.5 text-xs text-[var(--theme-muted)]">
+									{m.profile_cv_credits_used({
+										amount: data.cv_credits_charged,
+									})}
+								</p>
+							) : null}
 						</div>
 						<div className="flex shrink-0 items-center gap-3">
 							<button
@@ -350,52 +374,66 @@ function CvSection() {
 function UploadZone({
 	processing,
 	hasCv,
+	blockedReason,
 	onPick,
 	onDropFile,
 }: {
 	processing: boolean;
 	hasCv: boolean;
+	/** When set, the zone is disabled and this explains why (out of credits). */
+	blockedReason: string | null;
 	onPick: () => void;
 	onDropFile: (file: File) => void;
 }) {
 	const [dragOver, setDragOver] = useState(false);
+	const blocked = !!blockedReason;
 	return (
-		<button
-			type="button"
-			onClick={onPick}
-			onDragOver={(e) => {
-				e.preventDefault();
-				setDragOver(true);
-			}}
-			onDragLeave={() => setDragOver(false)}
-			onDrop={(e) => {
-				e.preventDefault();
-				setDragOver(false);
-				const file = e.dataTransfer.files?.[0];
-				if (file) onDropFile(file);
-			}}
-			disabled={processing}
-			className={`flex w-full flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition ${
-				dragOver
-					? "border-[var(--theme-accent)] bg-[var(--theme-accent-soft)]"
-					: "border-[var(--theme-border-strong)] bg-[var(--theme-surface)]"
-			} disabled:cursor-not-allowed disabled:opacity-60`}
-		>
-			{processing ? (
-				<Loader2 className="size-6 animate-spin text-[var(--theme-accent)]" />
-			) : (
-				<FileUp className="size-6 text-[var(--theme-muted)]" />
-			)}
-			<span className="text-sm font-medium text-[var(--theme-primary)]">
-				{processing
-					? m.profile_extract_running()
-					: hasCv
-						? m.profile_upload_replace()
-						: m.profile_upload_cta()}
-			</span>
-			<span className="text-xs text-[var(--theme-muted)]">
-				{m.profile_upload_hint()}
-			</span>
-		</button>
+		<>
+			<button
+				type="button"
+				title={blockedReason ?? undefined}
+				aria-disabled={blocked}
+				onClick={onPick}
+				onDragOver={(e) => {
+					e.preventDefault();
+					if (!blocked) setDragOver(true);
+				}}
+				onDragLeave={() => setDragOver(false)}
+				onDrop={(e) => {
+					e.preventDefault();
+					setDragOver(false);
+					if (blocked) return;
+					const file = e.dataTransfer.files?.[0];
+					if (file) onDropFile(file);
+				}}
+				disabled={processing || blocked}
+				className={`flex w-full flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition ${
+					dragOver
+						? "border-[var(--theme-accent)] bg-[var(--theme-accent-soft)]"
+						: "border-[var(--theme-border-strong)] bg-[var(--theme-surface)]"
+				} disabled:cursor-not-allowed disabled:opacity-60`}
+			>
+				{processing ? (
+					<Loader2 className="size-6 animate-spin text-[var(--theme-accent)]" />
+				) : (
+					<FileUp className="size-6 text-[var(--theme-muted)]" />
+				)}
+				<span className="text-sm font-medium text-[var(--theme-primary)]">
+					{processing
+						? m.profile_extract_running()
+						: hasCv
+							? m.profile_upload_replace()
+							: m.profile_upload_cta()}
+				</span>
+				<span className="text-xs text-[var(--theme-muted)]">
+					{m.profile_upload_hint()}
+				</span>
+			</button>
+			{blocked ? (
+				<p className="mt-2 text-center text-xs text-[var(--theme-danger)]">
+					{blockedReason}
+				</p>
+			) : null}
+		</>
 	);
 }

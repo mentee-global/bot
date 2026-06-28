@@ -25,10 +25,16 @@ from pydantic import BaseModel
 
 from app.api.deps import (
     get_blob_store,
+    get_budget_service,
     get_current_user,
     get_document_service,
     get_document_store,
     require_session,
+)
+from app.budget.service import (
+    BudgetService,
+    GlobalBudgetExhaustedError,
+    QuotaExhaustedError,
 )
 from app.core.config import settings
 from app.documents.base import BlobStorePort, DocPurpose
@@ -52,6 +58,9 @@ class DocumentResponse(BaseModel):
     summary: str | None
     page_count: int | None
     error_message: str | None
+    # Credits debited for OCR'ing this document (CVs). 0 for chat attachments
+    # and local-decode formats. Lets the UI show what reading the CV cost.
+    ocr_credits_charged: int
     created_at: datetime
     updated_at: datetime
 
@@ -68,6 +77,7 @@ class DocumentResponse(BaseModel):
             summary=d.summary,
             page_count=d.page_count,
             error_message=d.error_message,
+            ocr_credits_charged=d.ocr_credits_charged,
             created_at=d.created_at,
             updated_at=d.updated_at,
         )
@@ -81,6 +91,7 @@ async def upload_document(
     service: Annotated[DocumentService, Depends(get_document_service)],
     store: Annotated[DocumentStore, Depends(get_document_store)],
     blobs: Annotated[BlobStorePort, Depends(get_blob_store)],
+    budget: Annotated[BudgetService, Depends(get_budget_service)],
     file: Annotated[UploadFile, File()],
     purpose: Annotated[str, Form()] = DocPurpose.CHAT_ATTACHMENT,
     thread_id: Annotated[str | None, Form()] = None,
@@ -99,6 +110,31 @@ async def upload_document(
     # profile_cv is user-scoped, not thread-scoped — ignore any thread_id.
     if not is_chat:
         thread_id = None
+
+    # CV OCR makes a real (paid) model call, so gate it on credits like a chat
+    # turn — admins are unlimited and pass through. Chat attachments are read
+    # natively with no extra OCR cost, so they're never gated here. Fail before
+    # we store bytes or kick off the background task.
+    if not is_chat:
+        try:
+            await budget.check_can_chat(user)
+        except QuotaExhaustedError as err:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "code": "quota_exhausted",
+                    "credits_remaining": err.credits_remaining,
+                    "resets_at": err.resets_at.isoformat(),
+                },
+            ) from err
+        except GlobalBudgetExhaustedError as err:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "budget_exhausted",
+                    "resets_at": err.resets_at.isoformat(),
+                },
+            ) from err
 
     mime = file.content_type or "application/octet-stream"
     if mime not in settings.allowed_upload_mimes:

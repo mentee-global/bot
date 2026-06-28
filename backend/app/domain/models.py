@@ -79,6 +79,9 @@ class Document(BaseModel):
     extracted_json: dict | None = None
     error_message: str | None = None
     page_count: int | None = None
+    # Credits debited for model-backed OCR (CVs). 0 for chat attachments and
+    # local-decode formats. Surfaced to the user as the cost of reading their CV.
+    ocr_credits_charged: int = 0
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

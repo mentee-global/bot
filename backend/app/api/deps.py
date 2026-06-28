@@ -122,6 +122,7 @@ _document_service = DocumentService(
     processor=_doc_processor,
     threads=_store,
     retrieval=_build_retrieval(settings),
+    budget=_budget,
 )
 
 _service = MessageService(

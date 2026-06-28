@@ -29,6 +29,8 @@ class ProfileResponse(BaseModel):
     cv_document_id: str | None
     cv_filename: str | None
     cv_markdown: str | None
+    # Credits debited to OCR the active CV (0 for local-decode formats).
+    cv_credits_charged: int
     about_me: str | None
     updated_at: datetime | None
 
@@ -42,12 +44,15 @@ async def _profile_response(
     service: DocumentService, user_id: str
 ) -> ProfileResponse:
     profile = await service.get_cv_profile(user_id=user_id)
-    cv_filename, cv_markdown = await service.get_cv_markdown(user_id=user_id)
+    cv_filename, cv_markdown, cv_credits_charged = await service.get_cv_markdown(
+        user_id=user_id
+    )
     return ProfileResponse(
         has_cv=bool(profile and profile.cv_document_id and cv_markdown),
         cv_document_id=profile.cv_document_id if profile else None,
         cv_filename=cv_filename,
         cv_markdown=cv_markdown,
+        cv_credits_charged=cv_credits_charged,
         about_me=profile.about_me if profile else None,
         updated_at=profile.updated_at if profile else None,
     )

@@ -7,6 +7,8 @@ export interface ProfileResponse {
 	cv_document_id: string | null;
 	cv_filename: string | null;
 	cv_markdown: string | null;
+	/** Credits debited to OCR the active CV (0 for local-decode formats). */
+	cv_credits_charged: number;
 	about_me: string | null;
 	updated_at: string | null;
 }
