@@ -112,10 +112,12 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file"
         )
-    if len(data) > settings.max_upload_bytes:
+    # CVs are capped tighter than generic chat attachments.
+    size_limit = settings.max_upload_bytes if is_chat else settings.max_cv_upload_bytes
+    if len(data) > size_limit:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds {settings.max_upload_bytes} bytes",
+            detail=f"File exceeds {size_limit} bytes",
         )
 
     # Ownership BEFORE any write (plan decision #15) — chat attachments only.
@@ -150,7 +152,7 @@ async def upload_document(
         )
     else:
         background.add_task(
-            service.extract_cv_profile,
+            service.process_cv_upload,
             user_id=user.id,
             document_id=doc.id,
         )

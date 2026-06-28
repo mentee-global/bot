@@ -52,14 +52,6 @@ class LocalProcessor(DocumentProcessorPort):
             f"LocalProcessor cannot parse {mime_type!r} ({filename!r})"
         )
 
-    async def extract(
-        self, *, data: bytes, filename: str, mime_type: str, schema: dict
-    ) -> ParsedDocument:
-        raise UnsupportedDocumentError(
-            "LocalProcessor cannot extract structured data — use a model-backed "
-            "processor (OpenAIDocumentProcessor) for CV extraction."
-        )
-
     @staticmethod
     def _parse_pdf(data: bytes) -> ParsedDocument:
         from pypdf import PdfReader

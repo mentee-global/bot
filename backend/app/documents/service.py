@@ -14,8 +14,6 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from pydantic import ValidationError
-
 from app.documents.base import (
     BlobStorePort,
     DocPurpose,
@@ -24,7 +22,6 @@ from app.documents.base import (
     DocumentProcessorPort,
     DocumentRetrievalPort,
 )
-from app.documents.schemas import ResumeSchema
 from app.documents.store import DocumentNotFoundError, DocumentStore
 from app.domain.models import MessageAttachment
 from app.services.thread_store import ThreadNotFoundError, ThreadStore
@@ -36,9 +33,11 @@ MAX_PROCESSING_ATTEMPTS = 3
 STALE_PROCESSING_SECONDS = 300
 
 # Per-document cap on text injected into the agent prompt. ~12k chars ≈ ~3k
-# tokens — generous for a typed CV/letter, bounded so a large doc can't blow
-# the turn's context. (Retrieval/RAG is the Phase 4 answer for big documents.)
+# tokens — generous for a CV/letter, bounded so a large doc can't blow the
+# turn's context. (Retrieval/RAG is the Phase 4 answer for big documents.)
 DOC_CONTEXT_CHAR_CAP = 12_000
+# "About me" is user-authored prose; keep it short enough to inject every turn.
+ABOUT_CONTEXT_CHAR_CAP = 4_000
 
 
 def blob_key(user_id: str, document_id: str) -> str:
@@ -46,57 +45,10 @@ def blob_key(user_id: str, document_id: str) -> str:
     return f"{user_id}/{document_id}"
 
 
-# Compact CV facts (a few hundred chars) injected into every chat once the user
-# confirms (plan decision #14: CV keeps compact facts, not raw text). Built
-# deterministically from the validated schema — no extra LLM call, nothing to
-# hallucinate. Mirrors the density of `_build_profile_lines` in the agent.
-_CV_SUMMARY_CHAR_CAP = 1_200
-
-
-def _build_cv_summary(resume: ResumeSchema) -> str:
-    parts: list[str] = [f"Name: {resume.name}"]
-    if resume.location:
-        parts.append(f"Location: {resume.location}")
-    if resume.work_experience:
-        recent = resume.work_experience[:3]
-        roles = "; ".join(
-            " ".join(
-                seg
-                for seg in (
-                    w.position,
-                    w.company and f"at {w.company}",
-                    (w.start_date or w.end_date)
-                    and f"({w.start_date or '?'}–{w.end_date or '?'})",
-                )
-                if seg
-            )
-            for w in recent
-        )
-        parts.append(f"Experience: {roles}")
-    if resume.education:
-        edu = "; ".join(
-            " ".join(
-                seg
-                for seg in (
-                    e.degree,
-                    e.field_of_study and f"in {e.field_of_study}",
-                    e.institution and f"at {e.institution}",
-                    e.graduation_date and f"({e.graduation_date})",
-                )
-                if seg
-            )
-            for e in resume.education[:3]
-        )
-        parts.append(f"Education: {edu}")
-    if resume.skills:
-        parts.append("Skills: " + ", ".join(resume.skills[:15]))
-    if resume.languages:
-        parts.append("Languages: " + ", ".join(resume.languages))
-    if resume.certifications:
-        parts.append("Certifications: " + ", ".join(resume.certifications[:8]))
-    if resume.summary:
-        parts.append(f"Summary: {resume.summary}")
-    return "\n".join(parts)[:_CV_SUMMARY_CHAR_CAP]
+def cv_markdown_key(user_id: str, document_id: str) -> str:
+    """BlobStore key for a CV's faithful Markdown transcription, stored next to
+    the raw file (user ask: keep the OCR output in the bucket with the file)."""
+    return f"{user_id}/{document_id}.md"
 
 
 class ThreadOwnershipError(Exception):
@@ -228,65 +180,61 @@ class DocumentService:
                     document_id=doc.id,
                 )
             elif doc.purpose == DocPurpose.PROFILE_CV:
-                await self.extract_cv_profile(
+                await self.process_cv_upload(
                     user_id=doc.user_id, document_id=doc.id
                 )
         if acted:
             logger.info("recover_stuck: re-dispatched/failed %d document(s)", acted)
         return acted
 
-    async def extract_cv_profile(self, *, user_id: str, document_id: str) -> None:
-        """Load bytes → processor.extract(ResumeSchema) → store an UNCONFIRMED
-        CV draft (plan decision #10). The draft prefills /profile immediately
-        but is NOT injected into chats until the user clicks Save.
+    async def process_cv_upload(self, *, user_id: str, document_id: str) -> None:
+        """Load bytes → processor.parse() (OCR) → store the faithful Markdown
+        transcription and activate it as the user's CV.
 
-        Runs in a BackgroundTask. Like process_chat_upload it never raises —
-        failures land as status='failed' so the recovery loop and the UI can
-        react (the /profile page then offers manual entry, decision #10)."""
+        The Markdown is persisted on the document (`extracted_text`) for
+        injection AND written next to the raw file in the bucket (user ask).
+        `set_cv` stamps cv_confirmed_at so it flows into every chat via
+        `build_profile_context`.
+
+        Runs in a BackgroundTask; never raises — failures land as
+        status='failed' so the recovery loop and the UI can react."""
         try:
             doc = await self._store.claim_for_processing(document_id)
             data = await self._blobs.get(key=blob_key(user_id, document_id))
-            parsed = await self._processor.extract(
-                data=data,
-                filename=doc.filename,
-                mime_type=doc.mime_type,
-                schema=ResumeSchema.model_json_schema(),
+            parsed = await self._processor.parse(
+                data=data, filename=doc.filename, mime_type=doc.mime_type
             )
-            # Validate the model's JSON against the canonical schema. Engine
-            # -agnostic on purpose: the processor stays a generic dict-in/out
-            # vendor seam (plan decision #4); CV semantics live here.
+            markdown = (parsed.markdown or "").strip()
+            if not markdown:
+                raise DocumentError("CV transcription produced no readable text")
+            # Keep the OCR output in the bucket alongside the original file.
             try:
-                resume = ResumeSchema.model_validate(parsed.structured or {})
-            except ValidationError as exc:
-                raise DocumentError(
-                    f"extracted CV did not match the expected shape: {exc}"
-                ) from exc
-            structured = resume.model_dump()
-            summary = _build_cv_summary(resume)
-            # Draft → promote: cv_confirmed_at stays NULL (upsert_cv_draft), so
-            # build_profile_context won't inject this until the user saves.
-            await self._store.upsert_cv_draft(
-                user_id=user_id,
-                cv_document_id=document_id,
-                structured=structured,
-                summary=summary,
-            )
+                await self._blobs.put(
+                    key=cv_markdown_key(user_id, document_id),
+                    data=markdown.encode("utf-8"),
+                    content_type="text/markdown; charset=utf-8",
+                )
+            except Exception as exc:  # noqa: BLE001 — DB copy is the source of truth
+                logger.warning(
+                    "cv markdown blob write failed for %s: %s", document_id, exc
+                )
             await self._store.update_document(
                 document_id,
                 status=DocStatus.READY,
-                summary=summary,
-                # CV is PII (decision #14): keep compact structured facts, not
-                # the raw text. extracted_json holds the validated CV.
-                extracted_json=structured,
+                summary=parsed.summary,
+                extracted_text=markdown,
                 page_count=parsed.page_count,
                 provider=parsed.provider,
                 provider_file_id=parsed.provider_file_id,
                 error_message=None,
             )
+            # Activate immediately: the transcription is faithful, so there's
+            # nothing to "confirm" — the user can replace or remove it instead.
+            await self._store.set_cv(user_id=user_id, cv_document_id=document_id)
         except DocumentNotFoundError:
-            logger.warning("extract_cv_profile: document %s vanished", document_id)
+            logger.warning("process_cv_upload: document %s vanished", document_id)
         except Exception as exc:  # noqa: BLE001 — record, don't crash the worker
-            logger.warning("extract_cv_profile failed for %s: %s", document_id, exc)
+            logger.warning("process_cv_upload failed for %s: %s", document_id, exc)
             try:
                 await self._store.update_document(
                     document_id, status=DocStatus.FAILED, error_message=str(exc)[:500]
@@ -323,25 +271,54 @@ class DocumentService:
         )
 
     async def get_cv_profile(self, *, user_id: str):
-        """The user's CV profile row (draft or confirmed), or None."""
+        """The user's profile row (CV link + about_me), or None."""
         return await self._store.get_profile(user_id)
 
-    async def confirm_cv_profile(self, *, user_id: str, resume: ResumeSchema):
-        """Persist the user-edited CV and mark it confirmed (plan decision #10).
+    async def get_cv_markdown(
+        self, *, user_id: str
+    ) -> tuple[str | None, str | None]:
+        """(filename, Markdown) of the active CV document, or (None, None).
 
-        Recomputes the compact summary from the (possibly edited) fields, then
-        sets cv_confirmed_at — from here `build_profile_context` injects it into
-        every chat."""
-        structured = resume.model_dump()
-        summary = _build_cv_summary(resume)
-        return await self._store.confirm_cv(
-            user_id=user_id, structured=structured, summary=summary
-        )
+        Used by the /profile page to show the transcription back to the user.
+        """
+        profile = await self._store.get_profile(user_id)
+        if profile is None or not profile.cv_document_id:
+            return None, None
+        try:
+            doc = await self._store.get_document(profile.cv_document_id, user_id)
+        except DocumentNotFoundError:
+            return None, None
+        return doc.filename, (doc.extracted_text or None)
+
+    async def set_about_me(self, *, user_id: str, about_me: str | None):
+        """Persist the user's free-text 'about me' (injected into every chat)."""
+        cleaned = (about_me or "").strip() or None
+        return await self._store.set_about_me(user_id=user_id, about_me=cleaned)
 
     async def build_profile_context(self, *, user_id: str) -> str:
-        """Compact CV facts for every chat — ONLY when the user has confirmed
-        the extracted CV (cv_confirmed_at set; plan decision #10)."""
+        """The mentee's full CV transcription for every chat — only once a CV
+        has finished OCR (cv_confirmed_at set) and its document still resolves.
+        """
         profile = await self._store.get_profile(user_id)
-        if profile is None or not profile.is_confirmed or not profile.cv_summary:
+        if profile is None or not profile.is_confirmed or not profile.cv_document_id:
             return ""
-        return f"The user's CV (confirmed):\n{profile.cv_summary}"
+        try:
+            doc = await self._store.get_document(profile.cv_document_id, user_id)
+        except DocumentNotFoundError:
+            return ""
+        content = (doc.extracted_text or "").strip()
+        if doc.status != DocStatus.READY or not content:
+            return ""
+        if len(content) > DOC_CONTEXT_CHAR_CAP:
+            content = content[:DOC_CONTEXT_CHAR_CAP] + "\n…[truncated]"
+        return f"The mentee's CV/resume (transcribed from their upload):\n{content}"
+
+    async def build_about_context(self, *, user_id: str) -> str:
+        """The mentee's free-text 'about me' for every chat, or ''."""
+        profile = await self._store.get_profile(user_id)
+        if profile is None or not profile.about_me or not profile.about_me.strip():
+            return ""
+        text = profile.about_me.strip()
+        if len(text) > ABOUT_CONTEXT_CHAR_CAP:
+            text = text[:ABOUT_CONTEXT_CHAR_CAP] + "\n…[truncated]"
+        return text

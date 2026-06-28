@@ -64,6 +64,13 @@ class MessageService:
         ctx = await self.documents.build_profile_context(user_id=user_id)
         return ctx or None
 
+    async def _about_context(self, user_id: str) -> str | None:
+        """The mentee's free-text 'about me' prose, injected into every chat."""
+        if self.documents is None:
+            return None
+        ctx = await self.documents.build_about_context(user_id=user_id)
+        return ctx or None
+
     async def _message_attachments(
         self, user_id: str, thread: Thread, attachment_ids: list[str] | None
     ) -> list[MessageAttachment]:
@@ -126,6 +133,7 @@ class MessageService:
 
         document_context = await self._document_context(user_id, thread, body)
         cv_context = await self._cv_context(user_id)
+        about_context = await self._about_context(user_id)
         usage = UsageSummary()
         reply_body = await self.agent.reply(
             user_message,
@@ -136,6 +144,7 @@ class MessageService:
             ui_locale=ui_locale,
             document_context=document_context,
             cv_context=cv_context,
+            about_context=about_context,
         )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
@@ -198,6 +207,7 @@ class MessageService:
 
         document_context = await self._document_context(user_id, thread, body)
         cv_context = await self._cv_context(user_id)
+        about_context = await self._about_context(user_id)
         usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
@@ -209,6 +219,7 @@ class MessageService:
             ui_locale=ui_locale,
             document_context=document_context,
             cv_context=cv_context,
+            about_context=about_context,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:

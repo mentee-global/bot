@@ -3,10 +3,7 @@ import {
 	profileQueryOptions,
 	profileService,
 } from "#/features/profile/data/profile.service";
-import type {
-	ProfileResponse,
-	ResumeData,
-} from "#/features/profile/data/profile.types";
+import type { ProfileResponse } from "#/features/profile/data/profile.types";
 import { ApiError } from "#/lib/api/errors";
 
 export function useProfileQuery() {
@@ -19,12 +16,12 @@ export function useProfileQuery() {
 	});
 }
 
-/** Save + confirm the edited CV. On success, seed the profile cache so the
- * page immediately reflects the confirmed state. */
-export function useSaveCvMutation() {
+/** Save the free-text "about me". On success, seed the profile cache so the
+ * page immediately reflects the saved prose. */
+export function useSaveAboutMutation() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (data: ResumeData) => profileService.saveCv(data),
+		mutationFn: (aboutMe: string) => profileService.saveAbout(aboutMe),
 		onSuccess: (profile: ProfileResponse) => {
 			queryClient.setQueryData(profileQueryOptions.queryKey, profile);
 		},

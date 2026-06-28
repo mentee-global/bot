@@ -87,7 +87,7 @@ def _build_doc_processor(s: Settings) -> DocumentProcessorPort:
 
         return OpenAIDocumentProcessor(
             api_key=s.openai_api_key.get_secret_value(),
-            model=s.agent_model,
+            model=s.doc_model,
         )
     return LocalProcessor()
 

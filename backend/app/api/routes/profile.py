@@ -1,13 +1,12 @@
-"""CV profile endpoints (plan Phase 2).
+"""Profile endpoints — what the bot knows about a mentee beyond their
+Mentee-platform profile.
 
-`GET /api/profile` returns the user's current CV (draft or confirmed) so the
-/profile page can prefill its form. `PUT /api/profile/cv` persists the
-(possibly edited) fields and **confirms** them (plan decision #10) — only then
-does `DocumentService.build_profile_context` inject the CV into chats.
-
-The CV is uploaded through `POST /api/documents` with `purpose=profile_cv`;
-extraction runs async, so the page polls `GET /api/documents/{id}` for status
-and reads the extracted draft from here once it's ready.
+`GET /api/profile` returns the active CV (filename + faithful Markdown
+transcription) and the free-text "about me", so the /profile page can render
+them. The CV is uploaded via `POST /api/documents` (purpose=profile_cv); OCR
+runs async and the page polls `GET /api/documents/{id}` for status, then reads
+the transcription here. `PUT /api/profile/about` saves the prose. Both the CV
+Markdown and the about-me are injected into every chat (see DocumentService).
 """
 
 from __future__ import annotations
@@ -16,43 +15,42 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, get_document_service, require_session
-from app.documents.schemas import ResumeSchema
 from app.documents.service import DocumentService
-from app.domain.models import CvProfile, User
+from app.domain.models import User
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 
 class ProfileResponse(BaseModel):
     has_cv: bool
-    confirmed: bool
-    cv_structured: dict | None
-    cv_summary: str | None
     cv_document_id: str | None
+    cv_filename: str | None
+    cv_markdown: str | None
+    about_me: str | None
     updated_at: datetime | None
 
-    @classmethod
-    def from_profile(cls, p: CvProfile | None) -> ProfileResponse:
-        if p is None:
-            return cls(
-                has_cv=False,
-                confirmed=False,
-                cv_structured=None,
-                cv_summary=None,
-                cv_document_id=None,
-                updated_at=None,
-            )
-        return cls(
-            has_cv=p.cv_structured is not None,
-            confirmed=p.is_confirmed,
-            cv_structured=p.cv_structured,
-            cv_summary=p.cv_summary,
-            cv_document_id=p.cv_document_id,
-            updated_at=p.updated_at,
-        )
+
+class AboutUpdate(BaseModel):
+    # Generous cap; injected into every chat, so bound it. Empty/blank clears it.
+    about_me: str | None = Field(default=None, max_length=8_000)
+
+
+async def _profile_response(
+    service: DocumentService, user_id: str
+) -> ProfileResponse:
+    profile = await service.get_cv_profile(user_id=user_id)
+    cv_filename, cv_markdown = await service.get_cv_markdown(user_id=user_id)
+    return ProfileResponse(
+        has_cv=bool(profile and profile.cv_document_id and cv_markdown),
+        cv_document_id=profile.cv_document_id if profile else None,
+        cv_filename=cv_filename,
+        cv_markdown=cv_markdown,
+        about_me=profile.about_me if profile else None,
+        updated_at=profile.updated_at if profile else None,
+    )
 
 
 @router.get("", response_model=ProfileResponse)
@@ -61,18 +59,15 @@ async def get_profile(
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> ProfileResponse:
-    profile = await service.get_cv_profile(user_id=user.id)
-    return ProfileResponse.from_profile(profile)
+    return await _profile_response(service, user.id)
 
 
-@router.put("/cv", response_model=ProfileResponse)
-async def save_cv(
-    body: ResumeSchema,
+@router.put("/about", response_model=ProfileResponse)
+async def save_about(
+    body: AboutUpdate,
     _session_id: Annotated[str, Depends(require_session)],
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> ProfileResponse:
-    # Confirms the (edited) CV — sets cv_confirmed_at, so it now flows into
-    # every chat via build_profile_context (plan decision #10).
-    profile = await service.confirm_cv_profile(user_id=user.id, resume=body)
-    return ProfileResponse.from_profile(profile)
+    await service.set_about_me(user_id=user.id, about_me=body.about_me)
+    return await _profile_response(service, user.id)

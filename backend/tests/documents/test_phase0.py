@@ -133,11 +133,13 @@ def test_local_processor_parses_docx():
     assert "Python" in result.markdown
 
 
-def test_local_processor_cannot_extract():
+def test_local_processor_rejects_images():
+    # Images need vision OCR (OpenAIDocumentProcessor); the local parser can't.
     proc = LocalProcessor()
+    assert not proc.supports("image/png")
     with pytest.raises(UnsupportedDocumentError):
         asyncio.run(
-            proc.extract(data=b"x", filename="x.pdf", mime_type="application/pdf", schema={})
+            proc.parse(data=b"\x89PNG", filename="x.png", mime_type="image/png")
         )
 
 
@@ -181,7 +183,7 @@ def test_thread_ownership_guard():
     asyncio.run(scenario())
 
 
-def test_profile_context_gated_on_confirmation():
+def test_profile_context_injects_cv_markdown_and_about_me():
     store = InMemoryDocumentStore()
     service = DocumentService(
         store=store,
@@ -191,13 +193,25 @@ def test_profile_context_gated_on_confirmation():
     )
 
     async def scenario():
-        # Draft (unconfirmed) → no context injected.
-        await store.upsert_cv_draft(
-            user_id="u1", cv_document_id="d1", structured={"name": "Jane"}, summary="Jane, SWE"
-        )
+        # No profile → nothing injected.
         assert await service.build_profile_context(user_id="u1") == ""
-        # Confirmed → context appears (plan decision #10).
-        await store.confirm_cv(user_id="u1", structured={"name": "Jane"}, summary="Jane, SWE")
-        assert "Jane, SWE" in await service.build_profile_context(user_id="u1")
+        assert await service.build_about_context(user_id="u1") == ""
+
+        # A ready CV document carrying its Markdown transcription, activated.
+        doc = await store.create_document(
+            user_id="u1", thread_id=None, purpose="profile_cv",
+            filename="cv.pdf", mime_type="application/pdf",
+            size_bytes=10, file_hash="h",
+        )
+        await store.update_document(
+            doc.id, status="ready", extracted_text="# Jane\nSoftware Engineer"
+        )
+        await store.set_cv(user_id="u1", cv_document_id=doc.id)
+        ctx = await service.build_profile_context(user_id="u1")
+        assert "Jane" in ctx and "Software Engineer" in ctx
+
+        # Free-text about-me is injected once set.
+        await service.set_about_me(user_id="u1", about_me="First-gen CS student.")
+        assert "First-gen CS student." in await service.build_about_context(user_id="u1")
 
     asyncio.run(scenario())

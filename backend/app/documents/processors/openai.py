@@ -1,16 +1,25 @@
-"""OpenAI-backed document processor (plan Phase 1).
+"""OpenAI-backed document processor — multimodal OCR → faithful Markdown.
 
-Launch scope is typed PDF / DOCX (plan decision #10a): text is pulled locally
-(pypdf/python-docx — no model cost), then a concise summary/fact-sheet is
-written by the model for thread memory. Scanned files with no text layer fall
-back to vision OCR — wired minimally here since the pilot doesn't target scans.
+The model transcribes a document into clean, verbatim Markdown that the agent
+can read in full:
 
-Structured CV extraction (`extract`) lands in plan Phase 2.
+- **PDF**  → Responses API `input_file` (the model reads the pages natively,
+  including scans / image-only PDFs).
+- **image** (PNG/JPEG/WebP) → Responses API `input_image` with `detail`.
+- **DOCX / text** → local decode (the bytes already carry faithful text, so
+  there's nothing to OCR — no model cost).
+
+Transcription follows OpenAI's document-understanding guidance: high
+`verbosity` for literal rendering, a prompt that forbids summarizing or
+paraphrasing. The whole Markdown is what the CV pipeline injects into every
+chat, so fidelity matters more than compression.
 """
 
 from __future__ import annotations
 
-import json
+import asyncio
+import base64
+import io
 import logging
 
 from openai import AsyncOpenAI
@@ -24,22 +33,23 @@ from app.documents.processors.local import LocalProcessor, _summarize
 
 logger = logging.getLogger(__name__)
 
-_SUMMARY_SYSTEM = (
-    "You summarize an uploaded document so an assistant can recall it later in "
-    "a conversation. Write a dense factual fact-sheet of at most 600 characters: "
-    "what the document is, who/what it's about, and the key facts. No preamble."
+_PDF = "application/pdf"
+_IMAGES = {"image/png", "image/jpeg", "image/webp"}
+
+# Faithful-transcription prompt (cookbook: "do not summarize or paraphrase").
+_OCR_PROMPT = (
+    "Transcribe this document into clean, well-structured GitHub-flavored "
+    "Markdown. Reproduce ALL of the text verbatim — headings, names, contact "
+    "details, dates, bullet points, and tables (use Markdown tables). Preserve "
+    "the reading order and structure. Do NOT summarize, paraphrase, translate, "
+    "infer, or add any commentary, preamble, or text that is not present in the "
+    "document. If a region is unreadable, write [illegible]. Output only the "
+    "Markdown transcription."
 )
 
-_EXTRACT_SYSTEM = (
-    "You extract structured data from a document and return JSON matching the "
-    "provided schema. Use only information present in the document — never "
-    "invent values. Leave optional fields null when the document doesn't state "
-    "them. No commentary, JSON only."
-)
-
-# Cap extraction input so a huge document can't blow the call's context/cost;
-# a CV/resume is comfortably within this.
-_EXTRACT_CHAR_CAP = 24_000
+# A document this large is almost certainly not a CV/letter; the OCR request
+# stays bounded by the upload size limits, this is a defensive summary cap.
+_SUMMARY_CHAR_CAP = 600
 
 
 class OpenAIDocumentProcessor(DocumentProcessorPort):
@@ -51,117 +61,89 @@ class OpenAIDocumentProcessor(DocumentProcessorPort):
         api_key: str,
         model: str,
         local: LocalProcessor | None = None,
+        timeout_s: float = 120.0,
     ) -> None:
-        self._client = AsyncOpenAI(api_key=api_key)
+        # OCR runs in a background task; give it room (multi-page PDFs on a
+        # reasoning model can take a while) without blocking forever.
+        self._client = AsyncOpenAI(api_key=api_key, timeout=timeout_s)
         self._model = model
         self._local = local or LocalProcessor()
 
     def supports(self, mime_type: str) -> bool:
-        return self._local.supports(mime_type)
+        return mime_type in _IMAGES or self._local.supports(mime_type)
 
     async def parse(
         self, *, data: bytes, filename: str, mime_type: str
     ) -> ParsedDocument:
-        # Primary path: local text extraction (no model cost) for typed docs.
-        parsed = await self._local.parse(
+        # Typed formats already carry faithful text — decode locally, no model.
+        if mime_type != _PDF and mime_type not in _IMAGES:
+            return await self._local.parse(
+                data=data, filename=filename, mime_type=mime_type
+            )
+
+        markdown = await self._ocr_markdown(
             data=data, filename=filename, mime_type=mime_type
         )
-        if parsed.markdown.strip():
-            summary = await self._summarize(parsed.markdown, filename=filename)
-            return ParsedDocument(
-                markdown=parsed.markdown,
-                page_count=parsed.page_count,
-                summary=summary,
-                provider=self.provider_id,
+        if not markdown:
+            raise DocumentError(
+                f"{filename}: OCR produced no readable text from the document."
             )
-        # No text layer → scanned/image. Vision OCR is out of pilot scope
-        # (plan decision #10a); degrade gracefully rather than crash.
-        logger.info(
-            "openai_processor: no text layer for %s (%s); vision OCR not enabled",
-            filename,
-            mime_type,
+        page_count = (
+            await asyncio.to_thread(_pdf_page_count, data)
+            if mime_type == _PDF
+            else 1
         )
         return ParsedDocument(
-            markdown="",
-            page_count=parsed.page_count,
-            summary=(
-                f"{filename}: no machine-readable text found (likely scanned). "
-                "OCR is not enabled in this release."
-            ),
+            markdown=markdown,
+            page_count=page_count,
+            summary=_summarize(markdown, limit=_SUMMARY_CHAR_CAP),
             provider=self.provider_id,
         )
 
-    async def extract(
-        self, *, data: bytes, filename: str, mime_type: str, schema: dict
-    ) -> ParsedDocument:
-        """Pull text locally, then ask the model for JSON matching `schema`.
-
-        Launch scope is typed PDF/DOCX (plan #10a): if there's no text layer
-        (scanned), we don't OCR — we raise so the caller marks the document
-        failed and the UI offers manual entry. The returned `structured` is the
-        raw model JSON; validating it against a concrete schema (ResumeSchema)
-        is the engine-agnostic service's job, keeping this port generic."""
-        parsed = await self._local.parse(
-            data=data, filename=filename, mime_type=mime_type
-        )
-        text = parsed.markdown.strip()
-        if not text:
-            raise DocumentError(
-                f"{filename}: no machine-readable text found (likely scanned). "
-                "OCR is not enabled in this release."
-            )
-        excerpt = text[:_EXTRACT_CHAR_CAP]
+    async def _ocr_markdown(
+        self, *, data: bytes, filename: str, mime_type: str
+    ) -> str:
+        b64 = base64.b64encode(data).decode("ascii")
+        if mime_type in _IMAGES:
+            file_part = {
+                "type": "input_image",
+                "image_url": f"data:{mime_type};base64,{b64}",
+                # "auto" is the cookbook's low-friction default; dense scans
+                # could use "original" but that's a per-failure tweak.
+                "detail": "auto",
+            }
+        else:  # PDF
+            file_part = {
+                "type": "input_file",
+                "filename": filename,
+                "file_data": f"data:application/pdf;base64,{b64}",
+            }
         try:
             resp = await self._client.responses.create(
                 model=self._model,
                 input=[
-                    {"role": "system", "content": _EXTRACT_SYSTEM},
-                    {"role": "user", "content": f"Filename: {filename}\n\n{excerpt}"},
-                ],
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": "extraction",
-                        # Non-strict: a CV has many optional/nullable fields, and
-                        # OpenAI strict mode requires every property in `required`
-                        # + additionalProperties:false everywhere. The service
-                        # validates the result against ResumeSchema regardless.
-                        "strict": False,
-                        "schema": schema,
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": _OCR_PROMPT},
+                            file_part,
+                        ],
                     }
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 — surface as an extraction failure
-            raise DocumentError(f"extraction call failed: {exc}") from exc
-
-        raw = (resp.output_text or "").strip()
-        try:
-            structured = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise DocumentError("model did not return valid JSON") from exc
-        if not isinstance(structured, dict):
-            raise DocumentError("model returned non-object JSON")
-
-        return ParsedDocument(
-            markdown=parsed.markdown,
-            page_count=parsed.page_count,
-            structured=structured,
-            provider=self.provider_id,
-        )
-
-    async def _summarize(self, markdown: str, *, filename: str) -> str:
-        # Cap input so a huge doc can't blow the summary call's context/cost.
-        excerpt = markdown[:12_000]
-        try:
-            resp = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": _SUMMARY_SYSTEM},
-                    {"role": "user", "content": f"Filename: {filename}\n\n{excerpt}"},
                 ],
+                # High verbosity nudges the model toward literal transcription;
+                # OCR is perception, not reasoning, so keep effort low for speed.
+                text={"verbosity": "high"},
+                reasoning={"effort": "low"},
             )
-            text = (resp.choices[0].message.content or "").strip()
-            return text[:600] if text else _summarize(markdown)
-        except Exception as exc:  # noqa: BLE001 — never fail a parse on summary
-            logger.warning("openai_processor: summary failed for %s: %s", filename, exc)
-            return _summarize(markdown)
+        except Exception as exc:  # noqa: BLE001 — surface as a processing failure
+            raise DocumentError(f"OCR call failed: {exc}") from exc
+        return (resp.output_text or "").strip()
+
+
+def _pdf_page_count(data: bytes) -> int:
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception:  # noqa: BLE001 — page count is best-effort metadata
+        return 1
