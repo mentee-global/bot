@@ -274,7 +274,7 @@ function CvSection() {
 			/>
 
 			{extractError ? (
-				<div className="mt-4 rounded-lg border border-[var(--theme-danger)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-danger-fg)]">
+				<div className="mt-4 rounded-lg border border-[var(--theme-danger)] bg-[var(--theme-surface)] px-4 py-3 text-sm text-[var(--theme-danger)]">
 					<p className="font-medium">{m.profile_extract_failed()}</p>
 					<p className="mt-1 text-[var(--theme-secondary)]">{extractError}</p>
 				</div>
@@ -305,7 +305,7 @@ function CvSection() {
 								type="button"
 								aria-label={m.profile_cv_remove()}
 								title={m.profile_cv_remove()}
-								className="inline-flex items-center gap-1 text-xs text-[var(--theme-muted)] transition hover:text-[var(--theme-danger-fg)] disabled:opacity-50"
+								className="inline-flex items-center gap-1 text-xs text-[var(--theme-secondary)] transition hover:text-[var(--theme-danger)] disabled:opacity-50"
 								disabled={!data.cv_document_id || removeCv.isPending}
 								onClick={() =>
 									data.cv_document_id && removeCv.mutate(data.cv_document_id)
