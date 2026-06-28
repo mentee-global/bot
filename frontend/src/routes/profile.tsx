@@ -3,7 +3,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, FileUp, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { InfoTooltip } from "#/components/ui/info-tooltip";
 import { Textarea } from "#/components/ui/textarea";
 import type { User } from "#/features/auth/data/auth.types";
 import { useSession } from "#/features/auth/hooks/useSession";
@@ -79,15 +78,25 @@ function ProfileEditor({ user }: { user: User }) {
 
 function SectionHeading({
 	title,
-	tooltip,
+	tag,
+	tone = "muted",
 }: {
 	title: string;
-	tooltip: string;
+	tag: string;
+	tone?: "muted" | "accent";
 }) {
 	return (
 		<h2 className="display-title mb-1 flex items-center gap-2 text-xl font-bold text-[var(--theme-primary)]">
 			{title}
-			<InfoTooltip title={title}>{tooltip}</InfoTooltip>
+			<span
+				className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+					tone === "accent"
+						? "bg-[var(--theme-accent-soft)] text-[var(--theme-accent)]"
+						: "bg-[var(--theme-surface)] text-[var(--theme-muted)]"
+				}`}
+			>
+				{tag}
+			</span>
 		</h2>
 	);
 }
@@ -129,7 +138,7 @@ function AboutSection({
 		<section className="mt-10">
 			<SectionHeading
 				title={m.profile_about_title()}
-				tooltip={m.profile_about_tooltip()}
+				tag={m.profile_tag_optional()}
 			/>
 			<p className="mb-3 text-sm text-[var(--theme-muted)]">
 				{m.profile_about_subtitle()}
@@ -242,7 +251,8 @@ function CvSection() {
 		<section className="mt-10">
 			<SectionHeading
 				title={m.profile_title()}
-				tooltip={m.profile_cv_tooltip()}
+				tag={m.profile_tag_recommended()}
+				tone="accent"
 			/>
 			<p className="mb-4 text-sm text-[var(--theme-muted)]">
 				{m.profile_subtitle()}
