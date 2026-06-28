@@ -87,12 +87,13 @@ class Settings(BaseSettings):
     # no keys, "llamacloud" is plan Phase 5. Retrieval stays "none" in the MVP.
     doc_processor_impl: Literal["openai", "local", "llamacloud"] = "openai"
     doc_retrieval_impl: Literal["none", "pgvector", "openai"] = "none"
-    blob_store_impl: Literal["disk", "s3"] = "disk"
-    # PROD: set BLOB_STORE_PATH to a MOUNTED Railway Volume (e.g. /data/uploads)
-    # and attach the volume to the service — otherwise files land on the
-    # ephemeral container FS and vanish on the next deploy. The /tmp default is
-    # dev-only. Single-replica only; multi-replica needs object storage (S3/R2,
-    # plan Phase 3) behind the same BlobStorePort.
+    # Object storage is the default everywhere. "disk" is a local-dev-only
+    # escape hatch (ephemeral — loses uploads on redeploy) and is REJECTED in
+    # any non-local ENVIRONMENT (see _build_blob_store in app/api/deps.py), so a
+    # deployed service can never silently fall back to disk.
+    blob_store_impl: Literal["disk", "s3"] = "s3"
+    # Only used when blob_store_impl="disk" (local dev). Deployed envs use s3 +
+    # the bucket's AWS_* variables instead.
     blob_store_path: str = "/tmp/mentee-bot-uploads"
     # S3-compatible object storage (Railway Buckets, R2, S3). Railway's
     # credentials preset uses these AWS_* names, so keep them as-is.
