@@ -234,6 +234,7 @@
   "chat_attachment_status_processing": "Processing…",
   "chat_attachment_status_ready": "Ready",
   "chat_attachment_status_failed": "Failed",
+  "chat_attachment_open": "Open file",
   "chat_attachment_error_too_large": "File is too large (max 25 MB)",
   "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
   "chat_attachment_error_upload": "Upload failed",
