@@ -39,6 +39,12 @@ STALE_PROCESSING_SECONDS = 300
 DOC_CONTEXT_CHAR_CAP = 12_000
 # "About me" is user-authored prose; keep it short enough to inject every turn.
 ABOUT_CONTEXT_CHAR_CAP = 4_000
+# Chat attachments are re-sent to the model as native input on EVERY turn in the
+# thread so a file stays "visible" in a long conversation. Bound that so a thread
+# with many/large files can't blow the turn's context/cost: keep the most recent
+# files within these caps (older ones beyond the cap are dropped, with a log).
+THREAD_ATTACHMENT_MAX_FILES = 6
+THREAD_ATTACHMENT_MAX_BYTES = 12 * 1024 * 1024
 
 
 # Top-level bucket folders, one per document purpose, so CVs and chat
@@ -127,43 +133,55 @@ class DocumentService:
             )
         return attachments
 
-    async def load_turn_attachments(
-        self, *, user_id: str, thread_id: str, document_ids: list[str]
+    async def load_thread_attachments(
+        self, *, user_id: str, thread_id: str
     ) -> list[AttachmentFile]:
-        """Raw bytes of the ready chat attachments for this turn, so the agent
-        can read them as native multimodal input (pydantic-ai BinaryContent) —
-        no OCR, no Markdown. Each id must be a ready chat attachment owned by
-        `user_id` in `thread_id`; anything else is skipped."""
+        """Raw bytes of EVERY ready chat attachment in the thread, so the agent
+        reads them as native multimodal input (pydantic-ai BinaryContent) on
+        every turn — a file stays visible across a long conversation, not just
+        the turn it was uploaded. No OCR, no Markdown.
+
+        Bounded by THREAD_ATTACHMENT_MAX_FILES / _MAX_BYTES, keeping the most
+        recent files; anything beyond the cap is dropped (logged, not silent).
+        Scoped to (thread_id, user_id) by the store, so it can't surface another
+        user's or thread's files."""
+        docs = await self._store.list_thread_documents(thread_id, user_id)
+        ready = [
+            d
+            for d in docs
+            if d.purpose == DocPurpose.CHAT_ATTACHMENT
+            and d.status == DocStatus.READY
+        ]
+        # Newest first so the cap keeps the most recently shared files.
+        ready.sort(key=lambda d: d.created_at, reverse=True)
         files: list[AttachmentFile] = []
-        seen: set[str] = set()
-        for document_id in document_ids:
-            if document_id in seen:
-                continue
-            seen.add(document_id)
-            try:
-                doc = await self._store.get_document(document_id, user_id)
-            except (DocumentNotFoundError, ValueError):
-                continue
+        total = 0
+        dropped = 0
+        for d in ready:
             if (
-                doc.thread_id != thread_id
-                or doc.purpose != DocPurpose.CHAT_ATTACHMENT
-                or doc.status != DocStatus.READY
+                len(files) >= THREAD_ATTACHMENT_MAX_FILES
+                or total + d.size_bytes > THREAD_ATTACHMENT_MAX_BYTES
             ):
+                dropped += 1
                 continue
             try:
                 data = await self._blobs.get(
-                    key=blob_key(user_id, document_id, doc.purpose)
+                    key=blob_key(user_id, d.id, d.purpose)
                 )
             except Exception as exc:  # noqa: BLE001 — skip an unreadable blob
-                logger.warning(
-                    "attachment blob load failed for %s: %s", document_id, exc
-                )
+                logger.warning("attachment blob load failed for %s: %s", d.id, exc)
                 continue
             files.append(
-                AttachmentFile(
-                    filename=doc.filename, mime_type=doc.mime_type, data=data
-                )
+                AttachmentFile(filename=d.filename, mime_type=d.mime_type, data=data)
             )
+            total += len(data)
+        if dropped:
+            logger.info(
+                "thread %s: %d older attachment(s) over the per-turn cap not sent",
+                thread_id,
+                dropped,
+            )
+        files.reverse()  # back to chronological order for the model
         return files
 
     async def recover_stuck(
