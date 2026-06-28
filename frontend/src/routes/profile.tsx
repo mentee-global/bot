@@ -216,10 +216,10 @@ function CvSection() {
 		}
 	}, [docQuery.data, profileQuery]);
 
-	const processing =
-		uploading ||
-		docQuery.data?.status === "pending" ||
-		docQuery.data?.status === "processing";
+	// Driven by docId (set the moment an upload starts, cleared only when a
+	// terminal status arrives), NOT by the poll's current data — otherwise the
+	// gap before/between poll responses flips the zone back to idle and flickers.
+	const processing = uploading || docId !== null;
 
 	async function handleFile(file: File) {
 		setExtractError(null);
