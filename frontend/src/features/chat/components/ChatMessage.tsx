@@ -169,7 +169,7 @@ export function ChatMessage({
 												href={`${API_URL}/api/documents/${encodeURIComponent(a.document_id)}/raw`}
 												target="_blank"
 												rel="noopener noreferrer"
-												className="flex items-center gap-1 hover:underline"
+												className="flex items-center gap-1 text-inherit hover:text-inherit hover:underline"
 												title={m.chat_attachment_open()}
 											>
 												<Paperclip size={11} />
