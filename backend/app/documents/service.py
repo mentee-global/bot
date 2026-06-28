@@ -15,6 +15,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from app.documents.base import (
+    AttachmentFile,
     BlobStorePort,
     DocPurpose,
     DocStatus,
@@ -126,45 +127,44 @@ class DocumentService:
             )
         return attachments
 
-    async def process_chat_upload(
-        self, *, user_id: str, thread_id: str, document_id: str
-    ) -> None:
-        """Load bytes → processor.parse() → persist summary + status.
-
-        Runs in a BackgroundTask. `claim_for_processing` stamps
-        processing_started_at and bumps attempts so the recovery loop can tell
-        a stranded job from a slow one. Never raises — failures land as
-        status='failed' with an error message."""
-        try:
-            doc = await self._store.claim_for_processing(document_id)
-            data = await self._blobs.get(
-                key=blob_key(user_id, document_id, doc.purpose)
-            )
-            parsed = await self._processor.parse(
-                data=data, filename=doc.filename, mime_type=doc.mime_type
-            )
-            await self._store.update_document(
-                document_id,
-                status=DocStatus.READY,
-                summary=parsed.summary,
-                # Persist the full parsed text so the agent can read the whole
-                # document (a 600-char summary is too thin for e.g. CV review).
-                extracted_text=parsed.markdown or None,
-                page_count=parsed.page_count,
-                provider=parsed.provider,
-                provider_file_id=parsed.provider_file_id,
-                error_message=None,
-            )
-        except DocumentNotFoundError:
-            logger.warning("process_chat_upload: document %s vanished", document_id)
-        except Exception as exc:  # noqa: BLE001 — record, don't crash the worker
-            logger.warning("process_chat_upload failed for %s: %s", document_id, exc)
+    async def load_turn_attachments(
+        self, *, user_id: str, thread_id: str, document_ids: list[str]
+    ) -> list[AttachmentFile]:
+        """Raw bytes of the ready chat attachments for this turn, so the agent
+        can read them as native multimodal input (pydantic-ai BinaryContent) —
+        no OCR, no Markdown. Each id must be a ready chat attachment owned by
+        `user_id` in `thread_id`; anything else is skipped."""
+        files: list[AttachmentFile] = []
+        seen: set[str] = set()
+        for document_id in document_ids:
+            if document_id in seen:
+                continue
+            seen.add(document_id)
             try:
-                await self._store.update_document(
-                    document_id, status=DocStatus.FAILED, error_message=str(exc)[:500]
+                doc = await self._store.get_document(document_id, user_id)
+            except (DocumentNotFoundError, ValueError):
+                continue
+            if (
+                doc.thread_id != thread_id
+                or doc.purpose != DocPurpose.CHAT_ATTACHMENT
+                or doc.status != DocStatus.READY
+            ):
+                continue
+            try:
+                data = await self._blobs.get(
+                    key=blob_key(user_id, document_id, doc.purpose)
                 )
-            except DocumentNotFoundError:
-                pass
+            except Exception as exc:  # noqa: BLE001 — skip an unreadable blob
+                logger.warning(
+                    "attachment blob load failed for %s: %s", document_id, exc
+                )
+                continue
+            files.append(
+                AttachmentFile(
+                    filename=doc.filename, mime_type=doc.mime_type, data=data
+                )
+            )
+        return files
 
     async def recover_stuck(
         self,
@@ -189,13 +189,9 @@ class DocumentService:
                     error_message="exceeded processing retry limit",
                 )
                 continue
-            if doc.purpose == DocPurpose.CHAT_ATTACHMENT and doc.thread_id:
-                await self.process_chat_upload(
-                    user_id=doc.user_id,
-                    thread_id=doc.thread_id,
-                    document_id=doc.id,
-                )
-            elif doc.purpose == DocPurpose.PROFILE_CV:
+            # Only CVs are processed asynchronously now; chat attachments are
+            # marked ready on upload (read natively by the agent, no OCR).
+            if doc.purpose == DocPurpose.PROFILE_CV:
                 await self.process_cv_upload(
                     user_id=doc.user_id, document_id=doc.id
                 )

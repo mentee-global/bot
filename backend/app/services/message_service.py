@@ -5,6 +5,7 @@ from app.agents.events import TextDelta, ToolEnd, ToolStart
 from app.agents.mentee.citations import strip_empty_markdown_links
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
+from app.documents.base import AttachmentFile
 from app.documents.service import DocumentService
 from app.documents.store import DocumentNotFoundError
 from app.domain.enums import MessageRole
@@ -82,6 +83,18 @@ class MessageService:
             user_id=user_id, thread_id=thread.id, document_ids=attachment_ids
         )
 
+    async def _attachment_files(
+        self, user_id: str, thread: Thread, attachment_ids: list[str] | None
+    ) -> list[AttachmentFile] | None:
+        """Raw bytes of this turn's chat attachments, handed to the agent as
+        native multimodal input (read directly by the model — no OCR)."""
+        if not attachment_ids or self.documents is None:
+            return None
+        files = await self.documents.load_turn_attachments(
+            user_id=user_id, thread_id=thread.id, document_ids=attachment_ids
+        )
+        return files or None
+
     async def _resolve_thread(
         self, user_id: str, thread_id: str | None, *, create_new: bool = False
     ) -> Thread:
@@ -134,6 +147,9 @@ class MessageService:
         document_context = await self._document_context(user_id, thread, body)
         cv_context = await self._cv_context(user_id)
         about_context = await self._about_context(user_id)
+        attachment_files = await self._attachment_files(
+            user_id, thread, attachment_ids
+        )
         usage = UsageSummary()
         reply_body = await self.agent.reply(
             user_message,
@@ -145,6 +161,7 @@ class MessageService:
             document_context=document_context,
             cv_context=cv_context,
             about_context=about_context,
+            attachment_files=attachment_files,
         )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
@@ -208,6 +225,9 @@ class MessageService:
         document_context = await self._document_context(user_id, thread, body)
         cv_context = await self._cv_context(user_id)
         about_context = await self._about_context(user_id)
+        attachment_files = await self._attachment_files(
+            user_id, thread, attachment_ids
+        )
         usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
@@ -220,6 +240,7 @@ class MessageService:
             document_context=document_context,
             cv_context=cv_context,
             about_context=about_context,
+            attachment_files=attachment_files,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:

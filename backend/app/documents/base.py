@@ -36,6 +36,17 @@ class UnsupportedDocumentError(DocumentError):
 
 
 @dataclass(slots=True)
+class AttachmentFile:
+    """A chat attachment's raw bytes, handed to the agent as native multimodal
+    input (pydantic-ai `BinaryContent`) — no OCR, no Markdown. Lets the model
+    read images (incl. text-free ones), PDFs, etc. directly."""
+
+    filename: str
+    mime_type: str
+    data: bytes
+
+
+@dataclass(slots=True)
 class DocChunk:
     """A retrieval-sized slice of a parsed document (Phase 4+)."""
 
