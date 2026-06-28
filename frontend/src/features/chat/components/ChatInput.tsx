@@ -1,5 +1,6 @@
-import { CircleStop, SendHorizontal } from "lucide-react";
+import { CircleStop, Paperclip, SendHorizontal, X } from "lucide-react";
 import {
+	type ChangeEvent,
 	type FormEvent,
 	forwardRef,
 	type KeyboardEvent,
@@ -9,7 +10,9 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { ALLOWED_UPLOAD_MIMES } from "#/features/chat/data/documents.types";
 import { useDraft } from "#/features/chat/hooks/useDraftsStore";
+import type { StagedAttachment } from "#/features/chat/hooks/useStagedAttachments";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -19,7 +22,9 @@ const MAX_ROWS_PX = 200;
 
 interface ChatInputProps {
 	threadId: string | null;
-	onSend: (body: string) => void;
+	/** Resolves false to keep the typed text (e.g. attachment upload failed),
+	 * otherwise the composer clears on submit. */
+	onSend: (body: string) => boolean | Promise<boolean>;
 	onStop?: () => void;
 	isSending: boolean;
 	canStop?: boolean;
@@ -29,6 +34,11 @@ interface ChatInputProps {
 	 * paused globally — sending is impossible until the next reset.
 	 */
 	disabledReason?: string | null;
+	/** Files staged in the composer (not yet sent). On send they move to the
+	 * message bubble in the chat area. */
+	attachments: StagedAttachment[];
+	onAttachFiles: (files: FileList) => void;
+	onRemoveAttachment: (localId: string) => void;
 }
 
 export interface ChatInputHandle {
@@ -44,6 +54,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			isSending,
 			canStop = false,
 			disabledReason = null,
+			attachments,
+			onAttachFiles,
+			onRemoveAttachment,
 		},
 		ref,
 	) {
@@ -52,6 +65,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 		const [isComposing, setIsComposing] = useState(false);
 		const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
+		const fileInputRef = useRef<HTMLInputElement>(null);
 
 		useImperativeHandle(ref, () => ({
 			focus: () => textareaRef.current?.focus(),
@@ -63,6 +77,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
 		// Auto-grow: reset to auto then pin to scrollHeight (clamped) so the
 		// textarea hugs its content until the cap, then scrolls.
+		// biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on every text change — `text` is the trigger, not read in the body.
 		useLayoutEffect(() => {
 			const el = textareaRef.current;
 			if (!el) return;
@@ -88,19 +103,34 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
 		const isBlocked = disabledReason !== null && disabledReason !== "";
 
-		const handleSubmit = (e?: FormEvent) => {
+		const handleSubmit = async (e?: FormEvent) => {
 			e?.preventDefault();
 			if (isBlocked) return;
 			const trimmed = text.trim();
 			if (!trimmed || isSending) return;
-			onSend(trimmed);
+			// Clear immediately (ChatGPT-style): the message + any file move to the
+			// chat area. onSend resolves false only on failure → restore the text.
 			setText("");
 			clearDraft();
+			const result = onSend(trimmed);
+			const ok = result instanceof Promise ? await result : result;
+			if (ok === false) {
+				setText(trimmed);
+				setDraft(trimmed);
+			}
 		};
 
 		const handleChange = (next: string) => {
 			setText(next);
 			setDraft(next);
+		};
+
+		const canAttach = !isBlocked;
+		const handleAttachClick = () => fileInputRef.current?.click();
+		const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+			if (e.target.files && e.target.files.length > 0)
+				onAttachFiles(e.target.files);
+			e.target.value = ""; // allow re-selecting the same file
 		};
 
 		const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -110,7 +140,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			if (e.shiftKey) return; // Shift+Enter → newline
 			if (isCoarsePointer) return; // Touch keyboards: Enter → newline
 			e.preventDefault();
-			handleSubmit();
+			void handleSubmit();
 		};
 
 		const isStopMode = isSending && canStop && !isBlocked;
@@ -124,7 +154,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 			? (disabledReason ?? m.chat_input_placeholder_blocked())
 			: isSending
 				? m.chat_input_placeholder_waiting()
-				: m.chat_input_placeholder();
+				: // Nudge the user that an attachment needs an accompanying question.
+					attachments.length > 0 && trimmedLen === 0
+					? m.chat_attachment_needs_question()
+					: m.chat_input_placeholder();
 
 		return (
 			<form
@@ -132,7 +165,57 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 				className="border-t border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-3 sm:px-4"
 			>
 				<div className="mx-auto w-full max-w-3xl lg:max-w-4xl">
+					{attachments.length > 0 ? (
+						<ul className="mb-2 flex flex-wrap gap-2">
+							{attachments.map((a) => (
+								<li
+									key={a.localId}
+									className="flex items-center gap-1.5 rounded-md border border-[var(--theme-border)] px-2 py-1 text-xs text-[var(--theme-secondary)]"
+								>
+									<Paperclip size={12} />
+									<span className="max-w-[12rem] truncate" title={a.filename}>
+										{a.filename}
+									</span>
+									<span className="text-[var(--theme-muted)]">
+										· {m.chat_attachment_status_staged()}
+									</span>
+									<button
+										type="button"
+										onClick={() => onRemoveAttachment(a.localId)}
+										aria-label={m.chat_attachment_remove_aria()}
+										className="ml-0.5 rounded text-[var(--theme-muted)] hover:text-[var(--theme-primary)]"
+									>
+										<X size={12} />
+									</button>
+								</li>
+							))}
+						</ul>
+					) : null}
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept={ALLOWED_UPLOAD_MIMES.join(",")}
+						multiple
+						onChange={handleFileChange}
+						className="hidden"
+						tabIndex={-1}
+					/>
 					<div className="flex w-full items-center gap-2">
+						<button
+							type="button"
+							onClick={handleAttachClick}
+							disabled={!canAttach}
+							aria-label={m.chat_attach_aria()}
+							title={m.chat_attach_aria()}
+							className={cn(
+								"flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-lg border transition",
+								canAttach
+									? "border-[var(--theme-border)] text-[var(--theme-secondary)] hover:border-[var(--theme-primary)] hover:text-[var(--theme-primary)]"
+									: "cursor-not-allowed border-[var(--theme-border)] bg-[var(--theme-surface)] text-[var(--theme-muted)]",
+							)}
+						>
+							<Paperclip size={16} />
+						</button>
 						<textarea
 							ref={textareaRef}
 							value={text}

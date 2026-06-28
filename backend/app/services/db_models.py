@@ -57,6 +57,34 @@ class MessageRecord(SQLModel, table=True):
     created_at: datetime = Field(sa_type=DateTime(timezone=True))
 
 
+class MessageDocumentRecord(SQLModel, table=True):
+    """Documents attached to a specific chat message."""
+
+    __tablename__ = "message_documents"
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id", "document_id", name="uq_message_documents_msg_doc"
+        ),
+        Index("ix_message_documents_document_id", "document_id"),
+    )
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        primary_key=True,
+        sa_type=PG_UUID(as_uuid=True),
+    )
+    message_id: UUID = Field(
+        foreign_key="messages.id",
+        sa_type=PG_UUID(as_uuid=True),
+        ondelete="CASCADE",
+    )
+    document_id: UUID = Field(
+        foreign_key="documents.id",
+        sa_type=PG_UUID(as_uuid=True),
+        ondelete="CASCADE",
+    )
+
+
 class MessageRatingRecord(SQLModel, table=True):
     """Per-user thumbs feedback on assistant messages.
 

@@ -81,6 +81,36 @@ class Settings(BaseSettings):
     # Thread persistence
     store_impl: Literal["memory", "postgres"] = "memory"
 
+    # Document upload & processing — see docs/documents/00-document-upload-plan.md.
+    # Processor is the only vendor-swappable surface; "openai" (multimodal +
+    # structured outputs) is the MVP target, "local" (pypdf/python-docx) needs
+    # no keys, "llamacloud" is plan Phase 5. Retrieval stays "none" in the MVP.
+    doc_processor_impl: Literal["openai", "local", "llamacloud"] = "local"
+    doc_retrieval_impl: Literal["none", "pgvector", "openai"] = "none"
+    blob_store_impl: Literal["disk", "s3"] = "disk"
+    # PROD: set BLOB_STORE_PATH to a MOUNTED Railway Volume (e.g. /data/uploads)
+    # and attach the volume to the service — otherwise files land on the
+    # ephemeral container FS and vanish on the next deploy. The /tmp default is
+    # dev-only. Single-replica only; multi-replica needs object storage (S3/R2,
+    # plan Phase 3) behind the same BlobStorePort.
+    blob_store_path: str = "/tmp/mentee-bot-uploads"
+    # S3-compatible object storage (Railway Buckets, R2, S3). Railway's
+    # credentials preset uses these AWS_* names, so keep them as-is.
+    aws_endpoint_url: str | None = None
+    aws_access_key_id: SecretStr | None = None
+    aws_secret_access_key: SecretStr | None = None
+    aws_s3_bucket_name: str | None = None
+    aws_default_region: str = "auto"
+    aws_s3_url_style: Literal["virtual", "path"] = "virtual"
+    max_upload_bytes: int = 25 * 1024 * 1024
+    allowed_upload_mimes: Annotated[
+        list[str], NoDecode, BeforeValidator(_split_csv)
+    ] = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]
+    llama_cloud_api_key: SecretStr | None = None  # plan Phase 5 only
+
     # Agent
     openai_api_key: SecretStr | None = None
     # Separate admin-scoped key for the /v1/organization/costs endpoint —

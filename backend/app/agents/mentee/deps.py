@@ -49,6 +49,16 @@ class MenteeDeps:
     # "pt", "ar"). Surfaces in the per-turn profile block as the strongest
     # signal for reply language, beating the user's stored preferred_language.
     ui_locale: str | None = None
+    # Compact, pre-built block describing documents the user attached in this
+    # thread (filename + summary/facts), assembled by DocumentService. Injected
+    # as untrusted data via an @agent.instructions hook (plan Phase 1). None
+    # when the thread has no ready attachments.
+    document_context: str | None = None
+    # Compact, confirmed-CV facts for this user (name, recent roles, education,
+    # skills), assembled by DocumentService.build_profile_context. Injected as
+    # untrusted data via an @agent.instructions hook (plan Phase 2). None until
+    # the user uploads a CV AND clicks Save (cv_confirmed_at set, decision #10).
+    cv_context: str | None = None
     # Per-run citation ledger keyed by normalized URL. Populated by tools
     # (Perplexity, OpenAI web_search) and the streaming harness as searches
     # complete; consulted by the post-output validator to strip URLs the

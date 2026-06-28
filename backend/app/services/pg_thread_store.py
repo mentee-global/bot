@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.db_models import UserRecord
 from app.db.engine import async_session_factory
+from app.documents.db_models import DocumentRecord
 from app.domain.enums import MessageRole
-from app.domain.models import Message, Thread, ThreadRating
+from app.domain.models import Message, MessageAttachment, Thread, ThreadRating
 from app.services.db_models import (
+    MessageDocumentRecord,
     MessageRatingRecord,
     MessageRecord,
     ThreadRatingRecord,
@@ -61,6 +63,34 @@ def _thread_from_record(
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+async def _load_attachments(
+    session: AsyncSession, message_ids: list[UUID]
+) -> dict[str, list[MessageAttachment]]:
+    if not message_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(MessageDocumentRecord.message_id, DocumentRecord)
+            .join(
+                DocumentRecord,
+                DocumentRecord.id == MessageDocumentRecord.document_id,
+            )
+            .where(MessageDocumentRecord.message_id.in_(message_ids))
+            .order_by(MessageDocumentRecord.id.asc())
+        )
+    ).all()
+    by_message: dict[str, list[MessageAttachment]] = {}
+    for message_id, doc in rows:
+        by_message.setdefault(str(message_id), []).append(
+            MessageAttachment(
+                document_id=str(doc.id),
+                filename=doc.filename,
+                status=doc.status,
+            )
+        )
+    return by_message
 
 
 class PostgresThreadStore(ThreadStore):
@@ -220,6 +250,7 @@ class PostgresThreadStore(ThreadStore):
                 )
             ).all()
             role_counts = {str(r[0]): int(r[1]) for r in role_rows}
+            attachments = await _load_attachments(session, [m.id for m in page_rows])
             messages = [
                 Message(
                     id=str(m.id),
@@ -227,6 +258,7 @@ class PostgresThreadStore(ThreadStore):
                     role=MessageRole(m.role),
                     body=m.body,
                     created_at=m.created_at,
+                    attachments=attachments.get(str(m.id), []),
                 )
                 for m in page_rows
             ]
@@ -267,6 +299,7 @@ class PostgresThreadStore(ThreadStore):
                 .order_by(MessageRecord.created_at)
             )
         result = (await session.execute(stmt)).all()
+        attachments = await _load_attachments(session, [m.id for m, _ in result])
         messages = [
             Message(
                 id=str(m.id),
@@ -275,6 +308,7 @@ class PostgresThreadStore(ThreadStore):
                 body=m.body,
                 created_at=m.created_at,
                 rating=int(rating) if rating is not None else None,
+                attachments=attachments.get(str(m.id), []),
             )
             for m, rating in result
         ]
@@ -309,6 +343,22 @@ class PostgresThreadStore(ThreadStore):
                     created_at=message.created_at,
                 )
             )
+            # Flush the parent row before adding the child association rows.
+            # There is no ORM relationship() between MessageRecord and
+            # MessageDocumentRecord, so SQLAlchemy's unit-of-work does not know
+            # to order the `messages` INSERT before `message_documents` — the
+            # bare table-level FK alone doesn't drive flush ordering. Without
+            # this flush, the autoflush triggered by the SELECT below can emit
+            # the association INSERTs first and violate the message_id FK.
+            if message.attachments:
+                await session.flush()
+            for attachment in message.attachments:
+                session.add(
+                    MessageDocumentRecord(
+                        message_id=_as_uuid(message.id),
+                        document_id=_as_uuid(attachment.document_id),
+                    )
+                )
             row = (
                 await session.execute(
                     select(ThreadRecord).where(ThreadRecord.id == thread_uuid)

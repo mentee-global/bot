@@ -4,12 +4,9 @@
   "language_label": "اللغة",
   "theme_toggle_to_dark": "التبديل إلى الوضع الداكن",
   "theme_toggle_to_light": "التبديل إلى الوضع الفاتح",
-
   "meta_title": "Mentee Bot",
   "meta_description": "مرشد للمنح الدراسية وبرامج الدراسة بالخارج والمسار المهني والتنقل، لمجتمع Mentee.",
-
   "footer_rights": "© {year} MENTEE. جميع الحقوق محفوظة.",
-
   "landing_kicker": "Mentee Bot",
   "landing_title": "المنح الدراسية والدراسة بالخارج والمسار المهني والتنقل في محادثة واحدة.",
   "landing_subtitle": "سجّل الدخول بحسابك على MENTEE لتتعرّف على البرامج المموّلة ومسارات التعلم والتنقل الدولي. كل فرصة تأتي مع رابط للمصدر الرسمي.",
@@ -41,7 +38,6 @@
   "landing_about_heading": "عن MENTEE",
   "landing_about_body": "MENTEE مجتمع عالمي يدعم النساء والمهاجرين قسراً والأعضاء الذين يواجهون عوائق منهجية في التعليم والمسار المهني. هذا البوت إحدى الأدوات التي يقدّمها المجتمع لأعضائه. لمعرفة المزيد قم بزيارة",
   "landing_about_link_text": "menteeglobal.org",
-
   "chat_signed_in_as": "تم تسجيل الدخول باسم {name}",
   "chat_kicker": "مرشد Mentee",
   "chat_sign_out": "تسجيل الخروج",
@@ -122,7 +118,6 @@
   "chat_shortcut_search_thread": "بحث في هذه المحادثة",
   "chat_shortcut_show_help": "إظهار هذه المساعدة",
   "chat_message_just_now": "للتو",
-
   "credits_pill_aria": "كيف تعمل الأرصدة",
   "credits_pill_units": "رصيد",
   "credits_pill_renews": "يتجدد في {date}",
@@ -142,22 +137,31 @@
   "credits_refresh_in_days": "خلال {days} يومًا",
   "credits_popover_hard_stopped": "لقد استهلكت أرصدة هذا الشهر — تستأنف المحادثة بعد التجديد.",
   "credits_popover_perplexity_degraded": "البحث المباشر على الويب موقوف هذا الشهر لتتمكن من متابعة الدردشة؛ سيعتمد المرشد على ما يعرفه بالفعل.",
-
   "chat_thread_actions_aria": "إجراءات المحادثة",
   "chat_typing_aria": "المرشد يفكر",
   "chat_search_prev_aria": "النتيجة السابقة",
   "chat_search_next_aria": "النتيجة التالية",
   "chat_search_close_aria": "إغلاق البحث",
-
   "auth_error_title": "لم يكتمل تسجيل الدخول",
   "auth_error_denied": "حساب Mentee الخاص بك لا يمكنه الوصول إلى هذا التطبيق. إما أنك رفضت مشاركته، أو أنه غير مفعّل للبوت.",
   "auth_error_login_required": "يجب تسجيل الدخول إلى Mentee أولاً.",
   "auth_error_generic": "حدث خطأ أثناء التواصل مع Mentee. حاول مرة أخرى.",
   "auth_error_unknown": "تعذّر تسجيل دخولك. حاول مرة أخرى.",
   "auth_back_home": "العودة إلى الصفحة الرئيسية",
-
   "notfound_kicker": "404",
   "notfound_title": "لم نتمكن من العثور على هذه الصفحة.",
   "notfound_body": "الصفحة التي تبحث عنها غير موجودة، أو ربما نُقلت.",
-  "notfound_back_home": "العودة إلى الصفحة الرئيسية"
+  "notfound_back_home": "العودة إلى الصفحة الرئيسية",
+  "chat_attach_aria": "Attach a document",
+  "chat_attach_disabled_hint": "Send a message first to attach files",
+  "chat_attachment_remove_aria": "Remove attachment",
+  "chat_attachment_status_uploading": "Uploading…",
+  "chat_attachment_status_processing": "Processing…",
+  "chat_attachment_status_ready": "Ready",
+  "chat_attachment_status_failed": "Failed",
+  "chat_attachment_error_too_large": "File is too large (max 25 MB)",
+  "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
+  "chat_attachment_error_upload": "Upload failed",
+  "chat_attachment_status_staged": "Attached",
+  "chat_attachment_needs_question": "Add a question about your file…"
 }

@@ -5,8 +5,16 @@ from app.agents.events import TextDelta, ToolEnd, ToolStart
 from app.agents.mentee.citations import strip_empty_markdown_links
 from app.budget.service import BudgetService
 from app.budget.usage import UsageSummary
+from app.documents.service import DocumentService
+from app.documents.store import DocumentNotFoundError
 from app.domain.enums import MessageRole
-from app.domain.models import Message, Thread, ThreadRating, User
+from app.domain.models import (
+    Message,
+    MessageAttachment,
+    Thread,
+    ThreadRating,
+    User,
+)
 from app.services.thread_store import ThreadStore
 
 _TITLE_MAX_LEN = 80
@@ -25,10 +33,47 @@ class MessageService:
         store: ThreadStore,
         agent: AgentPort,
         budget: BudgetService,
+        documents: DocumentService | None = None,
     ) -> None:
         self.store = store
         self.agent = agent
         self.budget = budget
+        # Optional so tests / non-document deployments construct without it.
+        self.documents = documents
+
+    async def _document_context(self, user_id: str, thread: Thread, body: str) -> str | None:
+        """Compact 'documents in this thread' block for the agent, or None.
+
+        Scoped to (thread_id, user_id) inside the service so it can never
+        surface another user's files (plan decision #15)."""
+        if self.documents is None:
+            return None
+        ctx = await self.documents.build_thread_document_context(
+            user_id=user_id, thread_id=thread.id, latest_user_message=body
+        )
+        return ctx or None
+
+    async def _cv_context(self, user_id: str) -> str | None:
+        """Confirmed-CV facts for this user, injected into every chat, or None.
+
+        Returns content only once the user has saved/confirmed their CV
+        (cv_confirmed_at set) — the gate lives in build_profile_context
+        (plan decision #10)."""
+        if self.documents is None:
+            return None
+        ctx = await self.documents.build_profile_context(user_id=user_id)
+        return ctx or None
+
+    async def _message_attachments(
+        self, user_id: str, thread: Thread, attachment_ids: list[str] | None
+    ) -> list[MessageAttachment]:
+        if not attachment_ids:
+            return []
+        if self.documents is None:
+            raise DocumentNotFoundError(attachment_ids[0])
+        return await self.documents.message_attachments(
+            user_id=user_id, thread_id=thread.id, document_ids=attachment_ids
+        )
 
     async def _resolve_thread(
         self, user_id: str, thread_id: str | None, *, create_new: bool = False
@@ -57,6 +102,7 @@ class MessageService:
         *,
         user: User,
         thread_id: str | None = None,
+        attachment_ids: list[str] | None = None,
         agent_user: User | None = None,
         ui_locale: str | None = None,
     ) -> tuple[Thread, Message, Message]:
@@ -67,11 +113,19 @@ class MessageService:
         thread = await self._resolve_thread(user_id, thread_id, create_new=True)
         is_first_message = not thread.messages
 
-        user_message = Message(thread_id=thread.id, role=MessageRole.USER, body=body)
+        attachments = await self._message_attachments(user_id, thread, attachment_ids)
+        user_message = Message(
+            thread_id=thread.id,
+            role=MessageRole.USER,
+            body=body,
+            attachments=attachments,
+        )
         await self.store.append_message(thread, user_message)
         if is_first_message:
             await self._maybe_auto_title(thread, body)
 
+        document_context = await self._document_context(user_id, thread, body)
+        cv_context = await self._cv_context(user_id)
         usage = UsageSummary()
         reply_body = await self.agent.reply(
             user_message,
@@ -80,6 +134,8 @@ class MessageService:
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
             ui_locale=ui_locale,
+            document_context=document_context,
+            cv_context=cv_context,
         )
         assistant_message = Message(
             thread_id=thread.id, role=MessageRole.ASSISTANT, body=reply_body
@@ -102,6 +158,7 @@ class MessageService:
         *,
         user: User,
         thread_id: str | None = None,
+        attachment_ids: list[str] | None = None,
         agent_user: User | None = None,
         ui_locale: str | None = None,
     ) -> AsyncIterator[tuple[str, dict | str]]:
@@ -115,7 +172,13 @@ class MessageService:
         thread = await self._resolve_thread(user_id, thread_id, create_new=True)
         is_first_message = not thread.messages
 
-        user_message = Message(thread_id=thread.id, role=MessageRole.USER, body=body)
+        attachments = await self._message_attachments(user_id, thread, attachment_ids)
+        user_message = Message(
+            thread_id=thread.id,
+            role=MessageRole.USER,
+            body=body,
+            attachments=attachments,
+        )
         await self.store.append_message(thread, user_message)
         if is_first_message:
             await self._maybe_auto_title(thread, body)
@@ -133,6 +196,8 @@ class MessageService:
             },
         )
 
+        document_context = await self._document_context(user_id, thread, body)
+        cv_context = await self._cv_context(user_id)
         usage = UsageSummary()
         chunks: list[str] = []
         async for event in self.agent.stream_reply(
@@ -142,6 +207,8 @@ class MessageService:
             usage_out=usage,
             perplexity_enabled=not snap.perplexity_degraded,
             ui_locale=ui_locale,
+            document_context=document_context,
+            cv_context=cv_context,
         ):
             if isinstance(event, TextDelta):
                 if not event.text:

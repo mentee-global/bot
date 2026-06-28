@@ -2,6 +2,30 @@ export type MessageRole = "user" | "assistant";
 
 export type MessageRating = -1 | 1;
 
+export type AttachmentStatus = "uploading" | "ready" | "failed";
+
+/** A file attached to a user message, shown on the bubble in the chat area. */
+export interface MessageAttachment {
+	document_id?: string;
+	filename: string;
+	status: AttachmentStatus;
+}
+
+export interface PreparedAttachments {
+	ok: boolean;
+	attachments: MessageAttachment[];
+}
+
+/** Input to the send/stream mutations. A bare string is shorthand for
+ * `{ body }`. `prepare` runs after the optimistic bubbles are shown but before
+ * the agent turn — used to upload staged files so the agent sees them. */
+export interface SendInput {
+	body: string;
+	threadId?: string;
+	attachments?: MessageAttachment[];
+	prepare?: () => Promise<PreparedAttachments>;
+}
+
 export interface Message {
 	id: string;
 	thread_id: string;
@@ -17,6 +41,8 @@ export interface Message {
 	/** Per-user thumbs rating: 1 (up), -1 (down), null/undefined (none).
 	 * Backend returns null when unset; assistant messages only. */
 	rating?: MessageRating | null;
+	/** Files attached to this (user) message — client-side display only. */
+	attachments?: MessageAttachment[];
 }
 
 export interface StreamMeta {

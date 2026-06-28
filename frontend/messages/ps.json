@@ -4,12 +4,9 @@
   "language_label": "ژبه",
   "theme_toggle_to_dark": "تور حالت ته بدلول",
   "theme_toggle_to_light": "روښانه حالت ته بدلول",
-
   "meta_title": "Mentee Bot",
   "meta_description": "د Mentee ټولنې لپاره د بورسونو، د بهر په زده‌کړو، مسلکي لارو او نړیوال حرکت لپاره لارښود.",
-
   "footer_rights": "© {year} MENTEE. ټول حقوق خوندي دي.",
-
   "landing_kicker": "Mentee Bot",
   "landing_title": "بورسونه، په بهر کې زده‌کړې، مسلکي لاره او حرکت په یوه خبرو اترو کې.",
   "landing_subtitle": "د خپل MENTEE حساب سره ننوځئ ترڅو د تمویل شویو پروګرامونو، د زده‌کړې لارو او نړیوال حرکت په اړه پوه شئ. هر فرصت د رسمي سرچینې لینک سره راځي.",
@@ -41,7 +38,6 @@
   "landing_about_heading": "د MENTEE په اړه",
   "landing_about_body": "MENTEE یوه نړیواله ټولنه ده چې له ښځو، بې‌ځایه شویو خلکو او هغو غړو سره مرسته کوي چې د زده‌کړې او دندې په لاره کې له سیستماتیکو خنډونو سره مخ دي. دا بات یو له هغو وسیلو څخه دی چې ټولنه یې خپلو غړو ته وړاندې کوي. نور معلومات په",
   "landing_about_link_text": "menteeglobal.org",
-
   "chat_signed_in_as": "د {name} په توګه ننوتل شوی",
   "chat_kicker": "د Mentee لارښود",
   "chat_sign_out": "وتل",
@@ -151,7 +147,6 @@
   "chat_shortcut_search_thread": "په دې خبرو اترو کې لټون",
   "chat_shortcut_show_help": "دا مرسته ښودل",
   "chat_message_just_now": "همدا اوس",
-
   "credits_pill_aria": "کریډټونه څنګه کار کوي",
   "credits_pill_units": "کریډټ",
   "credits_pill_renews": "په {date} نوي کیږي",
@@ -171,22 +166,31 @@
   "credits_refresh_in_days": "په {days} ورځو کې",
   "credits_popover_hard_stopped": "تاسو د دې میاشتې کریډټونه مصرف کړي — خبرې اترې د بیا تنظیم وروسته بیا پیل کیږي.",
   "credits_popover_perplexity_degraded": "د ژوندي ویب لټون دا میاشت ودرول شوی دی ترڅو تاسو خبرې اترې ادامه ورکړئ؛ لارښود به په هغه څه تکیه وکړي چې لا یې پوهیږي.",
-
   "chat_thread_actions_aria": "د خبرو اترو عملیات",
   "chat_typing_aria": "لارښود فکر کوي",
   "chat_search_prev_aria": "مخکینی موند",
   "chat_search_next_aria": "راتلونکی موند",
   "chat_search_close_aria": "د لټون تړل",
-
   "auth_error_title": "ننوتل بشپړ نشو",
   "auth_error_denied": "ستاسو د Mentee حساب دې اپلیکیشن ته لاسرسی نه لري. یا تاسو د هغه شریکولو څخه انکار کړی، یا د دې بات لپاره فعال نه دی.",
   "auth_error_login_required": "تاسو لومړی باید Mentee ته ننوتلی واست.",
   "auth_error_generic": "د Mentee سره په خبرو کې یوه ستونزه راپیدا شوه. مهرباني وکړئ بیا هڅه وکړئ.",
   "auth_error_unknown": "موږ ونه شو کولی تاسو ننوبا کړو. مهرباني وکړئ بیا هڅه وکړئ.",
   "auth_back_home": "کور ته بیرته",
-
   "notfound_kicker": "404",
   "notfound_title": "موږ هغه پاڼه ونه موندله.",
   "notfound_body": "هغه پاڼه چې تاسو یې لټوئ شتون نه لري یا ښایي ځای بدل شوی وي.",
-  "notfound_back_home": "کور ته بیرته"
+  "notfound_back_home": "کور ته بیرته",
+  "chat_attach_aria": "Attach a document",
+  "chat_attach_disabled_hint": "Send a message first to attach files",
+  "chat_attachment_remove_aria": "Remove attachment",
+  "chat_attachment_status_uploading": "Uploading…",
+  "chat_attachment_status_processing": "Processing…",
+  "chat_attachment_status_ready": "Ready",
+  "chat_attachment_status_failed": "Failed",
+  "chat_attachment_error_too_large": "File is too large (max 25 MB)",
+  "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
+  "chat_attachment_error_upload": "Upload failed",
+  "chat_attachment_status_staged": "Attached",
+  "chat_attachment_needs_question": "Add a question about your file…"
 }

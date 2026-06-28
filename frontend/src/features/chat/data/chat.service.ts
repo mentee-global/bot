@@ -33,10 +33,16 @@ export const chatService = {
 	 * callers that don't know a thread id yet. */
 	getThread: (signal?: AbortSignal) =>
 		api.get<Thread>("/api/chat/thread", signal),
-	sendMessage: (body: string, threadId?: string, persona?: PersonaPayload) => {
+	sendMessage: (
+		body: string,
+		threadId?: string,
+		persona?: PersonaPayload,
+		attachmentIds?: string[],
+	) => {
 		const payload: Record<string, unknown> = { body };
 		if (threadId) payload.thread_id = threadId;
 		if (persona) payload.persona = persona;
+		if (attachmentIds?.length) payload.attachment_ids = attachmentIds;
 		return api.post<SendMessageResponse>(
 			"/api/chat/messages",
 			payload,
@@ -66,8 +72,5 @@ export const chatService = {
 		),
 	/** User-facing read of the admin-controlled rating-prompt cadence config. */
 	getFeedbackTriggerConfig: (signal?: AbortSignal) =>
-		api.get<FeedbackTriggerConfig>(
-			"/api/chat/feedback-trigger-config",
-			signal,
-		),
+		api.get<FeedbackTriggerConfig>("/api/chat/feedback-trigger-config", signal),
 };

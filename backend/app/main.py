@@ -15,15 +15,17 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
-from app.api.deps import init_auth, shutdown_auth
+from app.api.deps import get_document_service, init_auth, shutdown_auth
 from app.api.routes import (
     admin,
     admin_budget,
     admin_reports,
     auth,
     chat,
+    documents,
     health,
     me,
+    profile,
     reports,
 )
 from app.auth.session_store import SessionStore
@@ -83,10 +85,14 @@ _cleanup_task: asyncio.Task[None] | None = None
 async def _cleanup_loop() -> None:
     state = StateStore()
     sessions = SessionStore()
+    documents_service = get_document_service()
     while True:
         try:
             await state.cleanup_expired()
             await sessions.cleanup_expired(max_age=settings.session_max_age_seconds)
+            # Re-dispatch documents stranded by a crash/redeploy, fail the
+            # ones past the retry limit (plan decision #11).
+            await documents_service.recover_stuck()
         except Exception as exc:  # noqa: BLE001 — loop must never die
             logger.warning("cleanup loop error: %s", exc)
         await asyncio.sleep(300)
@@ -157,6 +163,12 @@ async def lifespan(app: FastAPI):
         logger.error("=" * 72)
         raise
     await init_auth()
+    # Startup reconciliation: any document left 'processing' when the previous
+    # process died is orphaned regardless of age — re-dispatch it now (#11).
+    try:
+        await get_document_service().recover_stuck(stale_seconds=0)
+    except Exception as exc:  # noqa: BLE001 — never block startup on recovery
+        logger.warning("document recovery on startup failed: %s", exc)
     global _cleanup_task
     _cleanup_task = asyncio.create_task(_cleanup_loop())
     try:
@@ -263,6 +275,8 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(chat.router)
+app.include_router(documents.router)
+app.include_router(profile.router)
 app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(admin.router)

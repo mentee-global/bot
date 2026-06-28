@@ -14,6 +14,14 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class MessageAttachment(BaseModel):
+    """Document metadata attached to a specific user message."""
+
+    document_id: str
+    filename: str
+    status: str
+
+
 class Message(BaseModel):
     id: str = Field(default_factory=_uuid)
     thread_id: str
@@ -25,6 +33,7 @@ class Message(BaseModel):
     # requesting user — never global, never aggregated, so each user only
     # sees their own rating.
     rating: int | None = None
+    attachments: list[MessageAttachment] = Field(default_factory=list)
 
 
 class Thread(BaseModel):
@@ -42,6 +51,52 @@ class ThreadRating(BaseModel):
     comment: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class Document(BaseModel):
+    """An uploaded document as seen by the API/service layer.
+
+    `summary` / `extracted_json` are populated asynchronously, so they stay
+    None until `status == "ready"`. See docs/documents/00-document-upload-plan.md.
+    """
+
+    id: str = Field(default_factory=_uuid)
+    user_id: str
+    thread_id: str | None = None
+    purpose: str  # "chat_attachment" | "profile_cv"
+    filename: str
+    mime_type: str
+    size_bytes: int
+    status: str = "pending"  # pending | processing | ready | failed
+    attempts: int = 0
+    processing_started_at: datetime | None = None
+    provider: str | None = None
+    file_hash: str
+    summary: str | None = None
+    # Full parsed text (chat attachments) — injected into the agent so it can
+    # read the whole document, not just the summary.
+    extracted_text: str | None = None
+    extracted_json: dict | None = None
+    error_message: str | None = None
+    page_count: int | None = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class CvProfile(BaseModel):
+    """The canonical CV attached to a user profile (draft until confirmed)."""
+
+    user_id: str
+    cv_document_id: str | None = None
+    cv_structured: dict | None = None
+    cv_summary: str | None = None
+    # None = unconfirmed draft; facts are injected into chats only once set.
+    cv_confirmed_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=_now)
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.cv_confirmed_at is not None
 
 
 class FeedbackTriggerConfig(BaseModel):

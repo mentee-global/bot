@@ -8,6 +8,8 @@ import { useActivePersona } from "#/features/admin/hooks/usePersonaStore";
 import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import type {
+	PreparedAttachments,
+	SendInput,
 	SendMessageResponse,
 	Thread,
 } from "#/features/chat/data/chat.types";
@@ -15,6 +17,16 @@ import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import { bumpInteractionCount } from "#/features/chat/hooks/useSessionRatingTrigger";
 
 export { useStreamMessage } from "#/features/chat/hooks/useStreamMessage";
+
+function readyAttachmentIds(
+	prepared: PreparedAttachments | undefined,
+): string[] {
+	return (
+		prepared?.attachments
+			.filter((a) => a.status === "ready" && a.document_id)
+			.map((a) => a.document_id as string) ?? []
+	);
+}
 
 export function threadsQueryOptions(query?: string) {
 	return queryOptions({
@@ -104,13 +116,24 @@ export function useSendMessageMutation(
 	const queryClient = useQueryClient();
 	const persona = useActivePersona();
 
-	return useMutation<SendMessageResponse, Error, string>({
-		mutationFn: (body) => {
+	return useMutation<SendMessageResponse, Error, string | SendInput>({
+		mutationFn: async (input) => {
+			const v = typeof input === "string" ? { body: input } : input;
 			// Bump the lifetime interaction counter — drives the session rating
 			// card cadence (see `useSessionRatingTrigger`). The streaming path
 			// bumps in its own hook; this is the non-streaming fallback.
 			bumpInteractionCount();
-			return chatService.sendMessage(body, threadId ?? undefined, persona);
+			// Upload staged files before the turn so the agent can read them.
+			const prepared = v.prepare ? await v.prepare() : undefined;
+			if (prepared && !prepared.ok) {
+				throw new Error("Attachment upload failed");
+			}
+			return chatService.sendMessage(
+				v.body,
+				v.threadId ?? threadId ?? undefined,
+				persona,
+				readyAttachmentIds(prepared),
+			);
 		},
 		onSuccess: (response) => {
 			queryClient.setQueryData<Thread>(

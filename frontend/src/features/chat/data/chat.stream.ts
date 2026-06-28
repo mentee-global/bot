@@ -28,10 +28,12 @@ export async function* streamChatMessage(
 	threadId?: string,
 	signal?: AbortSignal,
 	persona?: PersonaPayload,
+	attachmentIds?: string[],
 ): AsyncGenerator<StreamEvent, void, unknown> {
 	const payload: Record<string, unknown> = { body };
 	if (threadId) payload.thread_id = threadId;
 	if (persona) payload.persona = persona;
+	if (attachmentIds?.length) payload.attachment_ids = attachmentIds;
 	const response = await fetch(`${API_URL}/api/chat/messages/stream`, {
 		method: "POST",
 		credentials: "include",

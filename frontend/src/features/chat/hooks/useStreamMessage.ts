@@ -5,7 +5,10 @@ import { budgetKeys } from "#/features/budget/data/budget.service";
 import { chatService } from "#/features/chat/data/chat.service";
 import { streamChatMessage } from "#/features/chat/data/chat.stream";
 import type {
+	AttachmentStatus,
 	Message,
+	PreparedAttachments,
+	SendInput,
 	StreamDone,
 	StreamMeta,
 	StreamSuggestions,
@@ -57,6 +60,16 @@ function placeholderTitleFromBody(body: string): string {
 	return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed;
 }
 
+function readyAttachmentIds(
+	prepared: PreparedAttachments | undefined,
+): string[] {
+	return (
+		prepared?.attachments
+			.filter((a) => a.status === "ready" && a.document_id)
+			.map((a) => a.document_id as string) ?? []
+	);
+}
+
 // On error, we roll back the optimistic bubbles and fall back to the
 // non-streaming POST so the user still sees an answer. `stop()` aborts the
 // in-flight stream and keeps whatever tokens have accumulated so far.
@@ -68,12 +81,18 @@ export function useStreamMessage(
 	const abortRef = useRef<AbortController | null>(null);
 	const persona = useActivePersona();
 
-	const mutation = useMutation<void, Error, string>({
-		mutationFn: async (body: string) => {
+	const mutation = useMutation<void, Error, string | SendInput>({
+		mutationFn: async (input) => {
+			const {
+				body,
+				threadId: explicitThreadId,
+				attachments,
+				prepare,
+			} = typeof input === "string" ? { body: input } : input;
 			const pendingUserId = `pending-user-${crypto.randomUUID()}`;
 			const pendingAssistantId = `pending-assistant-${crypto.randomUUID()}`;
 			const pendingThreadId = `pending-thread-${crypto.randomUUID()}`;
-			const activeThreadId = threadId ?? undefined;
+			const activeThreadId = explicitThreadId ?? threadId ?? undefined;
 			const cacheKey = chatKeys.thread(activeThreadId);
 			const startedAt = Date.now();
 
@@ -96,6 +115,7 @@ export function useStreamMessage(
 				role: "user",
 				body,
 				created_at: nowIso(),
+				attachments,
 			};
 			const optimisticAssistant: Message = {
 				id: pendingAssistantId,
@@ -122,7 +142,7 @@ export function useStreamMessage(
 			// backend can take several seconds to emit `meta` (it generates the
 			// title first), so waiting on that feels like the sidebar lags
 			// behind the agent's reply.
-			const isDraftNewChat = !threadId;
+			const isDraftNewChat = !activeThreadId;
 			if (isDraftNewChat) {
 				const nowTs = nowIso();
 				const placeholder: ThreadSummary = {
@@ -136,6 +156,52 @@ export function useStreamMessage(
 				}));
 			}
 
+			// Attachment uploads run AFTER the optimistic bubbles are shown (so the
+			// chat area reflects the send instantly) but BEFORE the agent turn (so
+			// it can read the docs). The assistant placeholder shows "thinking"
+			// meanwhile; the user bubble's file chip resolves uploading → ready.
+			let prepared: PreparedAttachments | undefined;
+			if (prepare) {
+				prepared = await prepare();
+				const status: AttachmentStatus = prepared.ok ? "ready" : "failed";
+				patchThreadByKey(
+					queryClient,
+					cacheKey,
+					(t) => ({
+						thread_id: t.thread_id || activeThreadId || "",
+						title: t.title,
+						messages: t.messages.map((mm) =>
+							mm.id === pendingUserId && mm.attachments
+								? {
+										...mm,
+										attachments: prepared?.attachments.length
+											? prepared.attachments
+											: mm.attachments.map((a) => ({ ...a, status })),
+									}
+								: mm,
+						),
+					}),
+					activeThreadId,
+				);
+				if (!prepared.ok) {
+					// Upload failed: drop the assistant placeholder (no turn will run);
+					// the user bubble stays with a failed chip so they can retry.
+					patchThreadByKey(
+						queryClient,
+						cacheKey,
+						(t) => ({
+							thread_id: t.thread_id,
+							title: t.title,
+							messages: t.messages.filter((mm) => mm.id !== pendingAssistantId),
+						}),
+						activeThreadId,
+					);
+					if (abortRef.current === controller) abortRef.current = null;
+					return;
+				}
+			}
+			const attachmentIds = readyAttachmentIds(prepared);
+
 			let meta: StreamMeta | null = null;
 			let resolvedCacheKey = cacheKey;
 			let accumulated = "";
@@ -147,6 +213,7 @@ export function useStreamMessage(
 					activeThreadId,
 					controller.signal,
 					persona,
+					attachmentIds,
 				)) {
 					if (evt.event === "meta") {
 						meta = JSON.parse(evt.data) as StreamMeta;
@@ -353,8 +420,9 @@ export function useStreamMessage(
 						body,
 						activeThreadId,
 						persona,
+						attachmentIds,
 					);
-					if (!threadId) options?.onThreadResolved?.(fallback.thread_id);
+					if (isDraftNewChat) options?.onThreadResolved?.(fallback.thread_id);
 					const fallbackKey = chatKeys.thread(fallback.thread_id);
 					patchThreadByKey(
 						queryClient,
@@ -400,6 +468,7 @@ export function useStreamMessage(
 						role: "user",
 						body,
 						created_at: nowIso(),
+						attachments: prepared?.attachments ?? attachments,
 						error: { message: errorMessage },
 					};
 					patchThreadByKey(

@@ -51,6 +51,7 @@ import type {
 } from "#/features/chat/data/chat.types";
 import { chatKeys } from "#/features/chat/hooks/chatKeys";
 import {
+	useCreateThreadMutation,
 	useDeleteThreadMutation,
 	useRenameThreadMutation,
 	useSendMessageMutation,
@@ -68,6 +69,7 @@ import {
 	clearSessionRatingState,
 	useSessionRatingTrigger,
 } from "#/features/chat/hooks/useSessionRatingTrigger";
+import { useStagedAttachments } from "#/features/chat/hooks/useStagedAttachments";
 import { toolActivityStore } from "#/features/chat/hooks/useToolActivity";
 // Feature commented out — "Request more credits" CTA is hidden from users.
 // To reactivate: uncomment this import, the `showRequestCredits` prop on
@@ -171,6 +173,7 @@ function ChatView({
 
 	const threads = useThreadsQuery(debouncedQuery || undefined);
 	const deleteThread = useDeleteThreadMutation();
+	const createThread = useCreateThreadMutation();
 	const renameThread = useRenameThreadMutation();
 	const logout = useLogoutMutation();
 
@@ -228,6 +231,64 @@ function ChatView({
 
 	const me = useMeQuery();
 	const block = useChatBlockState(me.data);
+
+	// Client-side attachment staging: files are held in memory and only
+	// uploaded at send time (no orphan threads, no upload without a question).
+	const {
+		staged,
+		addFiles,
+		remove: removeStaged,
+		clear: clearStaged,
+		commit: commitStaged,
+	} = useStagedAttachments();
+
+	const handleComposerSend = useCallback(
+		async (body: string): Promise<boolean> => {
+			if (staged.length === 0) {
+				send.mutate(body);
+				return true;
+			}
+			// ChatGPT-style: the user bubble (with the file chip) + an assistant
+			// "thinking" bubble appear instantly; the upload runs in the
+			// background (prepare) before the agent turn. The composer clears now.
+			const files = staged.map((s) => s.file);
+			const attachments = staged.map((s) => ({
+				filename: s.filename,
+				status: "uploading" as const,
+			}));
+			try {
+				let tid = activeThreadId;
+				if (!tid) {
+					// Create the thread only now (no orphan threads); the mutation
+					// seeds its cache so navigating doesn't refetch-and-clobber the
+					// stream.
+					tid = (await createThread.mutateAsync(undefined)).thread_id;
+					navigate({ search: { threadId: tid }, replace: true });
+				}
+				clearStaged();
+				send.mutate({
+					body,
+					threadId: tid,
+					attachments,
+					prepare: () => commitStaged(tid, files),
+				});
+				return true;
+			} catch {
+				// Thread creation failed — keep the staged files + typed text.
+				toast.error(m.chat_attachment_error_upload());
+				return false;
+			}
+		},
+		[
+			staged,
+			activeThreadId,
+			createThread,
+			navigate,
+			clearStaged,
+			send,
+			commitStaged,
+		],
+	);
 
 	const handleCreate = () => {
 		// Don't persist a thread until the user sends a message — otherwise
@@ -379,9 +440,9 @@ function ChatView({
 		(text: string) => {
 			if (block) return;
 			track("chat.suggestion_picked");
-			send.mutate(text);
+			void handleComposerSend(text);
 		},
-		[block, send],
+		[block, handleComposerSend],
 	);
 
 	const handleExportThread = useCallback(() => {
@@ -586,7 +647,7 @@ function ChatView({
 								onPickStarter={(prompt) => {
 									if (block) return;
 									track("chat.starter_picked", { kind: "starter" });
-									send.mutate(prompt);
+									void handleComposerSend(prompt);
 								}}
 								onContinue={(threadId) => {
 									track("chat.starter_picked", { kind: "continue" });
@@ -634,11 +695,14 @@ function ChatView({
 				<ChatInput
 					ref={inputRef}
 					threadId={activeThreadId}
-					onSend={(body) => send.mutate(body)}
+					onSend={handleComposerSend}
 					onStop={STREAMING_ENABLED ? streamMessage.stop : undefined}
-					canStop={STREAMING_ENABLED}
+					canStop={STREAMING_ENABLED && send.isPending}
 					isSending={send.isPending}
 					disabledReason={block?.placeholder ?? null}
+					attachments={staged}
+					onAttachFiles={addFiles}
+					onRemoveAttachment={removeStaged}
 				/>
 			</div>
 

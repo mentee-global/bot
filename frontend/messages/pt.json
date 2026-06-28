@@ -4,12 +4,9 @@
   "language_label": "Idioma",
   "theme_toggle_to_dark": "Mudar para o modo escuro",
   "theme_toggle_to_light": "Mudar para o modo claro",
-
   "meta_title": "Mentee Bot",
   "meta_description": "Mentor para bolsas de estudo, programas no exterior, carreira e mobilidade para a comunidade Mentee.",
-
   "footer_rights": "© {year} MENTEE. Todos os direitos reservados.",
-
   "landing_kicker": "Mentee Bot",
   "landing_title": "Bolsas, intercâmbio, carreira e mobilidade num só chat.",
   "landing_subtitle": "Entre com sua conta MENTEE para conhecer programas com financiamento, trilhas de aprendizado e mobilidade internacional. Cada oportunidade vem com um link para a fonte oficial.",
@@ -41,7 +38,6 @@
   "landing_about_heading": "Sobre a MENTEE",
   "landing_about_body": "A MENTEE é uma comunidade global que apoia mulheres, pessoas em deslocamento e membros que enfrentam barreiras sistêmicas no acesso à educação e às carreiras. Este bot é uma das ferramentas que a comunidade oferece a seus membros. Saiba mais em",
   "landing_about_link_text": "menteeglobal.org",
-
   "chat_signed_in_as": "Conectado como {name}",
   "chat_kicker": "Mentor Mentee",
   "chat_sign_out": "Sair",
@@ -140,7 +136,6 @@
   "chat_shortcut_search_thread": "Buscar nesta conversa",
   "chat_shortcut_show_help": "Mostrar esta ajuda",
   "chat_message_just_now": "agora mesmo",
-
   "credits_pill_aria": "Como funcionam os créditos",
   "credits_pill_units": "créditos",
   "credits_pill_renews": "Renova em {date}",
@@ -160,22 +155,31 @@
   "credits_refresh_in_days": "em {days} dias",
   "credits_popover_hard_stopped": "Você usou os créditos deste mês — o chat retoma após a renovação.",
   "credits_popover_perplexity_degraded": "A busca web ao vivo está pausada este mês para você continuar conversando; o mentor vai se basear no que já sabe.",
-
   "chat_thread_actions_aria": "Ações da conversa",
   "chat_typing_aria": "O mentor está pensando",
   "chat_search_prev_aria": "Resultado anterior",
   "chat_search_next_aria": "Próximo resultado",
   "chat_search_close_aria": "Fechar busca",
-
   "auth_error_title": "O login não foi concluído",
   "auth_error_denied": "Sua conta Mentee não pode acessar este app. Ou você decidiu não compartilhá-la, ou ela não está habilitada para o bot.",
   "auth_error_login_required": "Você precisa estar logado na Mentee primeiro.",
   "auth_error_generic": "Algo deu errado ao falar com a Mentee. Tente de novo.",
   "auth_error_unknown": "Não conseguimos te conectar. Tente de novo.",
   "auth_back_home": "Voltar ao início",
-
   "notfound_kicker": "404",
   "notfound_title": "Não encontramos essa página.",
   "notfound_body": "A página que você procura não existe ou pode ter sido movida.",
-  "notfound_back_home": "Voltar ao início"
+  "notfound_back_home": "Voltar ao início",
+  "chat_attach_aria": "Attach a document",
+  "chat_attach_disabled_hint": "Send a message first to attach files",
+  "chat_attachment_remove_aria": "Remove attachment",
+  "chat_attachment_status_uploading": "Uploading…",
+  "chat_attachment_status_processing": "Processing…",
+  "chat_attachment_status_ready": "Ready",
+  "chat_attachment_status_failed": "Failed",
+  "chat_attachment_error_too_large": "File is too large (max 25 MB)",
+  "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
+  "chat_attachment_error_upload": "Upload failed",
+  "chat_attachment_status_staged": "Attached",
+  "chat_attachment_needs_question": "Add a question about your file…"
 }

@@ -4,12 +4,9 @@
   "language_label": "زبان",
   "theme_toggle_to_dark": "تبدیل به حالت تاریک",
   "theme_toggle_to_light": "تبدیل به حالت روشن",
-
   "meta_title": "Mentee Bot",
   "meta_description": "رهنما برای بورسیه‌ها، برنامه‌های تحصیل در خارج، مسیر شغلی و مهاجرت، برای جامعۀ Mentee.",
-
   "footer_rights": "© {year} MENTEE. تمام حقوق محفوظ است.",
-
   "landing_kicker": "Mentee Bot",
   "landing_title": "بورسیه‌ها، تحصیل در خارج، مسیر شغلی و مهاجرت در یک گفتگو.",
   "landing_subtitle": "با حساب MENTEE تان داخل شوید تا در مورد برنامه‌های تمویل‌شده، مسیرهای آموزش و مهاجرت بین‌المللی بیاموزید. هر فرصت با لینک منبع رسمی همراه است.",
@@ -41,7 +38,6 @@
   "landing_about_heading": "دربارۀ MENTEE",
   "landing_about_body": "MENTEE یک جامعۀ جهانی است که از زنان، افراد بیجا شده و اعضایی که با موانع نظام‌مند در تحصیل و کار روبرو هستند حمایت میکند. این بات یکی از ابزارهایی است که این جامعه به اعضای خود ارائه میدهد. بیشتر بدانید در",
   "landing_about_link_text": "menteeglobal.org",
-
   "chat_signed_in_as": "داخل شده به‌حیث {name}",
   "chat_kicker": "رهنمای Mentee",
   "chat_sign_out": "خروج",
@@ -151,7 +147,6 @@
   "chat_shortcut_search_thread": "جستجو در این گفتگو",
   "chat_shortcut_show_help": "نشان دادن این کمک",
   "chat_message_just_now": "همین حالا",
-
   "credits_pill_aria": "اعتبارها چطور کار میکنند",
   "credits_pill_units": "اعتبار",
   "credits_pill_renews": "تجدید در {date}",
@@ -171,22 +166,31 @@
   "credits_refresh_in_days": "در {days} روز",
   "credits_popover_hard_stopped": "اعتبار این ماه شما مصرف شده است — گفتگو پس از بازتنظیم دوباره شروع میشود.",
   "credits_popover_perplexity_degraded": "جستجوی زندۀ ویب این ماه متوقف شده تا بتوانید گفتگو را ادامه بدهید؛ رهنما بر دانسته‌های خود تکیه میکند.",
-
   "chat_thread_actions_aria": "اعمال گفتگو",
   "chat_typing_aria": "رهنما در حال فکر کردن است",
   "chat_search_prev_aria": "نتیجۀ قبلی",
   "chat_search_next_aria": "نتیجۀ بعدی",
   "chat_search_close_aria": "بستن جستجو",
-
   "auth_error_title": "ورود تکمیل نشد",
   "auth_error_denied": "حساب Mentee شما به این برنامه دسترسی ندارد. یا شما به اشتراک‌گذاری آن را رد کرده‌اید یا برای این بات فعال نیست.",
   "auth_error_login_required": "اول باید وارد Mentee شوید.",
   "auth_error_generic": "در ارتباط با Mentee مشکلی پیش آمد. لطفاً دوباره کوشش کنید.",
   "auth_error_unknown": "ورود شما تکمیل نشد. لطفاً دوباره کوشش کنید.",
   "auth_back_home": "بازگشت به صفحۀ اصلی",
-
   "notfound_kicker": "404",
   "notfound_title": "این صفحه پیدا نشد.",
   "notfound_body": "صفحه‌ای که جستجو میکنید وجود ندارد یا شاید جابجا شده است.",
-  "notfound_back_home": "بازگشت به صفحۀ اصلی"
+  "notfound_back_home": "بازگشت به صفحۀ اصلی",
+  "chat_attach_aria": "Attach a document",
+  "chat_attach_disabled_hint": "Send a message first to attach files",
+  "chat_attachment_remove_aria": "Remove attachment",
+  "chat_attachment_status_uploading": "Uploading…",
+  "chat_attachment_status_processing": "Processing…",
+  "chat_attachment_status_ready": "Ready",
+  "chat_attachment_status_failed": "Failed",
+  "chat_attachment_error_too_large": "File is too large (max 25 MB)",
+  "chat_attachment_error_type": "Unsupported file type (PDF or DOCX only)",
+  "chat_attachment_error_upload": "Upload failed",
+  "chat_attachment_status_staged": "Attached",
+  "chat_attachment_needs_question": "Add a question about your file…"
 }
