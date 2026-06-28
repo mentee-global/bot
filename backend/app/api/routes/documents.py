@@ -144,12 +144,9 @@ async def upload_document(
     doc = await store.update_document(doc.id, storage_uri=uri)
 
     if is_chat:
-        background.add_task(
-            service.process_chat_upload,
-            user_id=user.id,
-            thread_id=thread_id,
-            document_id=doc.id,
-        )
+        # Chat attachments are read natively by the agent (pydantic-ai
+        # BinaryContent) — no OCR, so they're ready as soon as the bytes land.
+        doc = await store.update_document(doc.id, status="ready")
     else:
         background.add_task(
             service.process_cv_upload,

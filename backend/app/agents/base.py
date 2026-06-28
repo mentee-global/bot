@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 
 from app.agents.events import StreamEvent, TextDelta
 from app.budget.usage import UsageSummary
+from app.documents.base import AttachmentFile
 from app.domain.models import Message, User
 
 
@@ -28,6 +29,7 @@ class AgentPort(ABC):
         document_context: str | None = None,
         cv_context: str | None = None,
         about_context: str | None = None,
+        attachment_files: list[AttachmentFile] | None = None,
     ) -> str:
         """Return the assistant's reply body for the given user message.
 
@@ -57,6 +59,7 @@ class AgentPort(ABC):
         document_context: str | None = None,
         cv_context: str | None = None,
         about_context: str | None = None,
+        attachment_files: list[AttachmentFile] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Yield assistant reply deltas and tool lifecycle events.
 
@@ -75,5 +78,6 @@ class AgentPort(ABC):
                 document_context=document_context,
                 cv_context=cv_context,
                 about_context=about_context,
+                attachment_files=attachment_files,
             )
         )

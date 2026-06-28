@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 import logfire
 from openai import AsyncOpenAI
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, BinaryContent, RunContext
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
@@ -63,6 +63,7 @@ from app.budget.usage import UsageSummary
 from app.core import posthog_client
 from app.core.config import Settings
 from app.core.observability import user_attrs
+from app.documents.base import AttachmentFile
 from app.domain.enums import MessageRole
 from app.domain.models import Message, User
 
@@ -426,6 +427,23 @@ def _history_to_messages(history: list[Message], exclude_last: bool) -> list[Mod
     return out
 
 
+def _build_user_input(
+    body: str, attachment_files: list[AttachmentFile] | None
+) -> str | list:
+    """The `user_prompt` for run/iter: the text alone, or the text plus each
+    chat attachment as native multimodal input (pydantic-ai BinaryContent), so
+    the model reads images/PDFs directly — no OCR, text-free images included."""
+    if not attachment_files:
+        return body
+    return [
+        body,
+        *(
+            BinaryContent(data=f.data, media_type=f.mime_type)
+            for f in attachment_files
+        ),
+    ]
+
+
 class MenteeAgent(AgentPort):
     agent_id = "mentee-agent"
 
@@ -503,6 +521,7 @@ class MenteeAgent(AgentPort):
         document_context: str | None = None,
         cv_context: str | None = None,
         about_context: str | None = None,
+        attachment_files: list[AttachmentFile] | None = None,
     ) -> str:
         collector = usage_out if usage_out is not None else UsageSummary()
         with logfire.span(
@@ -527,7 +546,7 @@ class MenteeAgent(AgentPort):
             )
             try:
                 result = await self._agent.run(
-                    user_message.body,
+                    _build_user_input(user_message.body, attachment_files),
                     deps=deps,
                     message_history=_history_to_messages(history, exclude_last=True)
                     or None,
@@ -650,6 +669,7 @@ class MenteeAgent(AgentPort):
         document_context: str | None = None,
         cv_context: str | None = None,
         about_context: str | None = None,
+        attachment_files: list[AttachmentFile] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         collector = usage_out if usage_out is not None else UsageSummary()
         with logfire.span(
@@ -699,7 +719,7 @@ class MenteeAgent(AgentPort):
                 tool_seen_since_text = False
                 try:
                     async with self._agent.iter(
-                        user_message.body,
+                        _build_user_input(user_message.body, attachment_files),
                         deps=deps,
                         message_history=_history_to_messages(history, exclude_last=True)
                         or None,
