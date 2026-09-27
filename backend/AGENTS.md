@@ -5,8 +5,8 @@ FastAPI service for the Mentee bot. Sister project: `../frontend` (TanStack Star
 ## Stack
 
 - Python 3.14 (`.venv/`, managed by [uv](https://docs.astral.sh/uv/))
-- FastAPI 0.136 (`[standard]` extra — pulls in `fastapi-cli` + `uvicorn[standard]`)
-- Pydantic 2.13 + `pydantic-settings`
+- FastAPI 0.141 (`[standard]` extra — pulls in `fastapi-cli` + `uvicorn[standard]`)
+- Pydantic 2.13 + `pydantic-settings`; Pydantic AI 2.x
 - httpx 0.28
 - ruff (dev)
 

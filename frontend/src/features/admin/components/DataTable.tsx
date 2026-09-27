@@ -1,11 +1,15 @@
 import {
 	type ColumnDef,
+	columnSizingFeature,
+	columnVisibilityFeature,
+	createSortedRowModel,
 	flexRender,
-	getCoreRowModel,
-	getSortedRowModel,
 	type RowData,
+	rowSortingFeature,
 	type SortingState,
-	useReactTable,
+	type TableFeatures,
+	tableFeatures,
+	useTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { ReactNode } from "react";
@@ -26,15 +30,32 @@ import { cn } from "#/lib/utils";
 // that the header renders next to the label. Used to explain columns whose
 // meaning isn't obvious to non-technical admins (e.g. "Credits", "Calls").
 declare module "@tanstack/table-core" {
-	interface ColumnMeta<TData extends RowData, TValue> {
+	interface ColumnMeta<
+		TFeatures extends TableFeatures,
+		TData extends RowData,
+		TValue,
+	> {
 		tooltip?: ReactNode;
 		tooltipTitle?: string;
 	}
 }
 
-export interface DataTableProps<TData> {
+const dataTableFeatures = tableFeatures({
+	rowSortingFeature,
+	sortedRowModel: createSortedRowModel(),
+	columnVisibilityFeature,
+	columnSizingFeature,
+});
+
+export type DataTableColumnDef<TData extends RowData> = ColumnDef<
+	typeof dataTableFeatures,
+	TData,
+	unknown
+>;
+
+export interface DataTableProps<TData extends RowData> {
 	data: TData[];
-	columns: ColumnDef<TData, unknown>[];
+	columns: DataTableColumnDef<TData>[];
 	onRowClick?: (row: TData) => void;
 	isFetching?: boolean;
 	emptyState?: React.ReactNode;
@@ -46,7 +67,7 @@ export interface DataTableProps<TData> {
 	fillHeight?: boolean;
 }
 
-export function DataTable<TData>({
+export function DataTable<TData extends RowData>({
 	data,
 	columns,
 	onRowClick,
@@ -57,13 +78,12 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
 	const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
 
-	const table = useReactTable({
+	const table = useTable({
+		features: dataTableFeatures,
 		data,
 		columns,
 		state: { sorting },
 		onSortingChange: setSorting,
-		getCoreRowModel: getCoreRowModel(),
-		getSortedRowModel: getSortedRowModel(),
 	});
 
 	const rows = table.getRowModel().rows;
