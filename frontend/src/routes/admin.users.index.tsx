@@ -1,5 +1,4 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "#/components/ui/input";
 import {
@@ -9,7 +8,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "#/components/ui/select";
-import { DataTable } from "#/features/admin/components/DataTable";
+import {
+	DataTable,
+	type DataTableColumnDef,
+} from "#/features/admin/components/DataTable";
 import {
 	AdminPagination,
 	CompactDate,
@@ -91,7 +93,7 @@ function UsersListRoute() {
 		});
 	};
 
-	const userColumns = useMemo<ColumnDef<AdminUserSummary>[]>(
+	const userColumns = useMemo<DataTableColumnDef<AdminUserSummary>[]>(
 		() => [
 			{
 				id: "name",

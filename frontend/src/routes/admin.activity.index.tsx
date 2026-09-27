@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import { Skeleton } from "#/components/ui/Skeleton";
-import { DataTable } from "#/features/admin/components/DataTable";
+import {
+	DataTable,
+	type DataTableColumnDef,
+} from "#/features/admin/components/DataTable";
 import {
 	AdminPagination,
 	CompactDate,
@@ -73,7 +75,7 @@ function ActivityIndexRoute() {
 	const total = data?.total ?? 0;
 	const pageSize = data?.page_size ?? 25;
 
-	const columns = useMemo<ColumnDef<AdminThreadSummary>[]>(
+	const columns = useMemo<DataTableColumnDef<AdminThreadSummary>[]>(
 		() => [
 			{
 				id: "title",
@@ -180,10 +182,7 @@ function ActivityIndexRoute() {
 			/>
 
 			{threads.isError ? (
-				<ErrorState
-					error={threads.error}
-					onRetry={() => threads.refetch()}
-				/>
+				<ErrorState error={threads.error} onRetry={() => threads.refetch()} />
 			) : rows.length === 0 && !threads.isFetching ? (
 				<EmptyState
 					message={

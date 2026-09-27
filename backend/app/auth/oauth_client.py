@@ -7,8 +7,9 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from authlib.jose import JsonWebToken
-from authlib.jose.errors import JoseError
+from joserfc import jwt
+from joserfc.errors import JoseError
+from joserfc.jwk import KeySet
 
 from app.auth.errors import (
     CodeExchangeError,
@@ -52,7 +53,6 @@ class MenteeOAuthClient:
         self._metadata: dict[str, Any] | None = None
         self._jwks: dict[str, Any] | None = None
         self._metadata_fetched_at: float = 0.0
-        self._jwt = JsonWebToken(["RS256"])
 
     @property
     def metadata(self) -> dict[str, Any] | None:
@@ -224,11 +224,17 @@ class MenteeOAuthClient:
     ) -> dict[str, Any]:
         jwks = await self._get_jwks()
         try:
-            claims = self._jwt.decode(id_token, key=jwks)
+            claims = jwt.decode(
+                id_token, key=KeySet.import_key_set(jwks), algorithms=["RS256"]
+            ).claims
         except JoseError as first_err:
             try:
                 await self._fetch_jwks()
-                claims = self._jwt.decode(id_token, key=self._jwks)
+                claims = jwt.decode(
+                    id_token,
+                    key=KeySet.import_key_set(self._jwks),
+                    algorithms=["RS256"],
+                ).claims
             except JoseError as second_err:
                 raise InvalidIdTokenError(
                     f"signature verification failed: {second_err}"

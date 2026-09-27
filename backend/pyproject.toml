@@ -4,34 +4,36 @@ version = "0.1.0"
 description = "FastAPI service for the Mentee bot"
 requires-python = ">=3.13"
 dependencies = [
-  "fastapi[standard]>=0.135",
-  "pydantic>=2.13",
-  "pydantic-settings>=2.6",
+  "fastapi[standard]>=0.141.1",
+  "pydantic>=2.13.5",
+  "pydantic-settings>=2.15.0",
   "httpx>=0.28",
-  "authlib>=1.6,<1.7",
-  "cryptography>=43.0",
-  "sqlmodel>=0.0.22",
-  "sqlalchemy>=2.0",
+  "authlib>=1.8.0,<2",
+  "joserfc>=1.7.5",
+  "cryptography>=50.0.1",
+  "sqlmodel>=0.0.47",
+  # SQLModel 0.0.47 requires SQLAlchemy <2.1; keep its latest supported 2.0.x.
+  "sqlalchemy>=2.0.49,<2.1",
   "asyncpg>=0.30",
-  "alembic>=1.14",
-  "psycopg2-binary>=2.9",
-  "greenlet>=3.4.0",
-  "logfire[fastapi,httpx]>=4.32.1",
-  "pydantic-ai>=0.3",
-  "openai>=1.50",
-  "perplexityai>=0.32.0",
-  "slowapi>=0.1.9",
+  "alembic>=1.20.0",
+  "psycopg2-binary>=2.9.13",
+  "greenlet>=3.5.6",
+  "logfire[fastapi,httpx]>=5.1.1",
+  "pydantic-ai>=2.51.0",
+  "openai>=3.19.2",
+  "perplexityai>=0.43.6",
+  "slowapi>=0.1.10",
   "sendgrid>=6.11",
-  "posthog>=3.7",
-  "pypdf>=6.12.2",
+  "posthog>=7.60.1",
+  "pypdf>=6.19.0",
   "python-docx>=1.2.0",
-  "boto3>=1.42.91",
+  "boto3>=1.43.103",
 ]
 
 [dependency-groups]
 dev = [
-  "ruff>=0.8",
-  "pytest>=8.3",
+  "ruff>=0.16.9",
+  "pytest>=9.1.1",
 ]
 
 [tool.ruff]

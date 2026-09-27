@@ -27,9 +27,9 @@ from __future__ import annotations
 import re
 
 from pydantic_ai.messages import (
-    BuiltinToolReturnPart,
     ModelMessage,
     ModelResponse,
+    NativeToolReturnPart,
     TextPart,
 )
 
@@ -59,7 +59,7 @@ def _harvest_urls_from_messages(
         if not isinstance(msg, ModelResponse):
             continue
         for part in msg.parts:
-            if isinstance(part, BuiltinToolReturnPart):
+            if isinstance(part, NativeToolReturnPart):
                 content = part.content
                 if isinstance(content, dict):
                     for src in content.get("sources") or []:

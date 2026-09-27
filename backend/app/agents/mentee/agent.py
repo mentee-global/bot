@@ -15,15 +15,15 @@ from datetime import UTC, datetime
 import logfire
 from openai import AsyncOpenAI
 from pydantic_ai import Agent, BinaryContent, RunContext
-from pydantic_ai.builtin_tools import WebSearchTool
+from pydantic_ai.capabilities import Instrumentation, NativeTool
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
-    BuiltinToolCallPart,
-    BuiltinToolReturnPart,
     FunctionToolResultEvent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    NativeToolCallPart,
+    NativeToolReturnPart,
     PartDeltaEvent,
     PartStartEvent,
     TextPart,
@@ -35,6 +35,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
+from pydantic_ai.native_tools import WebSearchTool
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.usage import UsageLimits
 
@@ -84,8 +85,8 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
     )
     model = OpenAIResponsesModel(settings.agent_model, provider=provider)
 
-    builtin_tools = (
-        [WebSearchTool(search_context_size="medium")]
+    native_tools = (
+        [NativeTool(WebSearchTool(search_context_size="medium"))]
         if settings.agent_enable_web_search
         else []
     )
@@ -97,7 +98,7 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
         tools.append(search_perplexity)
 
     # `openai_include_web_search_sources=True` gives us a structured list
-    # of source URLs on `BuiltinToolReturnPart.content["sources"]`, but
+    # of source URLs on `NativeToolReturnPart.content["sources"]`, but
     # those entries are URL-only (no title). Titles ride on
     # `TextPart.provider_details["annotations"]`, which only get
     # populated when `openai_include_raw_annotations=True`. Both flags
@@ -116,9 +117,9 @@ def _build_pydantic_agent(settings: Settings) -> Agent[MenteeDeps, str]:
         deps_type=MenteeDeps,
         instructions=SYSTEM_PROMPT,
         retries=2,
-        instrument=True,
+        end_strategy="early",
         tools=tools,
-        builtin_tools=builtin_tools,
+        capabilities=[Instrumentation(), *native_tools],
         model_settings=model_settings,
     )
 
@@ -406,11 +407,7 @@ def _count_builtin_tool_calls(
             tool_name = getattr(part, "tool_name", None)
             if tool_name != "web_search":
                 continue
-            # pydantic-ai uses BuiltinToolCallPart for builtin calls; accept
-            # anything that looks like one by duck-typing on the class name
-            # so version bumps don't silently stop billing.
-            cls_name = type(part).__name__
-            if "Builtin" in cls_name and "Call" in cls_name:
+            if isinstance(part, NativeToolCallPart):
                 collector.inc_web_search()
 
 
@@ -554,7 +551,7 @@ class MenteeAgent(AgentPort):
                 )
                 _fill_openai_usage(
                     collector,
-                    result.usage(),
+                    result.usage,
                     model_sku=self._settings.agent_model,
                 )
                 _count_builtin_tool_calls(collector, result.all_messages())
@@ -728,15 +725,14 @@ class MenteeAgent(AgentPort):
                         async for node in run:
                             # Built-in tool starts/ends and function tool starts arrive
                             # as PartStartEvent inside the model-request stream (the
-                            # `BuiltinToolCallEvent` path is deprecated in pydantic-ai
-                            # and only fires from CallToolsNode). Function tool *ends*
+                            # Native tool events arrive on the model request. Function tool *ends*
                             # only fire from CallToolsNode, so we iterate both nodes.
                             if Agent.is_model_request_node(node):
                                 async with node.stream(run.ctx) as handle:
                                     async for event in handle:
                                         if isinstance(event, PartStartEvent):
                                             part = event.part
-                                            if isinstance(part, BuiltinToolCallPart):
+                                            if isinstance(part, NativeToolCallPart):
                                                 if part.tool_name == "web_search":
                                                     collector.inc_web_search()
                                                 tool_seen_since_text = True
@@ -747,7 +743,7 @@ class MenteeAgent(AgentPort):
                                                         source="builtin",
                                                     )
                                                 )
-                                            elif isinstance(part, BuiltinToolReturnPart):
+                                            elif isinstance(part, NativeToolReturnPart):
                                                 # Harvest web_search source URLs into the
                                                 # per-run allowlist so the stripper keeps
                                                 # them when the model writes them inline.
@@ -818,11 +814,11 @@ class MenteeAgent(AgentPort):
                                         if isinstance(event, FunctionToolResultEvent):
                                             await queue.put(
                                                 ToolEnd(
-                                                    tool_call_id=event.result.tool_call_id,
-                                                    name=event.result.tool_name,
+                                                    tool_call_id=event.part.tool_call_id,
+                                                    name=event.part.tool_name,
                                                     source="function",
                                                     outcome=getattr(
-                                                        event.result, "outcome", "success"
+                                                        event.part, "outcome", "success"
                                                     )
                                                     or "success",
                                                 )
@@ -847,7 +843,7 @@ class MenteeAgent(AgentPort):
                             try:
                                 _fill_openai_usage(
                                     collector,
-                                    run.result.usage(),
+                                    run.result.usage,
                                     model_sku=self._settings.agent_model,
                                 )
                             except Exception:  # noqa: BLE001 — usage is best-effort
