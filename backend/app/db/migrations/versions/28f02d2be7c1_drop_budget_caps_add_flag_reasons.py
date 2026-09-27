@@ -8,7 +8,6 @@ Create Date: 2026-04-23 11:51:01.237353
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -30,7 +29,7 @@ def upgrade() -> None:
         'global_budget_state',
         sa.Column(
             'perplexity_degrade_reason',
-            sqlmodel.sql.sqltypes.AutoString(length=200),
+            sa.String(length=200),
             nullable=True,
         ),
     )
@@ -46,7 +45,7 @@ def upgrade() -> None:
         'global_budget_state',
         sa.Column(
             'hard_stop_reason',
-            sqlmodel.sql.sqltypes.AutoString(length=200),
+            sa.String(length=200),
             nullable=True,
         ),
     )
@@ -67,7 +66,7 @@ def downgrade() -> None:
     op.drop_column('global_budget_state', 'hard_stop_reason')
     op.drop_column('global_budget_state', 'perplexity_degraded_at')
     op.drop_column('global_budget_state', 'perplexity_degrade_reason')
-    # Server defaults match the original SQLModel defaults so existing rows
+    # Server defaults match the original model defaults so existing rows
     # back-fill cleanly; drop the default afterwards so the schema matches
     # the old baseline.
     op.add_column(

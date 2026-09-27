@@ -7,7 +7,7 @@ Adds the columns needed to track + bill CV OCR spend:
   user so they can see what reading their CV cost.
 
 Both get a server_default so existing rows backfill cleanly; the default is then
-dropped so the schema matches the SQLModel definition (app-side default only).
+dropped so the schema matches the ORM model definition (app-side default only).
 
 Revision ID: b2d4f6a8c0e1
 Revises: c1d2e3f4a5b6
@@ -17,7 +17,6 @@ Create Date: 2026-06-28 00:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -33,7 +32,7 @@ def upgrade() -> None:
         'message_usage',
         sa.Column(
             'source',
-            sqlmodel.sql.sqltypes.AutoString(length=32),
+            sa.String(length=32),
             server_default=sa.text("'chat'"),
             nullable=False,
         ),

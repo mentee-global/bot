@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel
 
 
 # revision identifiers, used by Alembic.
@@ -29,7 +28,7 @@ def upgrade() -> None:
         'message_usage',
         sa.Column(
             'model_sku',
-            sqlmodel.sql.sqltypes.AutoString(length=128),
+            sa.String(length=128),
             nullable=True,
         ),
     )
