@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from openai import AsyncOpenAI
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.builtin_tools import WebSearchTool
+from pydantic_ai.capabilities import NativeTool
 from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.native_tools import WebSearchTool
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.agents.mentee.agent import _dedup_response_text
@@ -94,19 +95,20 @@ _tools: list = [analyze_career_path]
 if _settings.perplexity_api_key is not None:
     _tools.append(search_perplexity_standalone)
 
-agent: Agent[None, str] = Agent(
+agent: Agent[object, str] = Agent(
     _model,
     instructions=SYSTEM_PROMPT,
     tools=_tools,
-    builtin_tools=[WebSearchTool(search_context_size="medium")]
+    capabilities=[NativeTool(WebSearchTool(search_context_size="medium"))]
     if _settings.agent_enable_web_search
     else [],
     retries=2,
+    end_strategy="early",
 )
 
 
 @agent.output_validator
-async def _drop_duplicate_text_parts(ctx: RunContext[None], output: str) -> str:
+async def _drop_duplicate_text_parts(ctx: RunContext[object], output: str) -> str:
     # The OpenAI Responses model occasionally emits two near-identical
     # `output_message` items in one turn — see `agent._dedup_response_text`.
     # Mirror that fix here so `pai --agent ...:agent` shows the same clean

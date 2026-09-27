@@ -9,32 +9,27 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as ChatRouteImport } from './routes/chat'
-import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as ChatRouteImport } from './routes/chat'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
-import { Route as AuthErrorRouteImport } from './routes/auth.error'
-import { Route as AdminUsersRouteImport } from './routes/admin.users'
-import { Route as AdminMetricsRouteImport } from './routes/admin.metrics'
-import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
-import { Route as AdminCreditRequestsRouteImport } from './routes/admin.credit-requests'
-import { Route as AdminBugReportsRouteImport } from './routes/admin.bug-reports'
-import { Route as AdminBudgetRouteImport } from './routes/admin.budget'
 import { Route as AdminActivityRouteImport } from './routes/admin.activity'
-import { Route as AdminUsersIndexRouteImport } from './routes/admin.users.index'
+import { Route as AdminBudgetRouteImport } from './routes/admin.budget'
+import { Route as AdminBugReportsRouteImport } from './routes/admin.bug-reports'
+import { Route as AdminCreditRequestsRouteImport } from './routes/admin.credit-requests'
+import { Route as AdminFeedbackRouteImport } from './routes/admin.feedback'
+import { Route as AdminMetricsRouteImport } from './routes/admin.metrics'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AuthErrorRouteImport } from './routes/auth.error'
 import { Route as AdminActivityIndexRouteImport } from './routes/admin.activity.index'
-import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
 import { Route as AdminActivityThreadIdRouteImport } from './routes/admin.activity.$threadId'
+import { Route as AdminUsersIndexRouteImport } from './routes/admin.users.index'
+import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
 
-const ProfileRoute = ProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChatRoute = ChatRouteImport.update({
-  id: '/chat',
-  path: '/chat',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -42,9 +37,14 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -52,34 +52,9 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
-const AuthErrorRoute = AuthErrorRouteImport.update({
-  id: '/auth/error',
-  path: '/auth/error',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminUsersRoute = AdminUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminMetricsRoute = AdminMetricsRouteImport.update({
-  id: '/metrics',
-  path: '/metrics',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminFeedbackRoute = AdminFeedbackRouteImport.update({
-  id: '/feedback',
-  path: '/feedback',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminCreditRequestsRoute = AdminCreditRequestsRouteImport.update({
-  id: '/credit-requests',
-  path: '/credit-requests',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminBugReportsRoute = AdminBugReportsRouteImport.update({
-  id: '/bug-reports',
-  path: '/bug-reports',
+const AdminActivityRoute = AdminActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminBudgetRoute = AdminBudgetRouteImport.update({
@@ -87,30 +62,55 @@ const AdminBudgetRoute = AdminBudgetRouteImport.update({
   path: '/budget',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminActivityRoute = AdminActivityRouteImport.update({
-  id: '/activity',
-  path: '/activity',
+const AdminBugReportsRoute = AdminBugReportsRouteImport.update({
+  id: '/bug-reports',
+  path: '/bug-reports',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminUsersIndexRoute = AdminUsersIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AdminUsersRoute,
+const AdminCreditRequestsRoute = AdminCreditRequestsRouteImport.update({
+  id: '/credit-requests',
+  path: '/credit-requests',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminFeedbackRoute = AdminFeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMetricsRoute = AdminMetricsRouteImport.update({
+  id: '/metrics',
+  path: '/metrics',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AuthErrorRoute = AuthErrorRouteImport.update({
+  id: '/auth/error',
+  path: '/auth/error',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AdminActivityIndexRoute = AdminActivityIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminActivityRoute,
 } as any)
-const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
-  id: '/$userId',
-  path: '/$userId',
-  getParentRoute: () => AdminUsersRoute,
-} as any)
 const AdminActivityThreadIdRoute = AdminActivityThreadIdRouteImport.update({
   id: '/$threadId',
   path: '/$threadId',
   getParentRoute: () => AdminActivityRoute,
+} as any)
+const AdminUsersIndexRoute = AdminUsersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminUsersRoute,
+} as any)
+const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
+  id: '/$userId',
+  path: '/$userId',
+  getParentRoute: () => AdminUsersRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -235,18 +235,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/profile': {
-      id: '/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof ProfileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chat': {
-      id: '/chat'
-      path: '/chat'
-      fullPath: '/chat'
-      preLoaderRoute: typeof ChatRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -256,11 +249,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -270,46 +270,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/auth/error': {
-      id: '/auth/error'
-      path: '/auth/error'
-      fullPath: '/auth/error'
-      preLoaderRoute: typeof AuthErrorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin/users': {
-      id: '/admin/users'
-      path: '/users'
-      fullPath: '/admin/users'
-      preLoaderRoute: typeof AdminUsersRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/metrics': {
-      id: '/admin/metrics'
-      path: '/metrics'
-      fullPath: '/admin/metrics'
-      preLoaderRoute: typeof AdminMetricsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/feedback': {
-      id: '/admin/feedback'
-      path: '/feedback'
-      fullPath: '/admin/feedback'
-      preLoaderRoute: typeof AdminFeedbackRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/credit-requests': {
-      id: '/admin/credit-requests'
-      path: '/credit-requests'
-      fullPath: '/admin/credit-requests'
-      preLoaderRoute: typeof AdminCreditRequestsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/bug-reports': {
-      id: '/admin/bug-reports'
-      path: '/bug-reports'
-      fullPath: '/admin/bug-reports'
-      preLoaderRoute: typeof AdminBugReportsRouteImport
+    '/admin/activity': {
+      id: '/admin/activity'
+      path: '/activity'
+      fullPath: '/admin/activity'
+      preLoaderRoute: typeof AdminActivityRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/budget': {
@@ -319,19 +284,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminBudgetRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/activity': {
-      id: '/admin/activity'
-      path: '/activity'
-      fullPath: '/admin/activity'
-      preLoaderRoute: typeof AdminActivityRouteImport
+    '/admin/bug-reports': {
+      id: '/admin/bug-reports'
+      path: '/bug-reports'
+      fullPath: '/admin/bug-reports'
+      preLoaderRoute: typeof AdminBugReportsRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/users/': {
-      id: '/admin/users/'
-      path: '/'
-      fullPath: '/admin/users/'
-      preLoaderRoute: typeof AdminUsersIndexRouteImport
-      parentRoute: typeof AdminUsersRoute
+    '/admin/credit-requests': {
+      id: '/admin/credit-requests'
+      path: '/credit-requests'
+      fullPath: '/admin/credit-requests'
+      preLoaderRoute: typeof AdminCreditRequestsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/feedback': {
+      id: '/admin/feedback'
+      path: '/feedback'
+      fullPath: '/admin/feedback'
+      preLoaderRoute: typeof AdminFeedbackRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/metrics': {
+      id: '/admin/metrics'
+      path: '/metrics'
+      fullPath: '/admin/metrics'
+      preLoaderRoute: typeof AdminMetricsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/auth/error': {
+      id: '/auth/error'
+      path: '/auth/error'
+      fullPath: '/auth/error'
+      preLoaderRoute: typeof AuthErrorRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/admin/activity/': {
       id: '/admin/activity/'
@@ -340,19 +333,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminActivityIndexRouteImport
       parentRoute: typeof AdminActivityRoute
     }
-    '/admin/users/$userId': {
-      id: '/admin/users/$userId'
-      path: '/$userId'
-      fullPath: '/admin/users/$userId'
-      preLoaderRoute: typeof AdminUsersUserIdRouteImport
-      parentRoute: typeof AdminUsersRoute
-    }
     '/admin/activity/$threadId': {
       id: '/admin/activity/$threadId'
       path: '/$threadId'
       fullPath: '/admin/activity/$threadId'
       preLoaderRoute: typeof AdminActivityThreadIdRouteImport
       parentRoute: typeof AdminActivityRoute
+    }
+    '/admin/users/': {
+      id: '/admin/users/'
+      path: '/'
+      fullPath: '/admin/users/'
+      preLoaderRoute: typeof AdminUsersIndexRouteImport
+      parentRoute: typeof AdminUsersRoute
+    }
+    '/admin/users/$userId': {
+      id: '/admin/users/$userId'
+      path: '/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AdminUsersUserIdRouteImport
+      parentRoute: typeof AdminUsersRoute
     }
   }
 }

@@ -1,5 +1,4 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import type { ColumnDef } from "@tanstack/react-table";
 import { LogOut } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -12,9 +11,12 @@ import {
 	DialogTitle,
 } from "#/components/ui/Dialog";
 import { Input } from "#/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
-import { DataTable } from "#/features/admin/components/DataTable";
 import { Skeleton } from "#/components/ui/Skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import {
+	DataTable,
+	type DataTableColumnDef,
+} from "#/features/admin/components/DataTable";
 import {
 	AdminPagination,
 	BackLink,
@@ -188,9 +190,7 @@ function UserOverview({ userId }: { userId: string }) {
 	const usage = useBudgetUserUsageQuery(userId);
 	if (usage.isPending) return <UserQuotaCardSkeleton />;
 	if (usage.isError) {
-		return (
-			<ErrorState error={usage.error} onRetry={() => usage.refetch()} />
-		);
+		return <ErrorState error={usage.error} onRetry={() => usage.refetch()} />;
 	}
 	const data = usage.data;
 	if (!data) return null;
@@ -244,7 +244,7 @@ function UserConversations({ userId }: { userId: string }) {
 			search: { tab: "conversations", threadId },
 		});
 
-	const threadColumns = useMemo<ColumnDef<AdminThreadSummary>[]>(
+	const threadColumns = useMemo<DataTableColumnDef<AdminThreadSummary>[]>(
 		() => [
 			{
 				id: "title",
@@ -585,11 +585,7 @@ function SessionSummary({
 function SessionSummarySkeleton() {
 	const items = Array.from({ length: 3 }, (_, i) => i);
 	return (
-		<output
-			aria-busy
-			aria-label="Loading…"
-			className="flex flex-col gap-4"
-		>
+		<output aria-busy aria-label="Loading…" className="flex flex-col gap-4">
 			<dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 				{items.map((i) => (
 					<div key={i}>
@@ -631,9 +627,9 @@ function ConfirmForceLogoutDialog({
 			<DialogContent>
 				<DialogTitle>Force logout this user?</DialogTitle>
 				<DialogDescription>
-					All sessions for {displayName} will be deleted. They'll be signed
-					out on their next request and will need to log in again. Their
-					Mentee account is untouched.
+					All sessions for {displayName} will be deleted. They'll be signed out
+					on their next request and will need to log in again. Their Mentee
+					account is untouched.
 				</DialogDescription>
 				<DialogFooter>
 					<Button variant="outline" onClick={onCancel} disabled={pending}>
