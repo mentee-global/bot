@@ -1,17 +1,16 @@
 import asyncio
 from logging.config import fileConfig
 
-import sqlmodel  # noqa: F401 — registers SQLModel's custom column types with Alembic
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-from sqlmodel import SQLModel
 
-# Import every SQLModel table so its metadata is populated before autogenerate.
+# Import every mapped table so its metadata is populated before autogenerate.
 from app.auth import db_models  # noqa: F401
 from app.budget import db_models as budget_db_models  # noqa: F401
 from app.core.config import settings
+from app.db.base import Base
 from app.documents import db_models as documents_db_models  # noqa: F401
 from app.reports import db_models as reports_db_models  # noqa: F401
 from app.services import db_models as chat_db_models  # noqa: F401
@@ -24,7 +23,7 @@ if config.config_file_name is not None:
 # Inject the runtime DATABASE_URL so alembic.ini doesn't hold secrets.
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-target_metadata = SQLModel.metadata
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

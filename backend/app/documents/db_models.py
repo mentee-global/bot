@@ -1,13 +1,15 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, DateTime, Index, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlmodel import Field, SQLModel
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
 
 
-class DocumentRecord(SQLModel, table=True):
+class DocumentRecord(Base):
     """An uploaded document — chat attachment or profile CV.
 
     Ownership invariant (plan decision #15): for `purpose='chat_attachment'`
@@ -25,57 +27,50 @@ class DocumentRecord(SQLModel, table=True):
         Index("ix_documents_status_started", "status", "processing_started_at"),
     )
 
-    id: UUID = Field(
-        default_factory=uuid4,
-        primary_key=True,
-        sa_type=PG_UUID(as_uuid=True),
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), default=uuid4, info={"init_default": uuid4}, primary_key=True
     )
-    user_id: UUID = Field(
-        foreign_key="users.id",
-        sa_type=PG_UUID(as_uuid=True),
-        ondelete="CASCADE",
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
     )
-    thread_id: UUID | None = Field(
-        default=None,
-        foreign_key="threads.id",
-        sa_type=PG_UUID(as_uuid=True),
-        ondelete="CASCADE",
+    thread_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("threads.id", ondelete="CASCADE"), nullable=True
     )
-    purpose: str = Field(max_length=32)  # DocPurpose
-    filename: str = Field(sa_type=Text())
-    mime_type: str = Field(max_length=128)
-    size_bytes: int = Field(sa_type=Integer())
-    status: str = Field(default="pending", max_length=16)  # DocStatus
+    purpose: Mapped[str] = mapped_column(String(32))  # DocPurpose
+    filename: Mapped[str] = mapped_column(Text())
+    mime_type: Mapped[str] = mapped_column(String(128))
+    size_bytes: Mapped[int] = mapped_column(Integer())
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending", info={"init_default": "pending"}
+    )  # DocStatus
 
     # Recovery / durability (plan decision #11).
-    attempts: int = Field(default=0, sa_type=Integer())
-    processing_started_at: datetime | None = Field(
-        default=None, sa_type=DateTime(timezone=True)
+    attempts: Mapped[int] = mapped_column(Integer(), default=0, info={"init_default": 0})
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
-    provider: str | None = Field(default=None, max_length=32)
-    provider_file_id: str | None = Field(default=None, sa_type=Text())
-    storage_uri: str | None = Field(default=None, sa_type=Text())
-    file_hash: str = Field(max_length=64)  # sha256 — dedupe / cache key
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    provider_file_id: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    storage_uri: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    file_hash: Mapped[str] = mapped_column(String(64))  # sha256 — dedupe / cache key
 
-    summary: str | None = Field(default=None, sa_type=Text())
+    summary: Mapped[str | None] = mapped_column(Text(), nullable=True)
     # PII: populated only when genuinely needed (plan decision #14).
-    extracted_text: str | None = Field(default=None, sa_type=Text())
-    extracted_json: dict | None = Field(
-        default=None, sa_column=Column(JSONB, nullable=True)
-    )
-    error_message: str | None = Field(default=None, sa_type=Text())
-    page_count: int | None = Field(default=None, sa_type=Integer())
+    extracted_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    extracted_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    page_count: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     # Credits debited for model-backed OCR of this document (CVs). 0 for chat
     # attachments and local-decode formats, which cost no model spend. Surfaced
     # to the user so they can see what reading their CV cost.
-    ocr_credits_charged: int = Field(default=0, sa_type=Integer())
+    ocr_credits_charged: Mapped[int] = mapped_column(Integer(), default=0, info={"init_default": 0})
 
-    created_at: datetime = Field(sa_type=DateTime(timezone=True))
-    updated_at: datetime = Field(sa_type=DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class UserProfileRecord(SQLModel, table=True):
+class UserProfileRecord(Base):
     """1:1 with users — the things the bot should know about a mentee beyond
     their Mentee-platform profile: an uploaded CV and a free-text "about me".
 
@@ -87,24 +82,16 @@ class UserProfileRecord(SQLModel, table=True):
 
     __tablename__ = "user_profile"
 
-    user_id: UUID = Field(
-        primary_key=True,
-        foreign_key="users.id",
-        sa_type=PG_UUID(as_uuid=True),
-        ondelete="CASCADE",
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    cv_document_id: UUID | None = Field(
-        default=None,
-        foreign_key="documents.id",
-        sa_type=PG_UUID(as_uuid=True),
-        ondelete="SET NULL",
+    cv_document_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
     # Set when a CV finishes OCR; the confirmed CV's Markdown is injected into
     # chats while this is non-NULL and `cv_document_id` still resolves.
-    cv_confirmed_at: datetime | None = Field(
-        default=None, sa_type=DateTime(timezone=True)
-    )
+    cv_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Free-text prose the mentee wants the bot to remember about them, so they
     # don't have to repeat it in every thread. Injected into every chat.
-    about_me: str | None = Field(default=None, sa_type=Text())
-    updated_at: datetime = Field(sa_type=DateTime(timezone=True))
+    about_me: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
