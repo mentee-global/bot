@@ -11,7 +11,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
@@ -28,17 +27,17 @@ def upgrade() -> None:
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('user_id', sa.UUID(), nullable=False),
         sa.Column('thread_id', sa.UUID(), nullable=True),
-        sa.Column('purpose', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
+        sa.Column('purpose', sa.String(length=32), nullable=False),
         sa.Column('filename', sa.Text(), nullable=False),
-        sa.Column('mime_type', sqlmodel.sql.sqltypes.AutoString(length=128), nullable=False),
+        sa.Column('mime_type', sa.String(length=128), nullable=False),
         sa.Column('size_bytes', sa.Integer(), nullable=False),
-        sa.Column('status', sqlmodel.sql.sqltypes.AutoString(length=16), nullable=False),
+        sa.Column('status', sa.String(length=16), nullable=False),
         sa.Column('attempts', sa.Integer(), nullable=False),
         sa.Column('processing_started_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('provider', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=True),
+        sa.Column('provider', sa.String(length=32), nullable=True),
         sa.Column('provider_file_id', sa.Text(), nullable=True),
         sa.Column('storage_uri', sa.Text(), nullable=True),
-        sa.Column('file_hash', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+        sa.Column('file_hash', sa.String(length=64), nullable=False),
         sa.Column('summary', sa.Text(), nullable=True),
         sa.Column('extracted_text', sa.Text(), nullable=True),
         sa.Column('extracted_json', postgresql.JSONB(astext_type=sa.Text()), nullable=True),

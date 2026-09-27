@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
@@ -54,10 +53,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('oauth_state',
-    sa.Column('state', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
-    sa.Column('code_verifier', sqlmodel.sql.sqltypes.AutoString(length=128), nullable=False),
-    sa.Column('nonce', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
-    sa.Column('redirect_to', sqlmodel.sql.sqltypes.AutoString(length=1024), nullable=True),
+    sa.Column('state', sa.String(length=64), nullable=False),
+    sa.Column('code_verifier', sa.String(length=128), nullable=False),
+    sa.Column('nonce', sa.String(length=64), nullable=False),
+    sa.Column('redirect_to', sa.String(length=1024), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('state')
@@ -65,14 +64,14 @@ def upgrade() -> None:
     op.create_index(op.f('ix_oauth_state_expires_at'), 'oauth_state', ['expires_at'], unique=False)
     op.create_table('users',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('mentee_sub', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+    sa.Column('mentee_sub', sa.String(length=64), nullable=False),
     sa.Column('email', postgresql.CITEXT(), nullable=False),
-    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('role', sqlmodel.sql.sqltypes.AutoString(length=32), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.Column('role', sa.String(length=32), nullable=False),
     sa.Column('role_id', sa.Integer(), nullable=False),
-    sa.Column('picture', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('preferred_language', sqlmodel.sql.sqltypes.AutoString(length=16), nullable=True),
-    sa.Column('timezone', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=True),
+    sa.Column('picture', sa.String(), nullable=True),
+    sa.Column('preferred_language', sa.String(length=16), nullable=True),
+    sa.Column('timezone', sa.String(length=64), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('id'),
@@ -80,12 +79,12 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_users_mentee_sub'), 'users', ['mentee_sub'], unique=True)
     op.create_table('sessions',
-    sa.Column('session_id', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+    sa.Column('session_id', sa.String(length=64), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
     sa.Column('access_token_enc', sa.LargeBinary(), nullable=False),
     sa.Column('access_token_expires_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('refresh_token_enc', sa.LargeBinary(), nullable=True),
-    sa.Column('id_token_nonce', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+    sa.Column('id_token_nonce', sa.String(length=64), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('last_used_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
@@ -96,7 +95,7 @@ def upgrade() -> None:
     op.create_table('threads',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
-    sa.Column('title', sqlmodel.sql.sqltypes.AutoString(length=200), nullable=True),
+    sa.Column('title', sa.String(length=200), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
@@ -117,8 +116,8 @@ def upgrade() -> None:
     op.create_table('messages',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('thread_id', sa.UUID(), nullable=False),
-    sa.Column('role', sqlmodel.sql.sqltypes.AutoString(length=16), nullable=False),
-    sa.Column('body', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('role', sa.String(length=16), nullable=False),
+    sa.Column('body', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['thread_id'], ['threads.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -129,7 +128,7 @@ def upgrade() -> None:
     sa.Column('user_id', sa.UUID(), nullable=False),
     sa.Column('thread_id', sa.UUID(), nullable=True),
     sa.Column('message_id', sa.UUID(), nullable=True),
-    sa.Column('model', sqlmodel.sql.sqltypes.AutoString(length=64), nullable=False),
+    sa.Column('model', sa.String(length=64), nullable=False),
     sa.Column('input_tokens', sa.Integer(), nullable=False),
     sa.Column('output_tokens', sa.Integer(), nullable=False),
     sa.Column('request_count', sa.Integer(), nullable=False),
